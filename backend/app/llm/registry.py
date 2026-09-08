@@ -6,24 +6,26 @@ LiteLLM 用统一的 OpenAI 兼容接口调所有厂商，切换模型只改配�
 from app.config import settings
 
 
-# provider -> (环境变量里的 key, LiteLLM 需要的 api_key 参数名, 默认 base_url)
-# DeepSeek / Qwen 走各自 OpenAI 兼容端点。
+# provider -> (环境变量里的 key, base_url)
+# base_url 从 .env 读，留空则为 None（走 LiteLLM 官方默认）。
+# Qwen 留空时兜底 DashScope 官方兼容端点。
 PROVIDERS = {
     "anthropic": {
         "api_key": settings.anthropic_api_key,
-        "api_base": None,
+        "api_base": settings.anthropic_base_url or None,
     },
     "openai": {
         "api_key": settings.openai_api_key,
-        "api_base": None,
+        "api_base": settings.openai_base_url or None,
     },
     "deepseek": {
         "api_key": settings.deepseek_api_key,
-        "api_base": None,
+        "api_base": settings.deepseek_base_url or None,
     },
     "qwen": {
         "api_key": settings.dashscope_api_key,
-        "api_base": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+        "api_base": settings.dashscope_base_url
+        or "https://dashscope.aliyuncs.com/compatible-mode/v1",
     },
 }
 
