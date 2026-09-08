@@ -1,4 +1,5 @@
 from datetime import datetime, timezone
+from uuid import UUID, uuid4
 
 from sqlalchemy import DateTime, Enum, ForeignKey, Integer, String, Text
 from sqlalchemy.dialects.postgresql import JSONB
@@ -23,6 +24,15 @@ NODE_TYPE = ("网申截止", "笔试", "一面", "二面", "三面", "HR面", "�
 
 # 节点状态
 NODE_STATUS = ("待处理", "已完成", "已错过", "已取消")
+
+# 解析会话状态
+PARSE_SESSION_STATUS = (
+    "解析中",
+    "待确认",
+    "已确认",
+    "已丢弃",
+    "解析失败",
+)
 
 
 def _now() -> datetime:
@@ -94,7 +104,10 @@ class TimelineNode(Base):
     node_type: Mapped[str] = mapped_column(
         Enum(*NODE_TYPE, name="node_type"), nullable=False
     )
-    scheduled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    scheduled_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), index=True
+    )
+    ends_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     status: Mapped[str] = mapped_column(
         Enum(*NODE_STATUS, name="node_status"), nullable=False, default="待处理"
     )
@@ -102,6 +115,30 @@ class TimelineNode(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
 
     application: Mapped["Application"] = relationship(back_populates="timeline_nodes")
+
+
+class ParseSession(Base):
+    __tablename__ = "parse_session"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    thread_id: Mapped[UUID] = mapped_column(default=uuid4, unique=True, nullable=False)
+    raw_text: Mapped[str] = mapped_column(Text, nullable=False)
+    provider: Mapped[str] = mapped_column(String(50), nullable=False)
+    extracted_payload: Mapped[dict | None] = mapped_column(JSONB)
+    confirmed_payload: Mapped[dict | None] = mapped_column(JSONB)
+    status: Mapped[str] = mapped_column(
+        Enum(*PARSE_SESSION_STATUS, name="parse_session_status"),
+        nullable=False,
+        default="解析中",
+    )
+    timeline_node_id: Mapped[int | None] = mapped_column(
+        ForeignKey("timeline_node.id", ondelete="SET NULL"), unique=True
+    )
+    error_message: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+    resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+    timeline_node: Mapped["TimelineNode | None"] = relationship()
 
 
 class InterviewIntel(Base):

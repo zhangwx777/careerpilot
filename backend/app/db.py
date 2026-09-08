@@ -11,6 +11,10 @@ class Base(DeclarativeBase):
     pass
 
 
+def to_psycopg_connection_string(database_url: str) -> str:
+    return database_url.replace("postgresql+psycopg://", "postgresql://", 1)
+
+
 def get_db():
     db: Session = SessionLocal()
     try:

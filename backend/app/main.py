@@ -3,9 +3,11 @@ from sqlalchemy import text
 
 from app.api import router
 from app.db import engine
+from app.phase3_api import router as phase3_router
 
 app = FastAPI(title="求职作战台")
 app.include_router(router)
+app.include_router(phase3_router)
 
 
 @app.get("/health")

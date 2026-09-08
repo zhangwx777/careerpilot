@@ -1,8 +1,18 @@
-import { Briefcase, Buildings, Compass, ListChecks, ShieldCheck } from "@phosphor-icons/react";
+import {
+  Briefcase,
+  Buildings,
+  CalendarDots,
+  Compass,
+  ListChecks,
+  MagicWand,
+  ShieldCheck,
+} from "@phosphor-icons/react";
 import { NavLink, Outlet } from "react-router-dom";
 
 const links = [
   { to: "/applications", label: "投递台账", icon: ListChecks },
+  { to: "/smart-entry", label: "智能录入", icon: MagicWand },
+  { to: "/timeline", label: "时间线", icon: CalendarDots },
   { to: "/companies", label: "公司库", icon: Buildings },
   { to: "/positions", label: "岗位库", icon: Briefcase },
 ];

@@ -1,0 +1,95 @@
+from datetime import datetime
+from typing import Literal
+from uuid import UUID
+
+from pydantic import BaseModel, ConfigDict, Field, StringConstraints, model_validator
+from typing_extensions import Annotated
+
+from app.models import NODE_STATUS, NODE_TYPE, PARSE_SESSION_STATUS
+from app.parsing import NoticeExtraction
+from app.schemas import ApplicationRead, PositiveId
+
+NodeType = Literal[*NODE_TYPE]
+NodeStatus = Literal[*NODE_STATUS]
+ParseSessionStatus = Literal[*PARSE_SESSION_STATUS]
+RawNoticeText = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1)]
+
+
+class ParseSessionCreate(BaseModel):
+    raw_text: RawNoticeText
+
+
+class ParseConfirmation(BaseModel):
+    application_id: PositiveId
+    node_type: NodeType
+    scheduled_at: datetime
+    ends_at: datetime | None = None
+    source: str | None = Field(default=None, max_length=200)
+
+    @model_validator(mode="after")
+    def validate_times(self):
+        if self.scheduled_at.utcoffset() is None:
+            raise ValueError("scheduled_at 必须包含时区")
+        if self.ends_at is not None:
+            if self.ends_at.utcoffset() is None:
+                raise ValueError("ends_at 必须包含时区")
+            if self.ends_at <= self.scheduled_at:
+                raise ValueError("ends_at 必须晚于 scheduled_at")
+        return self
+
+
+class ParseSessionRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    thread_id: UUID
+    raw_text: str
+    provider: str
+    extracted_payload: NoticeExtraction | None
+    confirmed_payload: dict | None
+    status: ParseSessionStatus
+    timeline_node_id: int | None
+    error_message: str | None
+    created_at: datetime
+    resolved_at: datetime | None
+
+
+class ParseSessionDetail(ParseSessionRead):
+    recommended_applications: list[ApplicationRead] = Field(default_factory=list)
+
+
+class ParseSessionPage(BaseModel):
+    items: list[ParseSessionDetail]
+    total: int
+    page: int
+    page_size: int
+
+
+TimelineAlert = Literal["冲突", "临期", "逾期"]
+
+
+class TimelineNodeRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    application_id: int
+    application: ApplicationRead
+    node_type: NodeType
+    scheduled_at: datetime | None
+    ends_at: datetime | None
+    status: NodeStatus
+    source: str | None
+    created_at: datetime
+    alert_types: list[TimelineAlert]
+    conflict_node_ids: list[int]
+
+
+class TimelinePage(BaseModel):
+    items: list[TimelineNodeRead]
+    total: int
+    page: int
+    page_size: int
+
+
+class TimelineStatusTransition(BaseModel):
+    status: NodeStatus

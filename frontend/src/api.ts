@@ -7,6 +7,11 @@ import type {
   Page,
   Position,
   PositionInput,
+  ParseConfirmation,
+  ParseSession,
+  ParseSessionStatus,
+  NodeStatus,
+  TimelineNode,
 } from "./types";
 
 type QueryValue = string | number | undefined;
@@ -107,5 +112,45 @@ export const api = {
       }),
     remove: (id: number) =>
       request<void>(`/api/applications/${id}`, { method: "DELETE" }),
+  },
+  parseSessions: {
+    list: (
+      params: {
+        page?: number;
+        page_size?: number;
+        status?: ParseSessionStatus;
+      } = {},
+    ) => request<Page<ParseSession>>(`/api/parse-sessions${queryString(params)}`),
+    get: (id: number) => request<ParseSession>(`/api/parse-sessions/${id}`),
+    create: (rawText: string) =>
+      request<ParseSession>("/api/parse-sessions", {
+        method: "POST",
+        body: JSON.stringify({ raw_text: rawText }),
+      }),
+    confirm: (id: number, confirmation: ParseConfirmation) =>
+      request<ParseSession>(`/api/parse-sessions/${id}/confirm`, {
+        method: "POST",
+        body: JSON.stringify(confirmation),
+      }),
+    discard: (id: number) =>
+      request<ParseSession>(`/api/parse-sessions/${id}/discard`, {
+        method: "POST",
+      }),
+  },
+  timeline: {
+    list: (
+      params: {
+        page?: number;
+        page_size?: number;
+        start?: string;
+        end?: string;
+        status?: NodeStatus;
+      } = {},
+    ) => request<Page<TimelineNode>>(`/api/timeline${queryString(params)}`),
+    transition: (id: number, status: NodeStatus) =>
+      request<TimelineNode>(`/api/timeline/${id}/status`, {
+        method: "PATCH",
+        body: JSON.stringify({ status }),
+      }),
   },
 };

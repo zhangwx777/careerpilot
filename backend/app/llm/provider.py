@@ -9,7 +9,11 @@ import litellm
 from app.llm.registry import PROVIDERS, has_key
 
 
-def chat(messages: list[dict], provider: str) -> str:
+def chat(
+    messages: list[dict],
+    provider: str,
+    response_format: dict | None = None,
+) -> str:
     """调用指定厂商的模型，返回文本内容。
 
     messages: [{"role": "user"/"system"/"assistant", "content": "..."}]
@@ -30,6 +34,8 @@ def chat(messages: list[dict], provider: str) -> str:
     }
     if cfg["api_base"]:
         kwargs["api_base"] = cfg["api_base"]
+    if response_format is not None:
+        kwargs["response_format"] = response_format
 
     resp = litellm.completion(**kwargs)
     return resp.choices[0].message.content
