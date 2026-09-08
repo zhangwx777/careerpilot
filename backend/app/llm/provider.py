@@ -1,34 +1,33 @@
 """统一的多模型调用入口。
 
 用 LiteLLM 把 claude/openai/deepseek/qwen 收敛到一个 chat() 函数。
-业务代码按任务类型（parse / reason）选模型，不关心底层是哪家。
+调用时显式指定 provider，模型名/key/base_url 均取自 .env 中该厂商的配置。
 """
 
 import litellm
 
-from app.config import settings
-from app.llm.registry import PROVIDERS, has_key, provider_of
-
-# 任务类型 -> 默认模型（来自 .env，可改）
-TASK_MODELS = {
-    "parse": settings.model_parse,
-    "reason": settings.model_reason,
-}
+from app.llm.registry import PROVIDERS, has_key
 
 
-def chat(messages: list[dict], task: str = "reason", model: str | None = None) -> str:
-    """调用大模型，返回文本内容。
+def chat(messages: list[dict], provider: str) -> str:
+    """调用指定厂商的模型，返回文本内容。
 
     messages: [{"role": "user"/"system"/"assistant", "content": "..."}]
-    task: "parse"（便宜快）或 "reason"（能力强），决定默认模型
-    model: 显式指定 LiteLLM 模型名则覆盖 task 默认
+    provider: "anthropic" / "openai" / "deepseek" / "qwen"
     """
-    chosen = model or TASK_MODELS.get(task, settings.model_reason)
-    if not has_key(chosen):
-        raise RuntimeError(f"模型 {chosen} 对应的厂商未配置 API key")
+    cfg = PROVIDERS.get(provider)
+    if cfg is None:
+        raise ValueError(f"未知 provider: {provider}")
+    if not has_key(provider):
+        raise RuntimeError(f"厂商 {provider} 未配置 API key")
+    if not cfg["model"]:
+        raise RuntimeError(f"厂商 {provider} 未在 .env 配置 model")
 
-    cfg = PROVIDERS[provider_of(chosen)]
-    kwargs: dict = {"model": chosen, "messages": messages, "api_key": cfg["api_key"]}
+    kwargs: dict = {
+        "model": cfg["model"],
+        "messages": messages,
+        "api_key": cfg["api_key"],
+    }
     if cfg["api_base"]:
         kwargs["api_base"] = cfg["api_base"]
 

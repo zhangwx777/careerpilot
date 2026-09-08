@@ -27,18 +27,23 @@ class Settings(BaseSettings):
 
     database_url: str
 
+    # 四家厂商各自的三件套，全部由 .env 提供，代码不预设任何值。
+    # 空字符串表示未配置。
     anthropic_api_key: str = ""
-    openai_api_key: str = ""
-    deepseek_api_key: str = ""
-    dashscope_api_key: str = ""
-
     anthropic_base_url: str = ""
-    openai_base_url: str = ""
-    deepseek_base_url: str = ""
-    dashscope_base_url: str = ""
+    anthropic_model: str = ""
 
-    model_parse: str = "deepseek/deepseek-chat"
-    model_reason: str = "anthropic/claude-sonnet-4-20250514"
+    openai_api_key: str = ""
+    openai_base_url: str = ""
+    openai_model: str = ""
+
+    deepseek_api_key: str = ""
+    deepseek_base_url: str = ""
+    deepseek_model: str = ""
+
+    dashscope_api_key: str = ""
+    dashscope_base_url: str = ""
+    dashscope_model: str = ""
 
 
 settings = Settings()
