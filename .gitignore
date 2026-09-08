@@ -1,0 +1,19 @@
+# 环境与密钥
+.env
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+
+# 前端
+node_modules/
+dist/
+.vite/
+
+# 编辑器/系统
+.DS_Store
+.idea/
+.vscode/

@@ -1,0 +1,119 @@
+from datetime import datetime, timezone
+
+from sqlalchemy import DateTime, Enum, ForeignKey, Integer, String, Text
+from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.orm import Mapped, mapped_column, relationship
+
+from app.db import Base
+
+# 投递状态：网申 → 笔试 → 一面 → 二面 → 三面 → HR面 → offer / 挂
+APPLICATION_STATUS = (
+    "已投递",
+    "笔试",
+    "一面",
+    "二面",
+    "三面",
+    "HR面",
+    "offer",
+    "挂",
+)
+
+# 时间线节点类型
+NODE_TYPE = ("网申截止", "笔试", "一面", "二面", "三面", "HR面", "其他")
+
+# 节点状态
+NODE_STATUS = ("待处理", "已完成", "已错过", "已取消")
+
+
+def _now() -> datetime:
+    return datetime.now(timezone.utc)
+
+
+class Company(Base):
+    __tablename__ = "company"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    name: Mapped[str] = mapped_column(String(200), nullable=False, unique=True)
+    industry: Mapped[str | None] = mapped_column(String(100))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+
+    positions: Mapped[list["Position"]] = relationship(
+        back_populates="company", cascade="all, delete-orphan"
+    )
+
+
+class Position(Base):
+    __tablename__ = "position"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    company_id: Mapped[int] = mapped_column(
+        ForeignKey("company.id", ondelete="CASCADE"), nullable=False
+    )
+    title: Mapped[str] = mapped_column(String(200), nullable=False)
+    jd_text: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+
+    company: Mapped["Company"] = relationship(back_populates="positions")
+    applications: Mapped[list["Application"]] = relationship(
+        back_populates="position", cascade="all, delete-orphan"
+    )
+
+
+class Application(Base):
+    __tablename__ = "application"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    position_id: Mapped[int] = mapped_column(
+        ForeignKey("position.id", ondelete="CASCADE"), nullable=False
+    )
+    status: Mapped[str] = mapped_column(
+        Enum(*APPLICATION_STATUS, name="application_status"),
+        nullable=False,
+        default="已投递",
+    )
+    applied_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    note: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+
+    position: Mapped["Position"] = relationship(back_populates="applications")
+    timeline_nodes: Mapped[list["TimelineNode"]] = relationship(
+        back_populates="application", cascade="all, delete-orphan"
+    )
+    intels: Mapped[list["InterviewIntel"]] = relationship(
+        back_populates="application", cascade="all, delete-orphan"
+    )
+
+
+class TimelineNode(Base):
+    __tablename__ = "timeline_node"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    application_id: Mapped[int] = mapped_column(
+        ForeignKey("application.id", ondelete="CASCADE"), nullable=False
+    )
+    node_type: Mapped[str] = mapped_column(
+        Enum(*NODE_TYPE, name="node_type"), nullable=False
+    )
+    scheduled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    status: Mapped[str] = mapped_column(
+        Enum(*NODE_STATUS, name="node_status"), nullable=False, default="待处理"
+    )
+    source: Mapped[str | None] = mapped_column(String(200))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+
+    application: Mapped["Application"] = relationship(back_populates="timeline_nodes")
+
+
+class InterviewIntel(Base):
+    __tablename__ = "interview_intel"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    application_id: Mapped[int] = mapped_column(
+        ForeignKey("application.id", ondelete="CASCADE"), nullable=False
+    )
+    payload: Mapped[dict] = mapped_column(JSONB, nullable=False)
+    confidence: Mapped[float | None] = mapped_column()
+    sources: Mapped[list] = mapped_column(JSONB, default=list)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+
+    application: Mapped["Application"] = relationship(back_populates="intels")
