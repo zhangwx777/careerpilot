@@ -142,3 +142,11 @@ export interface TimelineNode {
   alert_types: TimelineAlert[];
   conflict_node_ids: number[];
 }
+
+export type IntelSessionStatus = "聚合中" | "待裁决" | "已完成" | "已丢弃" | "失败";
+export interface InterviewIntel { id: number; application_id: number; payload: IntelPayload; confidence: number | null; sources: SourceRecord[]; created_at: string; }
+export interface SourceRecord { id: string; title: string; url: string | null; text: string; }
+export interface IntelFact { value: string; source_ids: string[]; }
+export interface IntelRound { round_type: string; duration_minutes: number | null; question_types: IntelFact[]; focus_topics: IntelFact[]; source_ids: string[]; }
+export interface IntelPayload { rounds: IntelRound[]; frequent_topics: IntelFact[]; difficulty: IntelFact | null; conflicts: { field: string; candidates: IntelFact[] }[]; }
+export interface IntelSession { id: number; thread_id: string; application_id: number; provider: string; user_paste: string | null; draft_payload: IntelPayload | null; conflicts: IntelPayload["conflicts"] | null; status: IntelSessionStatus; interview_intel_id: number | null; error_message: string | null; created_at: string; resolved_at: string | null; }

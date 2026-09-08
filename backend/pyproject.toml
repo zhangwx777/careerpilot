@@ -12,6 +12,7 @@ dependencies = [
     "litellm>=1.52.0",
     "langgraph>=0.2.45",
     "langgraph-checkpoint-postgres>=2.0.2",
+    "langchain-mcp-adapters>=0.1.11",
 ]
 
 [build-system]

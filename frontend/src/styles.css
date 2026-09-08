@@ -348,6 +348,23 @@ input:focus, select:focus, textarea:focus { border-color: var(--brand); box-shad
 .day-detail .timeline-item { padding: 15px 0; grid-template-columns: 1fr; gap: 10px; }
 .day-detail .timeline-status-control { max-width: 180px; }
 
+.intel-grid { display: grid; grid-template-columns: minmax(300px, .72fr) minmax(420px, 1.28fr); gap: 20px; align-items: start; }
+.intel-form, .intel-result { padding: 26px; }
+.intel-form label { display: block; margin-bottom: 16px; color: var(--ink); font-size: 13px; font-weight: 650; }
+.intel-form select, .intel-form textarea { margin-top: 8px; font-weight: 400; }
+.intel-form .button { width: 100%; }
+.intel-payload { display: grid; gap: 14px; }
+.intel-payload > div { padding: 14px 15px; background: #f6fafb; border: 1px solid #dcebef; border-radius: var(--radius-sm); }
+.intel-payload strong { color: var(--brand); font-size: 12px; }
+.intel-payload p { margin: 7px 0 0; color: var(--ink); font-size: 13px; line-height: 1.65; }
+.intel-conflicts { margin: 18px 0; padding: 12px 14px; color: var(--danger); background: var(--danger-pale); border: 1px solid #ecc4be; border-radius: var(--radius-sm); font-size: 12px; }
+.intel-conflicts p { margin: 0 0 6px; }.intel-conflicts p:last-child { margin-bottom: 0; }
+.intel-history { margin-top: 20px; padding: 22px; display: grid; grid-template-columns: minmax(0, 1fr) 240px; gap: 22px; }
+.intel-history > div > strong, .intel-history aside > strong { display: block; margin-bottom: 12px; font-size: 13px; }
+.intel-history aside { padding-left: 20px; border-left: 1px solid var(--rule); }
+.intel-history aside a, .intel-history aside span { display: flex; align-items: center; gap: 6px; margin: 8px 0; color: var(--brand); font-size: 12px; line-height: 1.4; }
+
+
 @media (max-width: 1100px) {
   .page-container { padding-inline: 30px; }
   .company-columns, .position-columns { grid-template-columns: minmax(120px, 1.1fr) minmax(78px, 0.7fr) 92px 82px; gap: 10px; }
@@ -391,6 +408,7 @@ input:focus, select:focus, textarea:focus { border-color: var(--brand); box-shad
   .form-context { grid-row: 1; }
   .smart-entry-grid { grid-template-columns: 1fr; }
   .calendar-layout { grid-template-columns: 1fr; }
+  .intel-grid { grid-template-columns: 1fr; }
   .day-detail { position: static; }
 }
 
@@ -407,6 +425,7 @@ input:focus, select:focus, textarea:focus { border-color: var(--brand); box-shad
   .timeline-item { grid-template-columns: 1fr; gap: 12px; }
   .timeline-status-control { max-width: 190px; }
   .calendar-toolbar { align-items: flex-start; flex-direction: column; }
+  .intel-history { grid-template-columns: 1fr; }.intel-history aside { padding-left: 0; border-left: 0; border-top: 1px solid var(--rule); padding-top: 14px; }
   .calendar-grid > button { min-height: 70px; padding: 7px; }
   .calendar-grid strong { margin-top: 9px; font-size: 9px; }
   .calendar-dots { right: 7px; bottom: 7px; }

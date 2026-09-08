@@ -153,4 +153,10 @@ export const api = {
         body: JSON.stringify({ status }),
       }),
   },
+  intel: {
+    create: (input: { application_id: number; provider: string; user_paste: string | null }) => request<import("./types").IntelSession>("/api/intel", { method: "POST", body: JSON.stringify(input) }),
+    list: (application_id: number) => request<import("./types").InterviewIntel[]>(`/api/intel${queryString({ application_id })}`),
+    session: (id: number) => request<import("./types").IntelSession>(`/api/intel-sessions/${id}`),
+    resolve: (id: number, resolutions: Record<string, string>) => request<import("./types").IntelSession>(`/api/intel-sessions/${id}/resolve`, { method: "POST", body: JSON.stringify({ resolutions }) }),
+  },
 };

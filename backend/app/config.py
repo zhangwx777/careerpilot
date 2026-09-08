@@ -27,6 +27,7 @@ class Settings(BaseSettings):
 
     database_url: str
     test_database_url: str | None = None
+    anysearch_api_key: str = ""
 
     # 四家厂商各自的三件套，全部由 .env 提供，代码不预设任何值。
     # 空字符串表示未配置。

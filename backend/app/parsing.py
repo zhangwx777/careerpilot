@@ -49,7 +49,7 @@ company_name、position_title、source 无法确定时为 null。严禁猜测或
 
 
 def extract_notice(
-    raw_text: str, requested_at: datetime | None = None
+    raw_text: str, requested_at: datetime | None = None, provider: str = "qwen"
 ) -> NoticeExtraction:
     reference_time = requested_at or datetime.now(SHANGHAI_TZ)
     if reference_time.utcoffset() is None:
@@ -70,7 +70,7 @@ def extract_notice(
     try:
         content = chat(
             messages,
-            provider="qwen",
+            provider=provider,
             response_format={"type": "json_object"},
         )
         if content is None:

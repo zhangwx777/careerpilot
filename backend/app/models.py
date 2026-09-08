@@ -34,6 +34,8 @@ PARSE_SESSION_STATUS = (
     "解析失败",
 )
 
+INTEL_SESSION_STATUS = ("聚合中", "待裁决", "已完成", "已丢弃", "失败")
+
 
 def _now() -> datetime:
     return datetime.now(timezone.utc)
@@ -90,6 +92,9 @@ class Application(Base):
         back_populates="application", cascade="all, delete-orphan"
     )
     intels: Mapped[list["InterviewIntel"]] = relationship(
+        back_populates="application", cascade="all, delete-orphan"
+    )
+    intel_sessions: Mapped[list["IntelSession"]] = relationship(
         back_populates="application", cascade="all, delete-orphan"
     )
 
@@ -154,3 +159,31 @@ class InterviewIntel(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
 
     application: Mapped["Application"] = relationship(back_populates="intels")
+
+
+class IntelSession(Base):
+    __tablename__ = "intel_session"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    thread_id: Mapped[UUID] = mapped_column(default=uuid4, unique=True, nullable=False)
+    application_id: Mapped[int] = mapped_column(
+        ForeignKey("application.id", ondelete="CASCADE"), nullable=False
+    )
+    provider: Mapped[str] = mapped_column(String(50), nullable=False)
+    user_paste: Mapped[str | None] = mapped_column(Text)
+    draft_payload: Mapped[dict | None] = mapped_column(JSONB)
+    conflicts: Mapped[list | None] = mapped_column(JSONB)
+    status: Mapped[str] = mapped_column(
+        Enum(*INTEL_SESSION_STATUS, name="intel_session_status"),
+        nullable=False,
+        default="聚合中",
+    )
+    interview_intel_id: Mapped[int | None] = mapped_column(
+        ForeignKey("interview_intel.id", ondelete="SET NULL"), unique=True
+    )
+    error_message: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+    resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+    application: Mapped["Application"] = relationship(back_populates="intel_sessions")
+    interview_intel: Mapped["InterviewIntel | None"] = relationship()
