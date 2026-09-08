@@ -1,9 +1,11 @@
 from fastapi import FastAPI
 from sqlalchemy import text
 
+from app.api import router
 from app.db import engine
 
-app = FastAPI(title="秋招作战指挥中心")
+app = FastAPI(title="求职作战台")
+app.include_router(router)
 
 
 @app.get("/health")

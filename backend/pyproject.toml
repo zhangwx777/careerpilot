@@ -1,7 +1,7 @@
 [project]
 name = "qiuzhao-agent-backend"
 version = "0.1.0"
-description = "秋招作战指挥中心 - 后端"
+description = "求职作战台 - 后端"
 requires-python = ">=3.12"
 dependencies = [
     "fastapi>=0.115.0",
