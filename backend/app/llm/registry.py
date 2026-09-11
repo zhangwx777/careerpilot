@@ -30,8 +30,18 @@ PROVIDERS = {
     },
 }
 
+LLM_TIMEOUT_SECONDS = settings.llm_timeout_seconds
+LLM_RETRIES = settings.llm_retries
+
 
 def has_key(provider: str) -> bool:
     """该厂商是否已配置 key。"""
     cfg = PROVIDERS.get(provider)
     return bool(cfg and cfg["api_key"])
+
+
+def default_provider() -> str:
+    for name, cfg in PROVIDERS.items():
+        if has_key(name) and cfg["model"]:
+            return name
+    raise RuntimeError("未配置可用模型")

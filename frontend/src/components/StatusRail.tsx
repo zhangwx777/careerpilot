@@ -2,7 +2,9 @@ import type { ApplicationStatus } from "../types";
 
 const stages: ApplicationStatus[] = [
   "已投递",
+  "测评",
   "笔试",
+  "AI面",
   "一面",
   "二面",
   "三面",

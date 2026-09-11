@@ -19,6 +19,7 @@ def node(
     end: datetime | None = None,
     node_type: str = "笔试",
     status: str = "待处理",
+    time_mode: str = "固定时间",
 ) -> TimelineNode:
     return TimelineNode(
         id=node_id,
@@ -27,6 +28,7 @@ def node(
         scheduled_at=start,
         ends_at=end,
         status=status,
+        time_mode=time_mode,
     )
 
 
@@ -97,6 +99,21 @@ class TimelineRulesTestCase(unittest.TestCase):
                 node(5, now + timedelta(hours=25)), [9], now
             ),
             ["冲突"],
+        )
+
+    def test_deadline_window_uses_its_end_and_never_conflicts(self):
+        deadline = node(
+            1,
+            self.base - timedelta(days=2),
+            self.base + timedelta(hours=3),
+            time_mode="截止窗口",
+        )
+        interview = node(2, self.base, self.base + timedelta(hours=1))
+
+        self.assertFalse(nodes_conflict(deadline, interview))
+        self.assertEqual(alert_types(deadline, [], self.base), ["临期"])
+        self.assertEqual(
+            alert_types(deadline, [], self.base + timedelta(hours=4)), ["逾期"]
         )
 
 

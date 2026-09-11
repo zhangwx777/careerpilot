@@ -2,13 +2,15 @@ from datetime import datetime, timedelta
 
 from app.models import TimelineNode
 
-COLLISION_NODE_TYPES = {"笔试", "一面", "二面", "三面", "HR面"}
+COLLISION_NODE_TYPES = {"笔试", "AI面", "一面", "二面", "三面", "HR面"}
 
 
 def nodes_conflict(left: TimelineNode, right: TimelineNode) -> bool:
     if left.id == right.id:
         return False
     if left.status != "待处理" or right.status != "待处理":
+        return False
+    if left.time_mode != "固定时间" or right.time_mode != "固定时间":
         return False
     if (
         left.node_type not in COLLISION_NODE_TYPES
@@ -50,10 +52,15 @@ def alert_types(
     alerts: list[str] = []
     if conflict_node_ids:
         alerts.append("冲突")
-    if node.status != "待处理" or node.scheduled_at is None:
+    due_at = (
+        node.ends_at
+        if node.time_mode == "截止窗口" and node.ends_at is not None
+        else node.scheduled_at
+    )
+    if node.status != "待处理" or due_at is None:
         return alerts
-    if node.scheduled_at < now:
+    if due_at < now:
         alerts.append("逾期")
-    elif node.scheduled_at <= now + timedelta(hours=24):
+    elif due_at <= now + timedelta(hours=24):
         alerts.append("临期")
     return alerts

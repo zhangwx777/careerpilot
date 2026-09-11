@@ -1,22 +1,24 @@
 import {
-  Briefcase,
-  Buildings,
   CalendarDots,
   Compass,
   ListChecks,
   MagicWand,
   Brain,
+  ClipboardText,
+  ClockCounterClockwise,
   ShieldCheck,
+  Gauge,
 } from "@phosphor-icons/react";
 import { NavLink, Outlet } from "react-router-dom";
 
 const links = [
+  { to: "/dashboard", label: "作战总览", icon: Gauge },
   { to: "/applications", label: "投递台账", icon: ListChecks },
-  { to: "/smart-entry", label: "智能录入", icon: MagicWand },
+  { to: "/smart-entry", label: "通知录入", icon: MagicWand },
   { to: "/timeline", label: "时间线", icon: CalendarDots },
   { to: "/intel", label: "面经情报", icon: Brain },
-  { to: "/companies", label: "公司库", icon: Buildings },
-  { to: "/positions", label: "岗位库", icon: Briefcase },
+  { to: "/planner", label: "备战计划", icon: ClipboardText },
+  { to: "/daily-briefings", label: "每日简报", icon: ClockCounterClockwise },
 ];
 
 export function Layout() {

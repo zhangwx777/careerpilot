@@ -1,21 +1,28 @@
 from datetime import datetime, timezone
+import logging
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, status
 from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session, joinedload
 
 from app.config import settings
+from app.application_records import materialize_position
 from app.db import SessionLocal, get_db
-from app.models import Application, Company, ParseSession, Position, TimelineNode
+from app.models import APPLICATION_STATUS, Application, Company, ParseSession, Position, TimelineNode
+from app.intel_reminders import INTERVIEW_NODE_TYPES, sync_intel_reminder_for_application
+from app.llm.registry import default_provider
 from app.parse_graph import ParseGraphStateError, resume_parse_graph, start_parse_graph
-from app.parsing import NoticeParseError
+from app.schemas import ApplicationRead
 from app.phase3_schemas import (
+    DashboardRead,
     ParseConfirmation,
+    NoticeApplicationCreate,
     ParseSessionCreate,
     ParseSessionDetail,
     ParseSessionPage,
     ParseSessionStatus,
+    PipelineBucket,
     TimelineNodeRead,
     TimelinePage,
     TimelineStatusTransition,
@@ -27,6 +34,7 @@ router = APIRouter(prefix="/api")
 DbSession = Annotated[Session, Depends(get_db)]
 Page = Annotated[int, Query(ge=1)]
 PageSize = Annotated[int, Query(ge=1, le=100)]
+logger = logging.getLogger(__name__)
 
 
 def _get_parse_session(db: Session, parse_session_id: int) -> ParseSession:
@@ -59,13 +67,51 @@ def _recommend_applications(
     )
 
 
-def _session_detail(db: Session, parse_session: ParseSession) -> ParseSessionDetail:
+def _session_detail(
+    db: Session,
+    parse_session: ParseSession,
+    recommended_applications: list[Application] | None = None,
+) -> ParseSessionDetail:
     data = {
         column.name: getattr(parse_session, column.name)
         for column in ParseSession.__table__.columns
     }
-    data["recommended_applications"] = _recommend_applications(db, parse_session)
+    data["recommended_applications"] = (
+        _recommend_applications(db, parse_session)
+        if recommended_applications is None
+        else recommended_applications
+    )
     return ParseSessionDetail.model_validate(data)
+
+
+def _run_parse_session(
+    parse_session_id: int,
+    thread_id: str,
+    raw_text: str,
+    provider: str,
+    requested_at: datetime,
+) -> None:
+    try:
+        result = start_parse_graph(
+            parse_session_id,
+            thread_id,
+            raw_text,
+            requested_at,
+            provider,
+            settings.database_url,
+            SessionLocal,
+        )
+        if "__interrupt__" not in result:
+            raise ParseGraphStateError("解析图未停在人工确认节点")
+    except Exception:
+        logger.exception("解析会话 %s 后台任务失败", parse_session_id)
+        with SessionLocal() as task_db:
+            parse_session = task_db.get(ParseSession, parse_session_id)
+            if parse_session is not None and parse_session.status == "解析中":
+                parse_session.status = "解析失败"
+                parse_session.error_message = "解析失败，请检查通知内容或稍后重试"
+                parse_session.resolved_at = datetime.now(timezone.utc)
+                task_db.commit()
 
 
 @router.post(
@@ -73,35 +119,30 @@ def _session_detail(db: Session, parse_session: ParseSession) -> ParseSessionDet
     response_model=ParseSessionDetail,
     status_code=status.HTTP_201_CREATED,
 )
-def create_parse_session(payload: ParseSessionCreate, db: DbSession):
+def create_parse_session(
+    payload: ParseSessionCreate, background_tasks: BackgroundTasks, db: DbSession
+):
+    try:
+        provider = default_provider()
+    except RuntimeError:
+        raise HTTPException(status_code=503, detail="暂无可用分析模型") from None
     parse_session = ParseSession(
         raw_text=payload.raw_text,
-        provider="qwen",
+        provider=provider,
         status="解析中",
     )
     db.add(parse_session)
     db.commit()
     db.refresh(parse_session)
 
-    try:
-        result = start_parse_graph(
-            parse_session.id,
-            str(parse_session.thread_id),
-            parse_session.raw_text,
-            datetime.now(timezone.utc),
-            settings.database_url,
-            SessionLocal,
-        )
-        if "__interrupt__" not in result:
-            raise ParseGraphStateError("解析图未停在人工确认节点")
-    except NoticeParseError as exc:
-        parse_session.status = "解析失败"
-        parse_session.error_message = str(exc)
-        parse_session.resolved_at = datetime.now(timezone.utc)
-        db.commit()
-        raise HTTPException(status_code=502, detail=str(exc)) from exc
-
-    db.expire_all()
+    background_tasks.add_task(
+        _run_parse_session,
+        parse_session.id,
+        str(parse_session.thread_id),
+        parse_session.raw_text,
+        parse_session.provider,
+        datetime.now(timezone.utc),
+    )
     return _session_detail(db, _get_parse_session(db, parse_session.id))
 
 
@@ -118,15 +159,50 @@ def list_parse_sessions(
     total = (
         db.scalar(select(func.count()).select_from(ParseSession).where(*filters)) or 0
     )
-    sessions = db.scalars(
+    sessions = list(db.scalars(
         select(ParseSession)
         .where(*filters)
         .order_by(ParseSession.created_at.desc(), ParseSession.id.desc())
         .offset((page - 1) * page_size)
         .limit(page_size)
-    ).all()
+    ).all())
+    pairs = {
+        (payload.get("company_name"), payload.get("position_title"))
+        for item in sessions
+        if (payload := item.extracted_payload or {}).get("company_name")
+        and payload.get("position_title")
+    }
+    recommendations: dict[tuple[str, str], list[Application]] = {}
+    if pairs:
+        applications = db.scalars(
+            select(Application)
+            .join(Application.position)
+            .join(Position.company)
+            .options(joinedload(Application.position).joinedload(Position.company))
+            .where(or_(*(
+                (Company.name == company_name) & (Position.title == position_title)
+                for company_name, position_title in pairs
+            )))
+            .order_by(Application.created_at.desc(), Application.id.desc())
+        ).all()
+        for application in applications:
+            key = (application.position.company.name, application.position.title)
+            recommendations.setdefault(key, []).append(application)
     return ParseSessionPage(
-        items=[_session_detail(db, item) for item in sessions],
+        items=[
+            _session_detail(
+                db,
+                item,
+                recommendations.get(
+                    (
+                        (item.extracted_payload or {}).get("company_name"),
+                        (item.extracted_payload or {}).get("position_title"),
+                    ),
+                    [],
+                ),
+            )
+            for item in sessions
+        ],
         total=total,
         page=page,
         page_size=page_size,
@@ -136,6 +212,35 @@ def list_parse_sessions(
 @router.get("/parse-sessions/{parse_session_id}", response_model=ParseSessionDetail)
 def get_parse_session(parse_session_id: int, db: DbSession):
     return _session_detail(db, _get_parse_session(db, parse_session_id))
+
+
+@router.post(
+    "/parse-sessions/{parse_session_id}/application",
+    response_model=ApplicationRead,
+    status_code=status.HTTP_201_CREATED,
+)
+def create_application_from_notice(
+    parse_session_id: int, payload: NoticeApplicationCreate, db: DbSession
+):
+    parse_session = _get_parse_session(db, parse_session_id)
+    if parse_session.status != "待确认":
+        raise HTTPException(status_code=409, detail="当前解析会话不能创建投递")
+
+    position = materialize_position(db, payload.company_name, payload.position_title)
+    application = Application(
+        position_id=position.id,
+        status="已投递",
+        applied_at=parse_session.created_at,
+    )
+    db.add(application)
+    db.flush()
+    application_id = application.id
+    db.commit()
+    return db.scalar(
+        select(Application)
+        .options(joinedload(Application.position).joinedload(Position.company))
+        .where(Application.id == application_id)
+    )
 
 
 @router.post(
@@ -162,8 +267,9 @@ def confirm_parse_session(
             settings.database_url,
             SessionLocal,
         )
-    except ParseGraphStateError as exc:
-        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except ParseGraphStateError:
+        logger.exception("解析会话 %s 确认失败", parse_session_id)
+        raise HTTPException(status_code=409, detail="解析确认失败，请稍后重试") from None
 
     db.expire_all()
     return _session_detail(db, _get_parse_session(db, parse_session_id))
@@ -212,7 +318,7 @@ def _conflict_candidates(
         node
         for node in target_nodes
         if node.status == "待处理"
-        and node.node_type in {"笔试", "一面", "二面", "三面", "HR面"}
+        and node.node_type in {"笔试", "AI面", "一面", "二面", "三面", "HR面"}
         and node.scheduled_at is not None
     ]
     if not collision_targets:
@@ -223,8 +329,9 @@ def _conflict_candidates(
         db.scalars(
             select(TimelineNode).where(
                 TimelineNode.status == "待处理",
+                TimelineNode.time_mode == "固定时间",
                 TimelineNode.node_type.in_(
-                    ["笔试", "一面", "二面", "三面", "HR面"]
+                    ["笔试", "AI面", "一面", "二面", "三面", "HR面"]
                 ),
                 TimelineNode.scheduled_at.is_not(None),
                 TimelineNode.scheduled_at <= window_end,
@@ -301,6 +408,40 @@ def list_timeline(
     )
 
 
+@router.get("/dashboard", response_model=DashboardRead)
+def get_dashboard(db: DbSession):
+    """作战总览：各阶段投递数 + 需要关注（临期/逾期/冲突）的待处理节点。"""
+    counts = dict(
+        db.execute(
+            select(Application.status, func.count()).group_by(Application.status)
+        ).all()
+    )
+    pipeline = [
+        PipelineBucket(status=application_status, count=counts.get(application_status, 0))
+        for application_status in APPLICATION_STATUS
+    ]
+
+    nodes = list(
+        db.scalars(
+            select(TimelineNode)
+            .options(
+                joinedload(TimelineNode.application)
+                .joinedload(Application.position)
+                .joinedload(Position.company)
+            )
+            .where(TimelineNode.status == "待处理")
+            .order_by(
+                TimelineNode.scheduled_at.asc().nulls_last(), TimelineNode.id.asc()
+            )
+        ).all()
+    )
+    conflicts = conflict_map(nodes, _conflict_candidates(db, nodes))
+    now = datetime.now(timezone.utc)
+    reads = [_timeline_read(node, conflicts, now) for node in nodes]
+    attention = [read for read in reads if read.alert_types]
+    return DashboardRead(pipeline=pipeline, attention=attention)
+
+
 @router.patch("/timeline/{timeline_node_id}/status", response_model=TimelineNodeRead)
 def update_timeline_status(
     timeline_node_id: int, payload: TimelineStatusTransition, db: DbSession
@@ -317,6 +458,8 @@ def update_timeline_status(
     if node is None:
         raise HTTPException(status_code=404, detail="时间线节点不存在")
     node.status = payload.status
+    if node.node_type in INTERVIEW_NODE_TYPES:
+        sync_intel_reminder_for_application(db, node.application_id)
     db.commit()
     db.refresh(node)
     candidates = _conflict_candidates(db, [node])

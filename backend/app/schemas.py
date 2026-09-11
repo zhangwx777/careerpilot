@@ -75,6 +75,7 @@ class PositionSummary(BaseModel):
 
     id: int
     title: str
+    jd_text: str | None
     company: CompanySummary
 
 
@@ -92,22 +93,34 @@ class PositionPage(BaseModel):
 
 
 class ApplicationCreate(BaseModel):
-    position_id: PositiveId
+    company_name: Name
+    position_title: Name
+    jd_text: str | None = None
     status: ApplicationStatus = "已投递"
     applied_at: datetime | None = None
     note: str | None = None
 
 
 class ApplicationUpdate(BaseModel):
-    position_id: PositiveId | None = None
+    company_name: Name | None = None
+    position_title: Name | None = None
+    jd_text: str | None = None
+    status: ApplicationStatus | None = None
     applied_at: datetime | None = None
     note: str | None = None
 
-    @field_validator("position_id")
+    @field_validator("company_name", "position_title")
     @classmethod
-    def position_id_cannot_be_null(cls, value: int | None) -> int | None:
+    def job_identity_cannot_be_null(cls, value: str | None) -> str | None:
         if value is None:
-            raise ValueError("岗位 ID 不能为 null")
+            raise ValueError("公司和岗位不能为 null")
+        return value
+
+    @field_validator("status")
+    @classmethod
+    def status_cannot_be_null(cls, value: str | None) -> str | None:
+        if value is None:
+            raise ValueError("阶段不能为 null")
         return value
 
 
@@ -132,3 +145,8 @@ class ApplicationPage(BaseModel):
 
 class StatusTransition(BaseModel):
     status: ApplicationStatus
+
+
+class ProviderRead(BaseModel):
+    name: str
+    model: str

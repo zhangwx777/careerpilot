@@ -16,13 +16,48 @@
 ## 核心功能
 
 ### A. 进度指挥中心
-- 投递记录管理：公司 / 岗位 / 投递状态机（已投递 → 笔试 → 各轮面试 → offer/挂）。
-- **半自动解析**：粘贴笔试通知邮件/短信，AI 抽取「公司 + 岗位 + 节点类型 + 时间」，人工确认后写入时间线。
+- 作战总览：进入系统的落地页，一屏看需要马上处理的节点（冲突 / 临期 / 逾期）和各阶段投递分布。
+- 投递记录管理：投递时直接录入公司和岗位，系统自动归档；台账按“公司 / 岗位”平铺，每条投递独立一行。同一岗位的多次投递会分别保留。统一阶段为已投递 → 测评 → 笔试 → AI面 → 各轮面试 → offer/挂，不适用的阶段可以直接跳过。台账列表会标出缺少 JD 的投递；编辑投递时可直接修正点错的当前阶段。
+- **半自动解析**：粘贴笔试通知邮件/短信，AI 抽取「公司 + 岗位 + 节点类型 + 时间」，人工确认后可新建本次投递，或在确属同一次投递时关联已有记录。
+- 录入不中断：新增投递和通知确认页会在当前浏览器保存未提交内容；通知未给出开始时间时默认当前时间，识别到“3 个工作日内”等期限时会随开始时间自动计算截止时间。
 - 作战地图：日历 + 列表视图，自动检测冲突（两场笔试撞车）和临期未处理节点。
 
 ### B. 定向面经情报
-- 针对某条投递（公司 + 岗位），聚合公开面经，多源交叉验证后输出结构化情报：几轮面试、常考题型、考察重点、最新面经摘要，可溯源。
-- 备战规划：结合简历 + JD + 面经情报，生成能力差距分析和分解到日的备战任务，自动写回时间线。
+- 面经工作台按「公司 + 岗位」建立持续资料库：手动粘贴内容优先分析，联网搜索只作补充，并过滤招聘公告、岗位职责和秋招宣传页等非面经来源。
+- 支持上传 PNG/JPEG/WebP 面经截图，由当前选择的多模态模型提取文字，用户可编辑识别结果后再分析；图片不长期保存。
+- 面经工作台分为“录入与进度 / 面试洞察 / 面经档案”：录入时手动选择测评、笔试、AI 面、一面、二面、三面、HR 面或多轮综合；岗位洞察跨轮次按考察方向聚合全部来源，只有多来源方向才标记为高频。
+- 面经档案保留每份文字、每张截图的文件名与识别文字、以及联网来源，可按轮次筛选、展开查看和删除；岗位洞察不会混入单份材料的高频判断。
+- 面经页提供岗位级持久问答。存在该岗位未来固定时间的一面、二面、三面或 HR 面时，Agent 自动在面试开始前 24 小时把高频考察方向中的核心问题和准备重点合并推送到时间线；没有确定面试则不创建提醒。
+- 备战分析：上传 PDF/DOCX 简历，结合 JD + 面经情报生成匹配总结、优势、差距和准备行动清单；不自动排期或写入时间线。
+
+进度指挥中心相关接口：
+
+```text
+GET  /api/dashboard                     作战总览：各阶段投递数 + 冲突/临期/逾期的待处理节点
+GET  /api/providers                     当前 .env 里已配好 key 和模型名的厂商列表
+PATCH /api/applications/{id}            编辑投递，可直接修正当前阶段（不受只能向后的限制）
+PATCH /api/applications/{id}/status     台账里推进阶段，只能向后或标记为“挂”
+```
+
+面经相关接口：
+
+```text
+POST /api/intel                         新建面经分析会话（supplement_web 默认 false，主动开启才联网补充）
+                                         必填 round_type；可传 image_texts 保存分图识别结果
+POST /api/intel/images/extract          截图转可编辑文字
+GET  /api/intel/dossier?application_id= 岗位级面试洞察、材料档案与提醒状态
+POST /api/intel/dossier/rebuild         重新生成岗位级面试洞察
+DELETE /api/intel/materials/{id}        删除一份面经材料并更新洞察
+GET  /api/intel/chat?application_id=    读取岗位问答历史
+POST /api/intel/chat                    创建后台增量问答，立即返回“生成中”消息
+GET  /api/intel-sessions                找回最近运行中的面经聚合会话
+POST /api/intel-sessions/{id}/discard   舍弃未写入面经档案的分析会话
+POST /api/resume-profile/upload         上传 PDF/DOCX 并提取简历文字
+POST /api/planner-sessions               创建岗位备战分析会话（不再提交可用时间）
+GET  /api/planner-sessions              找回最近运行中的备战会话
+```
+
+`GET /api/intel` 仍保留为按投递读取历史材料的通用接口；面经工作台使用 dossier 接口按公司＋岗位聚合。岗位级高频只按不同材料来源统计考察方向，单份材料不会显示为高频。
 
 ## 技术栈
 
@@ -43,32 +78,71 @@ qiuzhao-agent/
 │  │  ├─ main.py          # FastAPI 入口 + /health
 │  │  ├─ config.py        # 读 .env
 │  │  ├─ db.py            # SQLAlchemy engine/session
-│  │  ├─ models.py        # 5 张表 ORM
+│  │  ├─ models.py        # 业务表 ORM
 │  │  └─ llm/             # 多模型 provider 层
 │  └─ scripts/            # 建表、smoke test
-├─ frontend/              # 第 2 期
-└─ docs/工作计划.md
+├─ frontend/              # React + Vite + TypeScript 前端
+└─ docs/                  # PRD、开发、交接与工作计划
 ```
 
-## 本地运行
+## 启动服务
 
-### 前置
-- PostgreSQL 18 已安装并运行（本地实例）
-- Python 3.12、Node.js
+### 首次安装
 
-### 后端
+请先启动本地 PostgreSQL，并将项目根目录的 `.env.example` 复制为 `.env`，填入数据库连接和模型 Key。
+
 ```bash
-cd backend
-python -m venv .venv
-.venv/Scripts/python.exe -m pip install -e .
+cd C:\qiuzhao-agent\backend
+py -3.12 -m venv .venv
+.\.venv\Scripts\python.exe -m pip install -e .
 
-# 配置：复制 .env.example 为 .env，填数据库连接串和模型 key
-python -m scripts.init_db      # 建表
-python -m scripts.smoke_llm    # 验证模型连通（需已填 key）
-.venv/Scripts/python.exe -m uvicorn app.main:app --port 8000
+cd C:\qiuzhao-agent\frontend
+corepack pnpm install
 ```
 
-访问 `http://127.0.0.1:8000/health` 应返回 `{"status":"ok","db":true}`。
+### 一键启动
+
+双击项目根目录的 `start.bat`，或在 PowerShell 执行：
+
+```powershell
+cd C:\qiuzhao-agent
+.\start.bat
+```
+
+脚本会初始化数据库、启动或复用健康的后端与前端服务；缺失前端依赖时会自动修复。前端就绪后会自动打开 `http://localhost:5173/`。前端进程会保持在启动终端中；后端健康检查地址为 `http://127.0.0.1:8000/health`。
+
+若脚本提示 5173 端口已被不健康的旧服务占用，请先关闭对应的旧终端，再重新双击 `start.bat`。脚本不会为抢占端口改用其他前端地址，避免浏览器打开错误服务。
+
+停止服务：在启动终端按 `Ctrl+C`，PowerShell 包装器会在前端退出后自动清理 5173 和 8000 端口的前后端子进程。若终端已经关闭或仍有旧进程，双击根目录的 `stop.bat`；它只处理本项目约定的 5173、8000 端口。
+
+### 手动启动
+
+若需要在已有终端中启动，分别执行：
+
+```powershell
+# 终端一：后端
+cd C:\qiuzhao-agent\backend
+.\.venv\Scripts\python.exe -m scripts.init_db
+.\.venv\Scripts\python.exe -m uvicorn app.main:app --host 127.0.0.1 --port 8000
+
+# 终端二：前端（启动后自动打开浏览器，并固定使用 5173 端口）
+cd C:\qiuzhao-agent\frontend
+corepack pnpm exec vite --open --port 5173 --strictPort
+```
+
+如果 `start.bat` 提示缺少前端依赖，先关闭占用 `frontend\node_modules` 的 Node.js 进程，再运行 `corepack pnpm install --force`。
+
+### 验证
+
+```powershell
+cd C:\qiuzhao-agent\backend
+.\.venv\Scripts\python.exe -m unittest discover -s tests -q
+cd ..\frontend
+corepack pnpm test
+corepack pnpm build
+```
+
+未配置 `TEST_DATABASE_URL` 时，数据库集成测试不会执行；这不应视为集成测试通过。
 
 ## 数据同步说明
 
@@ -79,4 +153,4 @@ python -m scripts.smoke_llm    # 验证模型连通（需已填 key）
 
 ## 开发进度
 
-见 [docs/工作计划.md](docs/工作计划.md)。当前：第 1 期已完成（骨架 + 数据模型 + 多模型 provider 层）。
+见 [docs/工作计划.md](docs/工作计划.md)。第 1 至 5 期及近期真实使用反馈迭代均已完成。

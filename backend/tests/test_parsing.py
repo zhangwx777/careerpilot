@@ -42,6 +42,19 @@ class NoticeParsingTestCase(unittest.TestCase):
         self.assertIsNone(result.company_name)
         self.assertIsNone(result.scheduled_at)
 
+    @patch("app.parsing.chat")
+    def test_extracts_workday_deadline(self, mock_chat):
+        mock_chat.return_value = (
+            '{"company_name":"携程集团","position_title":"Agent开发工程师",'
+            '"node_type":"笔试","time_mode":"截止窗口","deadline_workdays":3,'
+            '"scheduled_at":null,"ends_at":null,"source":"邮件"}'
+        )
+
+        result = extract_notice("请在3个工作日内完成测评", self.requested_at)
+
+        self.assertEqual(result.time_mode, "截止窗口")
+        self.assertEqual(result.deadline_workdays, 3)
+
     @patch("app.parsing.chat", return_value="```json\n{}\n```")
     def test_rejects_non_json_response(self, _mock_chat):
         with self.assertRaises(NoticeParseError):

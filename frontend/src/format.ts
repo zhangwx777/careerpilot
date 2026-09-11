@@ -9,14 +9,16 @@ export function formatDate(value: string | null): string {
 
 export function formatDateTime(value: string | null): string {
   if (!value) return "时间待补充";
-  return new Intl.DateTimeFormat("zh-CN", {
-    month: "2-digit",
-    day: "2-digit",
+  const date = new Date(value);
+  const weekday = new Intl.DateTimeFormat("zh-CN", {
     weekday: "short",
+  }).format(date);
+  const time = new Intl.DateTimeFormat("zh-CN", {
     hour: "2-digit",
     minute: "2-digit",
     hour12: false,
-  }).format(new Date(value));
+  }).format(date);
+  return `${date.getMonth() + 1}月${date.getDate()}日 ${weekday} ${time}`;
 }
 
 export function toLocalInput(value: string | null): string {

@@ -19,14 +19,118 @@ def initialize_database(database_url: str) -> None:
         with target_engine.begin() as connection:
             connection.execute(
                 text(
+                    "ALTER TYPE application_status ADD VALUE IF NOT EXISTS '测评' "
+                    "BEFORE '笔试'"
+                )
+            )
+            connection.execute(
+                text(
+                    "ALTER TYPE application_status ADD VALUE IF NOT EXISTS 'AI面' "
+                    "BEFORE '一面'"
+                )
+            )
+            connection.execute(
+                text(
+                    "ALTER TYPE node_type ADD VALUE IF NOT EXISTS '测评' "
+                    "BEFORE '笔试'"
+                )
+            )
+            connection.execute(
+                text(
+                    "ALTER TYPE node_type ADD VALUE IF NOT EXISTS 'AI面' "
+                    "BEFORE '一面'"
+                )
+            )
+            connection.execute(
+                text(
+                    "ALTER TYPE planner_session_status ADD VALUE IF NOT EXISTS '已完成' "
+                    "BEFORE '已丢弃'"
+                )
+            )
+            connection.execute(
+                text(
                     "ALTER TABLE timeline_node "
                     "ADD COLUMN IF NOT EXISTS ends_at TIMESTAMPTZ"
                 )
             )
             connection.execute(
                 text(
+                    "ALTER TABLE resume_profile "
+                    "ADD COLUMN IF NOT EXISTS file_name VARCHAR(255)"
+                )
+            )
+            connection.execute(
+                text(
+                    "ALTER TABLE timeline_node "
+                    "ADD COLUMN IF NOT EXISTS time_mode VARCHAR(20) "
+                    "NOT NULL DEFAULT '固定时间'"
+                )
+            )
+            connection.execute(
+                text(
+                    "ALTER TABLE timeline_node "
+                    "ADD COLUMN IF NOT EXISTS title VARCHAR(200)"
+                )
+            )
+            connection.execute(
+                text(
+                    "ALTER TABLE timeline_node "
+                    "ADD COLUMN IF NOT EXISTS detail TEXT"
+                )
+            )
+            connection.execute(
+                text(
                     "CREATE INDEX IF NOT EXISTS ix_timeline_node_scheduled_at "
                     "ON timeline_node (scheduled_at)"
+                )
+            )
+            connection.execute(
+                text(
+                    "ALTER TABLE intel_session "
+                    "ADD COLUMN IF NOT EXISTS progress_payload JSONB"
+                )
+            )
+            connection.execute(
+                text(
+                    "ALTER TABLE position "
+                    "ADD COLUMN IF NOT EXISTS intel_insight JSONB"
+                )
+            )
+            connection.execute(
+                text(
+                    "ALTER TABLE intel_session "
+                    "ADD COLUMN IF NOT EXISTS round_type VARCHAR(20) NOT NULL DEFAULT '未注明'"
+                )
+            )
+            connection.execute(
+                text(
+                    "ALTER TABLE intel_session "
+                    "ADD COLUMN IF NOT EXISTS image_texts JSONB NOT NULL DEFAULT '[]'::jsonb"
+                )
+            )
+            connection.execute(
+                text(
+                    "ALTER TABLE interview_intel "
+                    "ADD COLUMN IF NOT EXISTS title VARCHAR(200) NOT NULL DEFAULT '未命名面经'"
+                )
+            )
+            connection.execute(
+                text(
+                    "ALTER TABLE interview_intel "
+                    "ADD COLUMN IF NOT EXISTS round_type VARCHAR(20) NOT NULL DEFAULT '未注明'"
+                )
+            )
+            connection.execute(
+                text(
+                    "ALTER TABLE interview_intel "
+                    "ADD COLUMN IF NOT EXISTS provider VARCHAR(50) NOT NULL DEFAULT 'qwen'"
+                )
+            )
+            connection.execute(
+                text(
+                    "ALTER TABLE intel_chat_message "
+                    "ADD COLUMN IF NOT EXISTS status VARCHAR(20) "
+                    "NOT NULL DEFAULT '已完成'"
                 )
             )
 

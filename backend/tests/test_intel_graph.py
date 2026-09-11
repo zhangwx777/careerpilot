@@ -11,16 +11,18 @@ from app.models import Application, Company, IntelSession, InterviewIntel, Posit
 from scripts.init_db import initialize_database
 
 TEST_DATABASE_URL = os.environ.get("TEST_DATABASE_URL")
-if not TEST_DATABASE_URL:
-    raise RuntimeError("必须配置 TEST_DATABASE_URL，面经图测试不允许跳过")
 
-
+@unittest.skipUnless(TEST_DATABASE_URL, "需要配置 TEST_DATABASE_URL，面经图测试不允许跳过")
 class IntelGraphTestCase(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         initialize_database(TEST_DATABASE_URL)
         cls.engine = create_engine(TEST_DATABASE_URL)
         cls.sessions = sessionmaker(bind=cls.engine, expire_on_commit=False)
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.engine.dispose()
 
     def setUp(self):
         with self.sessions.begin() as db:
@@ -51,7 +53,7 @@ class IntelGraphTestCase(unittest.TestCase):
     @patch("app.intel_graph.extract_intel")
     @patch("app.intel_graph.search")
     def test_conflict_interrupt_resumes_once(self, mock_search, mock_extract, _mock_chat):
-        mock_search.return_value = [{"title": "甲", "url": "https://a.test", "text": "甲"}, {"title": "乙", "url": "https://b.test", "text": "乙"}]
+        mock_search.return_value = [{"title": "甲面经", "url": "https://a.test", "text": "一面问了算法"}, {"title": "乙面经", "url": "https://b.test", "text": "二面问了项目"}]
         def extraction(source, _provider, feedback=None):
             value = "困难" if source.id.endswith("-1") else "一般"
             return IntelExtraction(difficulty=Fact(value=value, source_ids=[source.id]))
@@ -69,7 +71,7 @@ class IntelGraphTestCase(unittest.TestCase):
 
     @patch("app.intel_graph.chat", side_effect=['{"approved": false, "feedback": "删除没有来源的结论"}', '{"approved": true, "feedback": ""}'])
     @patch("app.intel_graph.extract_intel", return_value=IntelExtraction(frequent_topics=[Fact(value="算法", source_ids=["anysearch-1-1"])]))
-    @patch("app.intel_graph.search", return_value=[{"title": "甲", "url": "https://a.test", "text": "甲"}, {"title": "乙", "url": "https://b.test", "text": "乙"}])
+    @patch("app.intel_graph.search", return_value=[{"title": "甲面经", "url": "https://a.test", "text": "一面问了算法"}, {"title": "乙面经", "url": "https://b.test", "text": "二面问了项目"}])
     def test_critic_feedback_reextracts_sources(self, _mock_search, mock_extract, _mock_chat):
         session_id, thread_id = self._session()
         result = start_intel_graph(session_id, thread_id, "qwen", "测试公司 后端", None, TEST_DATABASE_URL, self.sessions)
@@ -77,11 +79,17 @@ class IntelGraphTestCase(unittest.TestCase):
         self.assertEqual(mock_extract.call_count, 4)
         self.assertEqual(mock_extract.call_args_list[2].kwargs["feedback"], "删除没有来源的结论")
         with self.sessions() as db:
-            self.assertEqual(db.get(IntelSession, session_id).status, "已完成")
+            item = db.get(IntelSession, session_id)
+            self.assertEqual(item.status, "已完成")
+            self.assertEqual(item.progress_payload["stage"], "已完成")
+            self.assertEqual(
+                [source["title"] for source in item.progress_payload["sources"]],
+                ["甲面经", "乙面经"],
+            )
 
     @patch("app.intel_graph.chat", return_value="```json\n{}\n```")
     @patch("app.intel_graph.extract_intel", return_value=IntelExtraction())
-    @patch("app.intel_graph.search", return_value=[{"title": "甲", "url": "https://a.test", "text": "甲"}])
+    @patch("app.intel_graph.search", return_value=[{"title": "甲面经", "url": "https://a.test", "text": "一面问了算法"}])
     def test_invalid_critic_json_fails_explicitly(self, _mock_search, _mock_extract, _mock_chat):
         session_id, thread_id = self._session()
         with self.assertRaisesRegex(IntelGraphError, "反思模型返回的不是合法 JSON"):

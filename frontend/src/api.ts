@@ -2,16 +2,20 @@ import type {
   Application,
   ApplicationInput,
   ApplicationStatus,
-  Company,
-  CompanyInput,
+  Dashboard,
   Page,
-  Position,
-  PositionInput,
   ParseConfirmation,
   ParseSession,
   ParseSessionStatus,
   NodeStatus,
   TimelineNode,
+  AvailabilityWindow,
+  DailyBriefing,
+  PlannerSession,
+  PreparationTask,
+  ProviderOption,
+  ResumeProfile,
+  ScheduledTask,
 } from "./types";
 
 type QueryValue = string | number | undefined;
@@ -27,7 +31,7 @@ function queryString(params: Record<string, QueryValue>): string {
 
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
   const response = await fetch(path, {
-    headers: { "Content-Type": "application/json" },
+    headers: options?.body instanceof FormData ? undefined : { "Content-Type": "application/json" },
     ...options,
   });
   if (!response.ok) {
@@ -36,52 +40,18 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
     const message = Array.isArray(detail)
       ? detail.map((item) => item.msg).filter(Boolean).join("；")
       : detail;
-    throw new Error(message || `请求失败（${response.status}）`);
+    throw new Error(message || (response.status >= 500 ? "服务暂时不可用，请稍后重试。" : `请求未完成（${response.status}）`));
   }
   if (response.status === 204) return undefined as T;
   return response.json() as Promise<T>;
 }
 
 export const api = {
-  companies: {
-    list: (params: { page?: number; page_size?: number; q?: string } = {}) =>
-      request<Page<Company>>(`/api/companies${queryString(params)}`),
-    get: (id: number) => request<Company>(`/api/companies/${id}`),
-    create: (input: CompanyInput) =>
-      request<Company>("/api/companies", {
-        method: "POST",
-        body: JSON.stringify(input),
-      }),
-    update: (id: number, input: Partial<CompanyInput>) =>
-      request<Company>(`/api/companies/${id}`, {
-        method: "PATCH",
-        body: JSON.stringify(input),
-      }),
-    remove: (id: number) =>
-      request<void>(`/api/companies/${id}`, { method: "DELETE" }),
+  dashboard: {
+    get: () => request<Dashboard>("/api/dashboard"),
   },
-  positions: {
-    list: (
-      params: {
-        page?: number;
-        page_size?: number;
-        q?: string;
-        company_id?: number;
-      } = {},
-    ) => request<Page<Position>>(`/api/positions${queryString(params)}`),
-    get: (id: number) => request<Position>(`/api/positions/${id}`),
-    create: (input: PositionInput) =>
-      request<Position>("/api/positions", {
-        method: "POST",
-        body: JSON.stringify(input),
-      }),
-    update: (id: number, input: Partial<PositionInput>) =>
-      request<Position>(`/api/positions/${id}`, {
-        method: "PATCH",
-        body: JSON.stringify(input),
-      }),
-    remove: (id: number) =>
-      request<void>(`/api/positions/${id}`, { method: "DELETE" }),
+  providers: {
+    list: () => request<ProviderOption[]>("/api/providers"),
   },
   applications: {
     list: (
@@ -100,7 +70,7 @@ export const api = {
         method: "POST",
         body: JSON.stringify(input),
       }),
-    update: (id: number, input: Partial<Omit<ApplicationInput, "status">>) =>
+    update: (id: number, input: Partial<ApplicationInput>) =>
       request<Application>(`/api/applications/${id}`, {
         method: "PATCH",
         body: JSON.stringify(input),
@@ -126,6 +96,11 @@ export const api = {
       request<ParseSession>("/api/parse-sessions", {
         method: "POST",
         body: JSON.stringify({ raw_text: rawText }),
+      }),
+    createApplication: (id: number, input: { company_name: string; position_title: string }) =>
+      request<Application>(`/api/parse-sessions/${id}/application`, {
+        method: "POST",
+        body: JSON.stringify(input),
       }),
     confirm: (id: number, confirmation: ParseConfirmation) =>
       request<ParseSession>(`/api/parse-sessions/${id}/confirm`, {
@@ -154,9 +129,34 @@ export const api = {
       }),
   },
   intel: {
-    create: (input: { application_id: number; provider: string; user_paste: string | null }) => request<import("./types").IntelSession>("/api/intel", { method: "POST", body: JSON.stringify(input) }),
-    list: (application_id: number) => request<import("./types").InterviewIntel[]>(`/api/intel${queryString({ application_id })}`),
+    create: (input: { application_id: number; provider: string; round_type: import("./types").IntelRoundType; user_paste: string | null; image_texts: { name: string; text: string }[]; supplement_web: boolean }) => request<import("./types").IntelSession>("/api/intel", { method: "POST", body: JSON.stringify(input) }),
+    list: (params: { page?: number; page_size?: number; application_id?: number; q?: string } = {}) => request<Page<import("./types").InterviewIntel>>(`/api/intel${queryString(params)}`),
+    sessions: () => request<import("./types").IntelSession[]>("/api/intel-sessions"),
     session: (id: number) => request<import("./types").IntelSession>(`/api/intel-sessions/${id}`),
     resolve: (id: number, resolutions: Record<string, string>) => request<import("./types").IntelSession>(`/api/intel-sessions/${id}/resolve`, { method: "POST", body: JSON.stringify({ resolutions }) }),
+    discard: (id: number) => request<import("./types").IntelSession>(`/api/intel-sessions/${id}/discard`, { method: "POST" }),
+    extractImages: (input: { provider: string; images: { name: string; mime_type: string; data_url: string }[] }) => request<{ images: { name: string; text: string }[]; combined_text: string }>("/api/intel/images/extract", { method: "POST", body: JSON.stringify(input) }),
+    dossier: (application_id: number) => request<import("./types").IntelDossier>(`/api/intel/dossier${queryString({ application_id })}`),
+    rebuildDossier: (input: { application_id: number; provider: string }) => request<import("./types").IntelDossier>("/api/intel/dossier/rebuild", { method: "POST", body: JSON.stringify(input) }),
+    deleteMaterial: (id: number) => request<{ deleted: number }>(`/api/intel/materials/${id}`, { method: "DELETE" }),
+    chat: (input: { application_id: number; provider: string; question: string }) => request<{ message: import("./types").IntelChatMessage; source_ids: string[] }>("/api/intel/chat", { method: "POST", body: JSON.stringify(input) }),
+    chatHistory: (application_id: number) => request<import("./types").IntelChatMessage[]>(`/api/intel/chat${queryString({ application_id })}`),
+  },
+  planner: {
+    resume: () => request<ResumeProfile>("/api/resume-profile"),
+    uploadResume: (file: File) => { const body = new FormData(); body.append("file", file); return request<ResumeProfile>("/api/resume-profile/upload", { method: "POST", body }); },
+    saveResume: (resume_text: string) => request<ResumeProfile>("/api/resume-profile", { method: "PUT", body: JSON.stringify({ resume_text }) }),
+    create: (input: { application_id: number; provider: string }) => request<PlannerSession>("/api/planner-sessions", { method: "POST", body: JSON.stringify(input) }),
+    sessions: () => request<PlannerSession[]>("/api/planner-sessions"),
+    session: (id: number) => request<PlannerSession>(`/api/planner-sessions/${id}`),
+    confirm: (id: number, tasks: ScheduledTask[]) => request<PlannerSession>(`/api/planner-sessions/${id}/confirm`, { method: "POST", body: JSON.stringify({ tasks }) }),
+    discard: (id: number) => request<PlannerSession>(`/api/planner-sessions/${id}/discard`, { method: "POST" }),
+    tasks: (params: { page?: number; page_size?: number; application_id?: number; status?: PreparationTask["status"] } = {}) => request<Page<PreparationTask>>(`/api/preparation-tasks${queryString(params)}`),
+    updateTask: (id: number, status: PreparationTask["status"]) => request<PreparationTask>(`/api/preparation-tasks/${id}/status`, { method: "PATCH", body: JSON.stringify({ status }) }),
+  },
+  briefings: {
+    run: () => request<DailyBriefing>("/api/daily-briefings/run", { method: "POST" }),
+    list: (params: { page?: number; page_size?: number } = {}) => request<Page<DailyBriefing>>(`/api/daily-briefings${queryString(params)}`),
+    get: (id: number) => request<DailyBriefing>(`/api/daily-briefings/${id}`),
   },
 };

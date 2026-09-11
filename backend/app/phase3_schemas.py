@@ -6,8 +6,8 @@ from pydantic import BaseModel, ConfigDict, Field, StringConstraints, model_vali
 from typing_extensions import Annotated
 
 from app.models import NODE_STATUS, NODE_TYPE, PARSE_SESSION_STATUS
-from app.parsing import NoticeExtraction
-from app.schemas import ApplicationRead, PositiveId
+from app.parsing import NoticeExtraction, TimeMode
+from app.schemas import ApplicationRead, Name, PositiveId
 
 NodeType = Literal[*NODE_TYPE]
 NodeStatus = Literal[*NODE_STATUS]
@@ -19,9 +19,15 @@ class ParseSessionCreate(BaseModel):
     raw_text: RawNoticeText
 
 
+class NoticeApplicationCreate(BaseModel):
+    company_name: Name
+    position_title: Name
+
+
 class ParseConfirmation(BaseModel):
     application_id: PositiveId
     node_type: NodeType
+    time_mode: TimeMode = "固定时间"
     scheduled_at: datetime
     ends_at: datetime | None = None
     source: str | None = Field(default=None, max_length=200)
@@ -35,6 +41,8 @@ class ParseConfirmation(BaseModel):
                 raise ValueError("ends_at 必须包含时区")
             if self.ends_at <= self.scheduled_at:
                 raise ValueError("ends_at 必须晚于 scheduled_at")
+        if self.time_mode == "截止窗口" and self.ends_at is None:
+            raise ValueError("截止窗口必须填写截止时间")
         return self
 
 
@@ -77,8 +85,11 @@ class TimelineNodeRead(BaseModel):
     node_type: NodeType
     scheduled_at: datetime | None
     ends_at: datetime | None
+    time_mode: TimeMode
     status: NodeStatus
     source: str | None
+    title: str | None
+    detail: str | None
     created_at: datetime
     alert_types: list[TimelineAlert]
     conflict_node_ids: list[int]
@@ -93,3 +104,13 @@ class TimelinePage(BaseModel):
 
 class TimelineStatusTransition(BaseModel):
     status: NodeStatus
+
+
+class PipelineBucket(BaseModel):
+    status: str
+    count: int
+
+
+class DashboardRead(BaseModel):
+    pipeline: list[PipelineBucket]
+    attention: list[TimelineNodeRead]

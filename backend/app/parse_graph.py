@@ -10,6 +10,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.db import to_psycopg_connection_string
+from app.intel_reminders import sync_intel_reminder_for_application
 from app.models import Application, ParseSession, TimelineNode
 from app.parsing import extract_notice
 from app.phase3_schemas import ParseConfirmation
@@ -18,6 +19,7 @@ from app.phase3_schemas import ParseConfirmation
 class ParseGraphState(TypedDict, total=False):
     parse_session_id: int
     raw_text: str
+    provider: str
     requested_at: str
     extraction: dict
     confirmation: dict
@@ -34,7 +36,9 @@ def build_parse_graph(
 ):
     def extract_node(state: ParseGraphState):
         extraction = extract_notice(
-            state["raw_text"], datetime.fromisoformat(state["requested_at"])
+            state["raw_text"],
+            datetime.fromisoformat(state["requested_at"]),
+            state["provider"],
         )
         payload = extraction.model_dump(mode="json")
         with session_factory() as db:
@@ -78,6 +82,7 @@ def build_parse_graph(
                     node_type=confirmation.node_type,
                     scheduled_at=confirmation.scheduled_at,
                     ends_at=confirmation.ends_at,
+                    time_mode=confirmation.time_mode,
                     status="待处理",
                     source=confirmation.source,
                 )
@@ -87,6 +92,7 @@ def build_parse_graph(
                 parse_session.status = "已确认"
                 parse_session.timeline_node_id = timeline_node.id
                 parse_session.resolved_at = datetime.now(timezone.utc)
+                sync_intel_reminder_for_application(db, confirmation.application_id)
             return {"timeline_node_id": timeline_node.id}
 
     builder = StateGraph(ParseGraphState)
@@ -105,6 +111,7 @@ def start_parse_graph(
     thread_id: str,
     raw_text: str,
     requested_at: datetime,
+    provider: str,
     database_url: str,
     session_factory: sessionmaker,
 ):
@@ -117,6 +124,7 @@ def start_parse_graph(
             {
                 "parse_session_id": parse_session_id,
                 "raw_text": raw_text,
+                "provider": provider,
                 "requested_at": requested_at.isoformat(),
             },
             config,

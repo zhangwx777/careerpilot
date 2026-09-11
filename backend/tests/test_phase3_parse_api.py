@@ -1,4 +1,5 @@
 import os
+import time
 import unittest
 from unittest.mock import patch
 
@@ -79,6 +80,15 @@ class ParseSessionApiTestCase(unittest.TestCase):
             }
         )
 
+    def wait_for_status(self, parse_session_id: int, expected: set[str]) -> str:
+        for _ in range(100):
+            with self.session_factory() as db:
+                item = db.get(ParseSession, parse_session_id)
+                if item is not None and item.status in expected:
+                    return item.status
+            time.sleep(0.05)
+        self.fail(f"解析会话未在限定时间内进入状态：{expected}")
+
     @patch("app.parse_graph.extract_notice")
     def test_interrupt_survives_new_checkpointer_and_confirm_is_idempotent(
         self, mock_extract
@@ -89,7 +99,7 @@ class ParseSessionApiTestCase(unittest.TestCase):
         )
         self.assertEqual(created.status_code, 201, created.text)
         session_data = created.json()
-        self.assertEqual(session_data["status"], "待确认")
+        self.assertEqual(self.wait_for_status(session_data["id"], {"待确认"}), "待确认")
         self.assertEqual(len(session_data["recommended_applications"]), 1)
         parse_session_id = session_data["id"]
 
@@ -142,6 +152,7 @@ class ParseSessionApiTestCase(unittest.TestCase):
         created = self.client.post(
             "/api/parse-sessions", json={"raw_text": "面试通知"}
         ).json()
+        self.assertEqual(self.wait_for_status(created["id"], {"待确认"}), "待确认")
 
         first = self.client.post(
             f"/api/parse-sessions/{created['id']}/discard"
@@ -176,11 +187,15 @@ class ParseSessionApiTestCase(unittest.TestCase):
         response = self.client.post(
             "/api/parse-sessions", json={"raw_text": "无法解析的通知"}
         )
-        self.assertEqual(response.status_code, 502)
+        self.assertEqual(response.status_code, 201, response.text)
         with self.session_factory() as db:
             parse_session = db.scalar(
                 select(ParseSession).order_by(ParseSession.id.desc())
             )
+            parse_session_id = parse_session.id
+        self.assertEqual(self.wait_for_status(parse_session_id, {"解析失败"}), "解析失败")
+        with self.session_factory() as db:
+            parse_session = db.get(ParseSession, parse_session_id)
             self.assertEqual(parse_session.status, "解析失败")
             self.assertIsNotNone(parse_session.error_message)
 
@@ -190,6 +205,7 @@ class ParseSessionApiTestCase(unittest.TestCase):
         created = self.client.post(
             "/api/parse-sessions", json={"raw_text": "笔试通知"}
         ).json()
+        self.assertEqual(self.wait_for_status(created["id"], {"待确认"}), "待确认")
         response = self.client.post(
             f"/api/parse-sessions/{created['id']}/confirm",
             json={
@@ -199,6 +215,39 @@ class ParseSessionApiTestCase(unittest.TestCase):
             },
         )
         self.assertEqual(response.status_code, 404)
+
+    def test_create_application_from_pending_notice_keeps_reapplications(self):
+        with self.session_factory.begin() as db:
+            session = ParseSession(
+                raw_text="投递回执",
+                provider="qwen",
+                status="待确认",
+            )
+            db.add(session)
+            db.flush()
+            session_id = session.id
+
+        payload = {"company_name": "携程集团", "position_title": "Agent开发工程师"}
+        created = self.client.post(
+            f"/api/parse-sessions/{session_id}/application", json=payload
+        )
+        repeated = self.client.post(
+            f"/api/parse-sessions/{session_id}/application", json=payload
+        )
+
+        self.assertEqual(created.status_code, 201, created.text)
+        self.assertEqual(repeated.status_code, 201, repeated.text)
+        self.assertNotEqual(created.json()["id"], repeated.json()["id"])
+        self.assertEqual(created.json()["status"], "已投递")
+        with self.session_factory() as db:
+            self.assertEqual(
+                db.scalar(
+                    select(func.count()).select_from(Application).where(
+                        Application.position.has(Position.title == "Agent开发工程师")
+                    )
+                ),
+                2,
+            )
 
 
 if __name__ == "__main__":

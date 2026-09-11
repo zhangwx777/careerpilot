@@ -6,6 +6,8 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, joinedload
 
 from app.db import get_db
+from app.application_records import materialize_position
+from app.llm.registry import PROVIDERS
 from app.models import APPLICATION_STATUS, Application, Company, Position
 from app.schemas import (
     ApplicationCreate,
@@ -21,6 +23,7 @@ from app.schemas import (
     PositionPage,
     PositionRead,
     PositionUpdate,
+    ProviderRead,
     StatusTransition,
 )
 
@@ -33,6 +36,16 @@ STATUS_ORDER = {
     for index, application_status in enumerate(APPLICATION_STATUS)
     if application_status != "挂"
 }
+
+
+@router.get("/providers", response_model=list[ProviderRead])
+def list_providers():
+    """返回 .env 里同时配好 key 和 model 的厂商及其模型名，供前端下拉展示。"""
+    return [
+        ProviderRead(name=name, model=cfg["model"])
+        for name, cfg in PROVIDERS.items()
+        if cfg["api_key"] and cfg["model"]
+    ]
 
 
 def _get_company(db: Session, company_id: int) -> Company:
@@ -250,8 +263,18 @@ def list_applications(
     status_code=status.HTTP_201_CREATED,
 )
 def create_application(payload: ApplicationCreate, db: DbSession):
-    _get_position(db, payload.position_id)
-    application = Application(**payload.model_dump())
+    position = materialize_position(
+        db,
+        payload.company_name,
+        payload.position_title,
+        payload.jd_text,
+    )
+    application = Application(
+        position_id=position.id,
+        status=payload.status,
+        applied_at=payload.applied_at,
+        note=payload.note,
+    )
     db.add(application)
     db.commit()
     return _get_application(db, application.id)
@@ -268,8 +291,14 @@ def update_application(
 ):
     application = _get_application(db, application_id)
     changes = payload.model_dump(exclude_unset=True)
-    if "position_id" in changes:
-        _get_position(db, changes["position_id"])
+    if "company_name" in changes or "position_title" in changes or "jd_text" in changes:
+        position = materialize_position(
+            db,
+            changes.pop("company_name", application.position.company.name),
+            changes.pop("position_title", application.position.title),
+            changes.pop("jd_text", None),
+        )
+        application.position_id = position.id
     for field, value in changes.items():
         setattr(application, field, value)
     db.commit()

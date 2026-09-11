@@ -47,5 +47,8 @@ class Settings(BaseSettings):
     dashscope_base_url: str = ""
     dashscope_model: str = ""
 
+    llm_timeout_seconds: int = 45
+    llm_retries: int = 0
+
 
 settings = Settings()

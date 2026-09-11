@@ -1,72 +1,71 @@
 import { type FormEvent, useEffect, useState } from "react";
-import { ArrowLeft, Briefcase, FloppyDisk, MagnifyingGlass } from "@phosphor-icons/react";
+import { ArrowLeft, Briefcase, FloppyDisk } from "@phosphor-icons/react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 
 import { api } from "../api";
 import { StatusRail } from "../components/StatusRail";
+import { clearDraft, loadDraft, saveDraft } from "../drafts";
 import { toApiDate, toLocalInput } from "../format";
 import {
   APPLICATION_STATUSES,
   type ApplicationStatus,
-  type Position,
 } from "../types";
+
+const applicationDraftKey = "qiuzhao-agent:new-application";
+
+type ApplicationDraft = {
+  companyName: string;
+  positionTitle: string;
+  jdText: string;
+  status: ApplicationStatus;
+  appliedAt: string;
+  note: string;
+};
 
 export function ApplicationFormPage() {
   const { id } = useParams();
   const applicationId = id ? Number(id) : null;
   const editing = applicationId !== null;
   const navigate = useNavigate();
-  const [positionId, setPositionId] = useState(0);
-  const [positionQuery, setPositionQuery] = useState("");
-  const [positions, setPositions] = useState<Position[]>([]);
-  const [status, setStatus] = useState<ApplicationStatus>("已投递");
-  const [appliedAt, setAppliedAt] = useState("");
-  const [note, setNote] = useState("");
+  const [draft] = useState<ApplicationDraft>(() => loadDraft(window.localStorage, applicationDraftKey, {
+    companyName: "", positionTitle: "", jdText: "", status: "已投递", appliedAt: "", note: "",
+  }));
+  const [companyName, setCompanyName] = useState(draft.companyName);
+  const [positionTitle, setPositionTitle] = useState(draft.positionTitle);
+  const [jdText, setJdText] = useState(draft.jdText);
+  const [status, setStatus] = useState<ApplicationStatus>(draft.status);
+  const [appliedAt, setAppliedAt] = useState(draft.appliedAt);
+  const [note, setNote] = useState(draft.note);
   const [loading, setLoading] = useState(editing);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
 
   useEffect(() => {
-    api.positions
-      .list({ page_size: 20 })
-      .then((result) => setPositions(result.items))
-      .catch((reason: Error) => setError(reason.message));
-  }, []);
-
-  useEffect(() => {
     if (!applicationId) return;
     api.applications
       .get(applicationId)
-      .then(async (application) => {
-        setPositionId(application.position_id);
+      .then((application) => {
+        setCompanyName(application.position.company.name);
+        setPositionTitle(application.position.title);
         setStatus(application.status);
         setAppliedAt(toLocalInput(application.applied_at));
         setNote(application.note ?? "");
-        const result = await api.positions.list({
-          q: application.position.title,
-          page_size: 20,
-        });
-        setPositions(result.items);
+        setJdText(application.position.jd_text ?? "");
       })
       .catch((reason: Error) => setError(reason.message))
       .finally(() => setLoading(false));
   }, [applicationId]);
 
-  async function findPositions() {
-    setError("");
-    try {
-      const result = await api.positions.list({ q: positionQuery.trim(), page_size: 20 });
-      setPositions(result.items);
-      if (!result.items.some((position) => position.id === positionId)) setPositionId(0);
-    } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "岗位查询失败");
-    }
-  }
+  useEffect(() => {
+    if (!editing) saveDraft(window.localStorage, applicationDraftKey, {
+      companyName, positionTitle, jdText, status, appliedAt, note,
+    });
+  }, [appliedAt, companyName, editing, jdText, note, positionTitle, status]);
 
   async function save(event: FormEvent) {
     event.preventDefault();
-    if (!positionId) {
-      setError("请选择岗位");
+    if (!companyName.trim() || !positionTitle.trim()) {
+      setError("请填写公司和岗位");
       return;
     }
     setSaving(true);
@@ -74,18 +73,24 @@ export function ApplicationFormPage() {
     try {
       if (applicationId) {
         await api.applications.update(applicationId, {
-          position_id: positionId,
+          company_name: companyName.trim(),
+          position_title: positionTitle.trim(),
+          jd_text: jdText.trim() || null,
+          status,
           applied_at: toApiDate(appliedAt),
           note: note.trim() || null,
         });
       } else {
         await api.applications.create({
-          position_id: positionId,
+          company_name: companyName.trim(),
+          position_title: positionTitle.trim(),
+          jd_text: jdText.trim() || null,
           status,
           applied_at: toApiDate(appliedAt),
           note: note.trim() || null,
         });
       }
+      clearDraft(window.localStorage, applicationDraftKey);
       navigate("/applications");
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "保存失败");
@@ -105,7 +110,7 @@ export function ApplicationFormPage() {
       <div className="page-heading">
         <div>
           <h1>{editing ? "编辑投递" : "新增投递"}</h1>
-          <p>{editing ? "修正岗位、投递时间或备注。" : "将一条分散的信息收进作战台账。"}</p>
+          <p>{editing ? "修正岗位、投递时间或备注。" : "记录一条投递及其当前进度。"}</p>
         </div>
         <Link className="button ghost" to="/applications">
           <ArrowLeft size={17} aria-hidden="true" />
@@ -117,55 +122,33 @@ export function ApplicationFormPage() {
 
       <div className="form-grid">
         <form className="panel record-form" onSubmit={save}>
-          <div className="field-block">
-            <div className="field-heading">
-              <label htmlFor="position">目标岗位</label>
-              <Link to="/positions">管理岗位</Link>
-            </div>
-            <div className="inline-search">
-              <input
-                value={positionQuery}
-                onChange={(event) => setPositionQuery(event.target.value)}
-                placeholder="输入公司或岗位关键词"
-                aria-label="搜索岗位"
-              />
-              <button type="button" onClick={findPositions}>
-                <MagnifyingGlass size={17} aria-hidden="true" />
-                查找
-              </button>
-            </div>
+          <label className="field-block">
+            <span>公司</span>
+            <input required value={companyName} onChange={(event) => setCompanyName(event.target.value)} placeholder="例如：携程集团" />
+          </label>
+
+          <label className="field-block">
+            <span>岗位</span>
+            <input required value={positionTitle} onChange={(event) => setPositionTitle(event.target.value)} placeholder="例如：Agent 开发工程师" />
+          </label>
+
+          <label className="field-block">
+            <span>JD（可选）</span>
+            <textarea rows={6} value={jdText} onChange={(event) => setJdText(event.target.value)} placeholder="刚看到岗位时可直接粘贴；以后也能补充。" />
+          </label>
+
+          <label className="field-block">
+            <span>当前阶段</span>
             <select
-              id="position"
-              required
-              value={positionId || ""}
-              onChange={(event) => setPositionId(Number(event.target.value))}
+              value={status}
+              onChange={(event) => setStatus(event.target.value as ApplicationStatus)}
             >
-              <option value="" disabled>
-                选择一个岗位
-              </option>
-              {positions.map((position) => (
-                <option key={position.id} value={position.id}>
-                  {position.company.name} · {position.title}
-                </option>
+              {APPLICATION_STATUSES.map((item) => (
+                <option key={item}>{item}</option>
               ))}
             </select>
-            {positions.length === 0 && <small>未找到岗位，请先前往岗位库创建。</small>}
-          </div>
-
-          {!editing && (
-            <label className="field-block">
-              <span>当前阶段</span>
-              <select
-                value={status}
-                onChange={(event) => setStatus(event.target.value as ApplicationStatus)}
-              >
-                {APPLICATION_STATUSES.map((item) => (
-                  <option key={item}>{item}</option>
-                ))}
-              </select>
-              <small>补录已有投递时，可以直接选择它现在所在的阶段。</small>
-            </label>
-          )}
+            <small>{editing ? "如果阶段点错了，可以在这里直接修正为正确的阶段。" : "补录已有投递时，可以直接选择它现在所在的阶段。"}</small>
+          </label>
 
           <label className="field-block">
             <span>投递时间</span>
@@ -204,7 +187,9 @@ export function ApplicationFormPage() {
           </div>
           <StatusRail status={status} />
           <p>
-            状态保存后只能向后续阶段推进，也可以在任一未结束阶段标记为“挂”。
+            {editing
+              ? "在台账里推进阶段只能向后；如果之前点错了，在这里编辑可以直接改回正确的阶段。"
+              : "状态保存后只能向后续阶段推进，也可以在任一未结束阶段标记为“挂”。"}
           </p>
         </aside>
       </div>

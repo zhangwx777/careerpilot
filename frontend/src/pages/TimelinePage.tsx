@@ -29,6 +29,12 @@ function dateKey(date: Date) {
   return `${year}-${month}-${day}`;
 }
 
+function calendarTime(node: TimelineNode) {
+  return node.scheduled_at
+    ? new Intl.DateTimeFormat("zh-CN", { hour: "2-digit", minute: "2-digit" }).format(new Date(node.scheduled_at))
+    : ""
+}
+
 function dayRange(value: string) {
   const start = new Date(`${value}T00:00:00`);
   const end = new Date(start);
@@ -74,8 +80,9 @@ function TimelineItem({ node, focused, updatingId, onStatusChange }: TimelineIte
           <span className="node-type">{node.node_type}</span>
           {node.alert_types.map((alert) => <span key={alert}>{alertLabel(alert)}</span>)}
         </div>
-        <strong>{node.application.position.company.name}</strong>
+        <strong>{node.title || node.application.position.company.name}</strong>
         <span>{node.application.position.title} · {node.source ?? "来源未记录"}</span>
+        {node.detail && <span>{node.detail}</span>}
         {node.conflict_node_ids.length > 0 && (
           <small>与节点 #{node.conflict_node_ids.join("、#")} 时间冲突</small>
         )}
@@ -124,7 +131,7 @@ export function TimelinePage() {
     setLoading(true);
     setError("");
     const start = startDate ? dayRange(startDate).start : undefined;
-    const end = endDate ? new Date(`${endDate}T00:00:00`).toISOString() : undefined;
+    const end = endDate ? dayRange(endDate).end : undefined;
     api.timeline
       .list({ page, page_size: pageSize, start, end, status: statusFilter || undefined })
       .then((result) => { if (!cancelled) setListData(result); })
@@ -216,7 +223,7 @@ export function TimelinePage() {
     <section>
       <div className="page-heading timeline-heading">
         <div>
-          <span className="eyebrow">安排、冲突与下一步</span>
+          <span className="eyebrow">安排与提醒</span>
           <h1>时间线</h1>
           <p>所有确认过的截止、笔试与面试，都在同一个时间坐标里。</p>
         </div>
@@ -236,7 +243,7 @@ export function TimelinePage() {
           <input type="date" value={startDate} onChange={(event) => { setStartDate(event.target.value); setPage(1); }} />
         </label>
         <label className="select-control">
-          <span>结束日期（不含）</span>
+          <span>结束日期</span>
           <input type="date" value={endDate} onChange={(event) => { setEndDate(event.target.value); setPage(1); }} />
         </label>
         <label className="select-control">
@@ -288,7 +295,6 @@ export function TimelinePage() {
               {days.map((day) => {
                 const key = dateKey(day);
                 const items = nodesByDay.get(key) ?? [];
-                const alerts = new Set(items.flatMap((item) => item.alert_types));
                 return (
                   <button
                     type="button"
@@ -297,12 +303,18 @@ export function TimelinePage() {
                     onClick={() => setSelectedDay(key)}
                   >
                     <span className="day-number">{day.getDate()}</span>
-                    {items.length > 0 && <strong>{items.length} 项</strong>}
-                    <span className="calendar-dots">
-                      {alerts.has("冲突") && <i className="dot-conflict" />}
-                      {alerts.has("临期") && <i className="dot-upcoming" />}
-                      {alerts.has("逾期") && <i className="dot-overdue" />}
-                    </span>
+                    {items.length > 0 && <span className="calendar-events">
+                      {items.slice(0, 2).map((item) => (
+                        <span
+                          className={`calendar-event ${item.node_type === "网申截止" || item.node_type === "测评" ? "is-deadline" : "is-interview"} ${item.alert_types.map((alert) => `is-${alert}`).join(" ")}`}
+                          key={item.id}
+                        >
+                          <b>{item.node_type}</b>
+                          <span>{item.application.position.company.name} · {calendarTime(item)}</span>
+                        </span>
+                      ))}
+                      {items.length > 2 && <span className="calendar-more">还有 {items.length - 2} 项</span>}
+                    </span>}
                   </button>
                 );
               })}

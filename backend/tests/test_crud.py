@@ -56,10 +56,15 @@ class CrudApiTestCase(unittest.TestCase):
         self.assertEqual(response.status_code, 201, response.text)
         return response.json()
 
-    def create_application(self, position_id, status="已投递"):
+    def create_application(self, status="已投递"):
         response = self.client.post(
             "/api/applications",
-            json={"position_id": position_id, "status": status, "note": "重点跟进"},
+            json={
+                "company_name": "测试公司",
+                "position_title": "后端工程师",
+                "status": status,
+                "note": "重点跟进",
+            },
         )
         self.assertEqual(response.status_code, 201, response.text)
         return response.json()
@@ -123,7 +128,7 @@ class CrudApiTestCase(unittest.TestCase):
     def test_application_crud_filters_and_status_flow(self):
         company = self.create_company()
         position = self.create_position(company["id"])
-        application = self.create_application(position["id"], status="一面")
+        application = self.create_application(status="一面")
 
         filtered = self.client.get(
             "/api/applications",
@@ -161,10 +166,58 @@ class CrudApiTestCase(unittest.TestCase):
         deleted = self.client.delete(f"/api/applications/{application['id']}")
         self.assertEqual(deleted.status_code, 204)
 
+    def test_application_edit_can_correct_status_across_stages(self):
+        self.create_company()
+        self.create_position(
+            self.client.get("/api/companies").json()["items"][0]["id"]
+        )
+        application = self.create_application(status="三面")
+
+        # 台账的 /status 端点只能向后：退回应被拒绝
+        backward = self.client.patch(
+            f"/api/applications/{application['id']}/status", json={"status": "一面"}
+        )
+        self.assertEqual(backward.status_code, 409)
+
+        # 编辑接口允许把点错的阶段直接修正为更早的阶段
+        corrected = self.client.patch(
+            f"/api/applications/{application['id']}", json={"status": "一面"}
+        )
+        self.assertEqual(corrected.status_code, 200, corrected.text)
+        self.assertEqual(corrected.json()["status"], "一面")
+
+    def test_application_flow_supports_assessment_and_ai_interview(self):
+        self.create_company()
+        application = self.create_application()
+        assessment = self.client.patch(
+            f"/api/applications/{application['id']}/status", json={"status": "测评"}
+        )
+        self.assertEqual(assessment.status_code, 200, assessment.text)
+        ai_interview = self.client.patch(
+            f"/api/applications/{application['id']}/status", json={"status": "AI面"}
+        )
+        self.assertEqual(ai_interview.status_code, 200, ai_interview.text)
+
+    def test_application_create_materializes_job_and_keeps_reapplications(self):
+        payload = {
+            "company_name": "海投公司",
+            "position_title": "Agent工程师",
+            "jd_text": "负责 Agent 开发",
+            "note": "官网投递",
+        }
+        first = self.client.post("/api/applications", json=payload)
+        second = self.client.post("/api/applications", json=payload)
+
+        self.assertEqual(first.status_code, 201, first.text)
+        self.assertEqual(second.status_code, 201, second.text)
+        self.assertNotEqual(first.json()["id"], second.json()["id"])
+        self.assertEqual(first.json()["position_id"], second.json()["position_id"])
+        self.assertEqual(first.json()["position"]["company"]["name"], "海投公司")
+
     def test_company_delete_cascades(self):
         company = self.create_company()
         position = self.create_position(company["id"])
-        application = self.create_application(position["id"])
+        application = self.create_application()
 
         self.assertEqual(
             self.client.delete(f"/api/companies/{company['id']}").status_code, 204
