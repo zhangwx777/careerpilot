@@ -1,4 +1,5 @@
 from typing import Annotated
+import time
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from sqlalchemy import delete, func, or_, select
@@ -7,7 +8,27 @@ from sqlalchemy.orm import Session, joinedload
 
 from app.db import get_db
 from app.application_records import materialize_position
-from app.llm.registry import PROVIDERS
+from app.llm.config_store import (
+    LlmConfigError,
+    get_effective_config,
+    list_available_models,
+    list_provider_status,
+    resolve_provider,
+    save_provider,
+    set_default_provider,
+    touch_validation,
+    validate_base_url,
+    validate_provider,
+)
+from app.llm.provider import LlmCallError, chat
+from app.llm_schemas import (
+    DefaultProviderUpdate,
+    ProviderConfigWrite,
+    ProviderRead,
+    ProviderTestWrite,
+    ProviderTestRead,
+    ProviderModelsRead,
+)
 from app.models import APPLICATION_STATUS, Application, Company, Position
 from app.schemas import (
     ApplicationCreate,
@@ -23,7 +44,6 @@ from app.schemas import (
     PositionPage,
     PositionRead,
     PositionUpdate,
-    ProviderRead,
     StatusTransition,
 )
 
@@ -39,13 +59,152 @@ STATUS_ORDER = {
 
 
 @router.get("/providers", response_model=list[ProviderRead])
-def list_providers():
-    """返回 .env 里同时配好 key 和 model 的厂商及其模型名，供前端下拉展示。"""
-    return [
-        ProviderRead(name=name, model=cfg["model"])
-        for name, cfg in PROVIDERS.items()
-        if cfg["api_key"] and cfg["model"]
-    ]
+@router.get("/llm/providers", response_model=list[ProviderRead], include_in_schema=False)
+def list_providers(db: DbSession):
+    """返回四家 provider 的脱敏状态，供任务选择和设置页使用。"""
+    try:
+        return list_provider_status(db)
+    except LlmConfigError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from None
+
+
+@router.put("/llm/providers/{provider}", response_model=ProviderRead)
+def update_provider(provider: str, payload: ProviderConfigWrite, db: DbSession):
+    try:
+        save_provider(
+            db,
+            provider,
+            api_key=payload.api_key,
+            model=payload.model,
+            base_url=payload.base_url,
+        )
+    except LlmConfigError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from None
+    try:
+        return next(item for item in list_provider_status(db) if item["name"] == provider)
+    except LlmConfigError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from None
+
+
+@router.delete("/llm/providers/{provider}", response_model=list[ProviderRead])
+def delete_provider(provider: str, db: DbSession):
+    from app.models import LlmProviderConfig, LlmSettings
+
+    try:
+        validate_provider(provider)
+    except LlmConfigError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from None
+    row = db.get(LlmProviderConfig, provider)
+    if row is not None:
+        db.delete(row)
+        settings_row = db.get(LlmSettings, 1)
+        if settings_row and settings_row.default_provider == provider:
+            settings_row.default_provider = None
+        db.commit()
+    try:
+        return list_provider_status(db)
+    except LlmConfigError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from None
+
+
+@router.post("/llm/providers/{provider}/test", response_model=ProviderTestRead)
+def test_provider(provider: str, payload: ProviderTestWrite, db: DbSession):
+    started = time.perf_counter()
+    try:
+        validate_provider(provider)
+        saved = {}
+        if not payload.api_key or not payload.model or "base_url" not in payload.model_fields_set:
+            saved = get_effective_config(db, provider)
+        model = payload.model or saved.get("model")
+        api_key = payload.api_key or saved.get("api_key")
+        # An omitted Base URL reuses the saved endpoint; an explicit null/empty
+        # value from the settings page intentionally tests the official URL.
+        base_url_value = payload.base_url if "base_url" in payload.model_fields_set else saved.get("api_base")
+        base_url = validate_base_url(base_url_value)
+        config = {
+            "api_key": api_key,
+            "api_base": base_url,
+            "model": model,
+        }
+        chat(
+            [
+                {
+                    "role": "system",
+                    "content": "这是结构化输出连通性检查。只返回 JSON：{\"ok\":true}。",
+                },
+                {"role": "user", "content": "执行连通性检查。"},
+            ],
+            provider=provider,
+            response_format={"type": "json_object"},
+            config=config,
+            generation="structured",
+        )
+    except (LlmConfigError, ValueError) as exc:
+        touch_validation(db, provider, "验证失败", str(exc))
+        return ProviderTestRead(
+            provider=provider,
+            ok=False,
+            message=str(exc),
+            latency_ms=round((time.perf_counter() - started) * 1000),
+        )
+    except LlmCallError as exc:
+        touch_validation(db, provider, "验证失败", str(exc))
+        return ProviderTestRead(
+            provider=provider,
+            ok=False,
+            message=str(exc),
+            latency_ms=round((time.perf_counter() - started) * 1000),
+        )
+    except Exception:
+        touch_validation(db, provider, "验证失败", "连接失败，请检查 API key、model、Base URL 或网络。")
+        return ProviderTestRead(
+            provider=provider,
+            ok=False,
+            message="连接失败，请检查 API key、model、Base URL 或网络。",
+            latency_ms=round((time.perf_counter() - started) * 1000),
+        )
+    touch_validation(db, provider, "已验证", "连接成功")
+    return ProviderTestRead(
+        provider=provider,
+        ok=True,
+        message="连接成功",
+        latency_ms=round((time.perf_counter() - started) * 1000),
+    )
+
+
+@router.post("/llm/providers/{provider}/models", response_model=ProviderModelsRead)
+def list_provider_models(provider: str, payload: ProviderTestWrite, db: DbSession):
+    """读取 provider 的模型目录；请求字段只作临时覆盖，不会保存。"""
+    try:
+        overrides = {}
+        if payload.api_key:
+            overrides["api_key"] = payload.api_key
+        if payload.model:
+            overrides["model"] = payload.model
+        if "base_url" in payload.model_fields_set:
+            overrides["api_base"] = validate_base_url(payload.base_url)
+        models = list_available_models(db, provider, overrides=overrides)
+        return ProviderModelsRead(provider=provider, models=models)
+    except (LlmConfigError, ValueError) as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from None
+    except Exception as exc:
+        # Keep provider/network details and credentials out of the response.
+        from app.llm.config_store import LlmModelsError
+        if isinstance(exc, LlmModelsError):
+            raise HTTPException(status_code=502, detail=str(exc)) from None
+        raise HTTPException(status_code=502, detail="读取模型目录失败，请检查 API key、Base URL 或网络") from None
+
+
+@router.put("/llm/default", response_model=list[ProviderRead])
+def update_default_provider(payload: DefaultProviderUpdate, db: DbSession):
+    try:
+        set_default_provider(db, payload.provider)
+    except LlmConfigError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from None
+    try:
+        return list_provider_status(db)
+    except LlmConfigError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from None
 
 
 def _get_company(db: Session, company_id: int) -> Company:

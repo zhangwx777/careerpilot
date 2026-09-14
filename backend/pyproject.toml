@@ -16,6 +16,7 @@ dependencies = [
     "pypdf>=5.0.0",
     "python-docx>=1.1.0",
     "python-multipart>=0.0.9",
+    "cryptography>=43.0.0",
 ]
 
 [build-system]

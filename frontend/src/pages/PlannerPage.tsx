@@ -34,7 +34,7 @@ export function PlannerPage() {
   useEffect(() => {
     let cancelled = false;
     api.applications.list({ page_size: 100 }).then((result) => { if (!cancelled) setApplications(result.items); }).catch((reason: Error) => { if (!cancelled) setError(reason.message); });
-    api.providers.list().then((result) => { if (!cancelled) { setProviders(result); setProvider((current) => result.some((item) => item.name === current) ? current : result[0]?.name ?? ""); } }).catch((reason: Error) => { if (!cancelled) setError(reason.message); });
+    api.providers.list().then((result) => { if (!cancelled) { const configured = result.filter((item) => item.configured); setProviders(configured); setProvider((current) => configured.some((item) => item.name === current) ? current : configured.find((item) => item.is_default)?.name ?? configured[0]?.name ?? ""); } }).catch((reason: Error) => { if (!cancelled) setError(reason.message); });
     api.planner.resume().then((result) => { if (!cancelled) { setProfile(result); setFileName(result.file_name ?? ""); } }).catch(() => undefined);
     return () => { cancelled = true; };
   }, []);
@@ -146,7 +146,7 @@ export function PlannerPage() {
             <label>
               分析模型
               <select value={provider} onChange={(event) => setProvider(event.target.value)}>
-                {providers.map((item) => <option key={item.name} value={item.name}>{item.name} · {item.model}</option>)}
+                {providers.map((item) => <option key={item.name} value={item.name}>{item.label} · {item.model}</option>)}
               </select>
             </label>
             <button className="button primary" type="button" disabled={loading || uploading} onClick={generate}>

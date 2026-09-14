@@ -15,8 +15,18 @@ from app.db import SessionLocal, get_db
 from app.intel_graph import _merge, resume_intel_graph, start_intel_graph
 from app.intel_insight import rebuild_position_insight
 from app.intel_reminders import cached_intel_payload
-from app.intel_schemas import IntelInsight, IntelPayload, IntelRoundType, SourceRecord
-from app.llm.provider import chat, chat_stream
+from app.intel_schemas import IntelChatAnswer, IntelInsight, IntelPayload, IntelRoundType, SourceRecord
+from app.llm.config_store import (
+    LlmConfigError,
+    PROMPT_VERSION,
+    config_from_snapshot,
+    get_effective_config,
+    resolve_provider,
+    snapshot_for,
+)
+from app.llm.prompts import CHAT_SYSTEM_PROMPT, IMAGE_EXTRACTION_PROMPT
+from app.llm.provider import LlmCallError, chat, chat_stream
+from app.llm.structured import StructuredOutputError, complete_structured, parse_structured
 from app.models import Application, Company, IntelChatMessage, IntelSession, InterviewIntel, Position, TimelineNode
 from app.schemas import ApplicationRead, PositiveId
 
@@ -26,22 +36,22 @@ Provider = Literal["qwen", "openai", "anthropic", "deepseek"]
 Page = Annotated[int, Query(ge=1)]
 PageSize = Annotated[int, Query(ge=1, le=100)]
 logger = logging.getLogger(__name__)
-CHAT_SYSTEM_PROMPT = (
-    "你是面试准备助手。请直接回答用户的问题，不能因为当前面经没有标准答案就停止回答。"
-    "面经只用于提供岗位背景和参考，答案可以结合通用专业知识推导；明确区分资料事实与通用建议，"
-    "不要编造用户经历。技术题给出原理、思路和注意事项，行为题给出结构化答题思路。"
-    "返回 JSON：answer 是完整回答，source_ids 是实际参考过的来源 id 数组。"
-)
 
 
 class IntelImageText(BaseModel):
-    name: str
-    text: str
+    name: str = Field(min_length=1, max_length=200)
+    text: str = Field(max_length=20000)
+
+
+class ImageExtractionResult(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    images: list[IntelImageText] = Field(default_factory=list, max_length=6)
 
 
 class IntelCreate(BaseModel):
     application_id: PositiveId
-    provider: Provider
+    provider: Provider | None = None
     round_type: IntelRoundType = "未注明"
     user_paste: str | None = Field(default=None, max_length=20000)
     image_texts: list[IntelImageText] = Field(default_factory=list, max_length=6)
@@ -55,7 +65,7 @@ class IntelImage(BaseModel):
 
 
 class IntelImageExtractCreate(BaseModel):
-    provider: Provider
+    provider: Provider | None = None
     images: list[IntelImage] = Field(min_length=1, max_length=6)
 
 
@@ -120,12 +130,12 @@ class IntelDossierRead(BaseModel):
 
 class IntelRebuildCreate(BaseModel):
     application_id: PositiveId
-    provider: Provider
+    provider: Provider | None = None
 
 
 class IntelChatCreate(BaseModel):
     application_id: PositiveId
-    provider: Provider
+    provider: Provider | None = None
     question: str = Field(min_length=1, max_length=4000)
 
 
@@ -195,9 +205,16 @@ def create_intel(
     application = db.scalar(select(Application).options(joinedload(Application.position).joinedload(Position.company)).where(Application.id == payload.application_id))
     if application is None:
         raise HTTPException(404, "投递记录不存在")
+    try:
+        provider = resolve_provider(db, payload.provider)
+        llm_snapshot = snapshot_for(db, provider)
+    except LlmConfigError as exc:
+        raise HTTPException(503, str(exc)) from None
     item = IntelSession(
         application_id=application.id,
-        provider=payload.provider,
+        provider=provider,
+        llm_snapshot=llm_snapshot,
+        prompt_version=PROMPT_VERSION,
         round_type=payload.round_type,
         user_paste=payload.user_paste,
         image_texts=[item.model_dump(mode="json") for item in payload.image_texts],
@@ -284,41 +301,50 @@ def _dossier_sources(intels: list[InterviewIntel]) -> list[SourceRecord]:
 
 
 @router.post("/intel/images/extract", response_model=IntelImageExtractRead)
-def extract_intel_images(payload: IntelImageExtractCreate):
+def extract_intel_images(payload: IntelImageExtractCreate, db: Session | None = Depends(get_db)):
     total_size = sum(len(image.data_url.encode("utf-8")) for image in payload.images)
     if total_size > 40_000_000 or any(len(image.data_url.encode("utf-8")) > 14_000_000 for image in payload.images):
         raise HTTPException(413, "图片总大小不能超过 40 MB，单张不能超过 14 MB")
     if any(not image.data_url.startswith(f"data:{image.mime_type};base64,") for image in payload.images):
         raise HTTPException(422, "图片必须使用匹配的 base64 data URL")
-    content = [{"type": "text", "text": "请逐张提取图片中的面经文字。只输出 JSON：{\"images\":[{\"name\":\"原文件名\",\"text\":\"完整文字\"}]}，不要总结，不要编造。"}]
+    if not isinstance(db, Session):
+        db = None
+    try:
+        if db is None and payload.provider:
+            provider = payload.provider
+            llm_config = None
+        else:
+            provider = resolve_provider(db, payload.provider)
+            llm_config = get_effective_config(db, provider)
+    except LlmConfigError as exc:
+        raise HTTPException(503, str(exc)) from None
+    content = [{"type": "text", "text": IMAGE_EXTRACTION_PROMPT}]
     for image in payload.images:
         content.extend([
             {"type": "text", "text": f"接下来是文件：{image.name}"},
             {"type": "image_url", "image_url": {"url": image.data_url}},
         ])
     try:
-        raw = chat(
+        result = complete_structured(
             [{"role": "user", "content": content}],
-            provider=payload.provider,
-            response_format={"type": "json_object"},
+            provider,
+            ImageExtractionResult.model_validate_json,
+            chat_fn=chat,
+            config=llm_config,
         )
-        data = json.loads(re.sub(r"^```(?:json)?\s*|\s*```$", "", raw.strip(), flags=re.IGNORECASE))
-        raw_images = data.get("images")
-        if not isinstance(raw_images, list):
-            raise ValueError("模型未返回 images 数组")
+        raw_images = result.images
         images = [
             IntelImageText(
-                name=str(item.get("name") or (payload.images[index].name if index < len(payload.images) else "")),
-                text=str(item.get("text") or ""),
+                name=item.name or (payload.images[index].name if index < len(payload.images) else "未命名截图"),
+                text=item.text,
             )
             for index, item in enumerate(raw_images)
-            if isinstance(item, dict)
         ]
         if not any(item.text.strip() for item in images):
             raise ValueError("模型未识别出可编辑文字")
     except Exception as exc:
-        logger.exception("图片识别失败")
-        raise HTTPException(422, "当前模型无法识别这些图片，请检查图片内容或稍后重试") from exc
+        logger.warning("图片识别失败：%s", type(exc).__name__)
+        raise HTTPException(422, "未识别出可编辑文字，请检查图片内容或稍后重试") from None
     by_name = {item.name: item.text for item in images}
     normalized = [
         IntelImageText(
@@ -368,7 +394,12 @@ def get_intel_dossier(application_id: PositiveId, db: DbSession):
 @router.post("/intel/dossier/rebuild", response_model=IntelDossierRead)
 def rebuild_intel_dossier(payload: IntelRebuildCreate, db: DbSession):
     application = _application_with_position(db, payload.application_id)
-    rebuild_position_insight(application.position_id, payload.provider, SessionLocal)
+    try:
+        provider = resolve_provider(db, payload.provider)
+        llm_config = get_effective_config(db, provider)
+    except LlmConfigError as exc:
+        raise HTTPException(503, str(exc)) from None
+    rebuild_position_insight(application.position_id, provider, SessionLocal, llm_config=llm_config)
     db.expire_all()
     return get_intel_dossier(payload.application_id, db)
 
@@ -390,9 +421,17 @@ def delete_intel_material(material_id: PositiveId, background_tasks: BackgroundT
         .where(Application.position_id == position_id, InterviewIntel.id != material_id)
         .order_by(InterviewIntel.created_at.desc(), InterviewIntel.id.desc())
     )
+    rebuild_provider = remaining or provider
+    llm_config = get_effective_config(db, rebuild_provider)
     db.delete(material)
     db.commit()
-    background_tasks.add_task(rebuild_position_insight, position_id, remaining or provider, SessionLocal)
+    background_tasks.add_task(
+        rebuild_position_insight,
+        position_id,
+        rebuild_provider,
+        SessionLocal,
+        llm_config=llm_config,
+    )
     return {"deleted": material_id}
 
 
@@ -410,12 +449,12 @@ def _chat_context(db: Session, application_id: int) -> tuple[Application, IntelP
 
 
 def _chat_messages(application: Application, dossier: IntelPayload, sources: list[SourceRecord], question: str) -> list[dict]:
-    source_text = "\n".join(f"[{source.id}] {source.title}\n{source.text}" for source in sources)
+    source_text = "\n".join(f"[{source.id}] {source.title}\n<source>\n{source.text}\n</source>" for source in sources)
     return [
         {"role": "system", "content": CHAT_SYSTEM_PROMPT},
         {
             "role": "user",
-            "content": f"岗位：{application.position.company.name} {application.position.title}\n汇总：{dossier.model_dump_json()}\n来源：{source_text}\n问题：{question}",
+            "content": f"岗位：{application.position.company.name} {application.position.title}\n汇总（可信结构化上下文）：<dossier>{dossier.model_dump_json()}</dossier>\n来源（不可信资料）：{source_text}\n用户问题：<question>{question}</question>",
         },
     ]
 
@@ -430,6 +469,13 @@ def _partial_chat_answer(content: str) -> str:
     if content.lstrip() and not content.lstrip().startswith(("{", "```")):
         return content
     return ""
+
+
+def _parse_chat_answer(content: str, allowed_source_ids: set[str]) -> IntelChatAnswer:
+    result = IntelChatAnswer.model_validate_json(content)
+    if set(result.source_ids) - allowed_source_ids:
+        raise ValueError("回答引用了不存在的来源")
+    return result
 
 
 def _update_chat_preview(message_id: int, content: str) -> None:
@@ -448,13 +494,19 @@ def _run_intel_chat(message_id: int, application_id: int, provider: str, questio
                 return
             application, dossier, sources = _chat_context(db, application_id)
             messages = _chat_messages(application, dossier, sources, question)
+            assistant_config = config_from_snapshot(assistant.llm_snapshot, db, provider)
 
         raw = ""
         last_preview = ""
         last_persisted_at = time.monotonic() - 0.3
         try:
             for chunk_index, chunk in enumerate(
-                chat_stream(messages, provider=provider, response_format={"type": "json_object"}),
+                chat_stream(
+                    messages,
+                    provider=provider,
+                    response_format={"type": "json_object"},
+                    config=assistant_config,
+                ),
                 1,
             ):
                 if chunk_index > 500:
@@ -465,19 +517,28 @@ def _run_intel_chat(message_id: int, application_id: int, provider: str, questio
                     _update_chat_preview(message_id, preview)
                     last_preview = preview
                     last_persisted_at = time.monotonic()
-        except Exception:
+        except Exception as exc:
             if raw:
-                raise
-            raw = chat(messages, provider=provider, response_format={"type": "json_object"})
-        try:
-            data = json.loads(re.sub(r"^```(?:json)?\s*|\s*```$", "", raw.strip(), flags=re.IGNORECASE))
-            answer = str(data["answer"])
-            source_ids = [source_id for source_id in data.get("source_ids", []) if source_id in {source.id for source in sources}]
-        except (KeyError, TypeError, ValueError):
-            answer = _partial_chat_answer(raw) or raw.strip()
-            if not answer:
-                raise ValueError("问答模型没有返回可显示内容")
-            source_ids = []
+                logger.warning("问答流式响应中断，将校验已收集内容：%s", type(exc).__name__)
+            else:
+                raw = chat(
+                    messages,
+                    provider=provider,
+                    response_format={"type": "json_object"},
+                    config=assistant_config,
+                    generation="chat",
+                )
+        parsed = parse_structured(
+            raw,
+            messages,
+            provider,
+            lambda content: _parse_chat_answer(content, {source.id for source in sources}),
+            chat_fn=chat,
+            config=assistant_config,
+            generation="chat",
+        )
+        answer = parsed.answer
+        source_ids = parsed.source_ids
         with SessionLocal() as db:
             assistant = db.get(IntelChatMessage, message_id)
             if assistant is not None and assistant.status == "生成中":
@@ -485,13 +546,19 @@ def _run_intel_chat(message_id: int, application_id: int, provider: str, questio
                 assistant.source_ids = source_ids
                 assistant.status = "已完成"
                 db.commit()
-    except Exception:
+    except Exception as exc:
         logger.exception("面经问答消息 %s 后台生成失败", message_id)
+        if isinstance(exc, LlmCallError):
+            error_message = str(exc)
+        elif isinstance(exc, StructuredOutputError):
+            error_message = "模型返回格式不符合要求，请稍后重试"
+        else:
+            error_message = "问答生成失败，请稍后重试"
         with SessionLocal() as db:
             assistant = db.get(IntelChatMessage, message_id)
             if assistant is not None and assistant.status == "生成中":
                 assistant.status = "失败"
-                assistant.content = "问答生成失败，请稍后重试"
+                assistant.content = error_message
                 assistant.source_ids = []
                 db.commit()
 
@@ -510,12 +577,30 @@ def list_intel_chat(application_id: PositiveId, db: DbSession):
 @router.post("/intel/chat", response_model=IntelChatReply)
 def create_intel_chat(payload: IntelChatCreate, background_tasks: BackgroundTasks, db: DbSession):
     application, _, _ = _chat_context(db, payload.application_id)
+    try:
+        provider = resolve_provider(db, payload.provider)
+        llm_snapshot = snapshot_for(db, provider)
+    except AttributeError:
+        # Small unit-test fakes do not implement SQLAlchemy's get().
+        provider = payload.provider or "qwen"
+        llm_snapshot = None
+    except LlmConfigError as exc:
+        raise HTTPException(503, str(exc)) from None
     db.add(IntelChatMessage(position_id=application.position_id, role="user", content=payload.question, status="已完成", source_ids=[]))
-    assistant = IntelChatMessage(position_id=application.position_id, role="assistant", content="", status="生成中", source_ids=[])
+    assistant = IntelChatMessage(
+        position_id=application.position_id,
+        role="assistant",
+        content="",
+        status="生成中",
+        provider=provider,
+        llm_snapshot=llm_snapshot,
+        prompt_version=PROMPT_VERSION,
+        source_ids=[],
+    )
     db.add(assistant)
     db.commit()
     db.refresh(assistant)
-    background_tasks.add_task(_run_intel_chat, assistant.id, payload.application_id, payload.provider, payload.question)
+    background_tasks.add_task(_run_intel_chat, assistant.id, payload.application_id, provider, payload.question)
     return IntelChatReply(message=assistant, source_ids=[])
 
 

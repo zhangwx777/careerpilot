@@ -104,12 +104,12 @@ function TimelineItem({ node, focused, updatingId, onStatusChange }: TimelineIte
 export function TimelinePage() {
   const [searchParams] = useSearchParams();
   const focusId = Number(searchParams.get("focus")) || null;
-  const initialDate = searchParams.get("date") ?? "";
+  const initialDate = searchParams.get("date") || dateKey(new Date());
   const [view, setView] = useState<"list" | "calendar">("list");
   const [page, setPage] = useState(1);
   const [startDate, setStartDate] = useState(initialDate);
   const [endDate, setEndDate] = useState(
-    initialDate ? dayRange(initialDate).end.slice(0, 10) : "",
+    initialDate,
   );
   const [statusFilter, setStatusFilter] = useState<NodeStatus | "">("");
   const [listData, setListData] = useState<Page<TimelineNode>>({

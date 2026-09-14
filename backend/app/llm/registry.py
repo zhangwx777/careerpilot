@@ -1,11 +1,11 @@
-"""四家模型的 registry：把厂商配置（key / base_url / model）从 .env 汇总。
+"""四家模型的 legacy registry：把厂商配置（key / base_url / model）从 .env 汇总。
 
-所有值均来自 .env，代码不预设任何默认。LiteLLM 用统一的 OpenAI 兼容接口调所有厂商。
+这些值作为网页配置尚未覆盖时的兼容回退。LiteLLM 用统一的 OpenAI 兼容接口调所有厂商。
 """
 
 from app.config import settings
 
-# provider -> {api_key, api_base, model}，全部来自 .env。
+# provider -> {api_key, api_base, model}，全部来自 .env 兼容配置。
 # base_url 为空则传 None（走 LiteLLM 官方默认）。
 PROVIDERS = {
     "anthropic": {

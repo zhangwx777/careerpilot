@@ -87,12 +87,12 @@ class IntelGraphTestCase(unittest.TestCase):
                 ["甲面经", "乙面经"],
             )
 
-    @patch("app.intel_graph.chat", return_value="```json\n{}\n```")
+    @patch("app.intel_graph.chat", side_effect=["```json\n{}\n```", "```json\n{}\n```"])
     @patch("app.intel_graph.extract_intel", return_value=IntelExtraction())
     @patch("app.intel_graph.search", return_value=[{"title": "甲面经", "url": "https://a.test", "text": "一面问了算法"}])
     def test_invalid_critic_json_fails_explicitly(self, _mock_search, _mock_extract, _mock_chat):
         session_id, thread_id = self._session()
-        with self.assertRaisesRegex(IntelGraphError, "反思模型返回的不是合法 JSON"):
+        with self.assertRaisesRegex(IntelGraphError, "反思模型返回格式无效"):
             start_intel_graph(session_id, thread_id, "qwen", "测试公司 后端", None, TEST_DATABASE_URL, self.sessions)
 
     @patch("app.intel_graph.chat", return_value='{"approved": true, "feedback": ""}')

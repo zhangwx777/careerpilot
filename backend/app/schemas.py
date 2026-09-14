@@ -148,5 +148,6 @@ class StatusTransition(BaseModel):
 
 
 class ProviderRead(BaseModel):
+    """Legacy response shape kept for external imports; API uses app.llm_schemas.ProviderRead."""
     name: str
     model: str

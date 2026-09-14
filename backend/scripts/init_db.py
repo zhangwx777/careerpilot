@@ -133,6 +133,60 @@ def initialize_database(database_url: str) -> None:
                     "NOT NULL DEFAULT '已完成'"
                 )
             )
+            connection.execute(
+                text(
+                    "ALTER TABLE parse_session "
+                    "ADD COLUMN IF NOT EXISTS llm_snapshot TEXT"
+                )
+            )
+            connection.execute(
+                text(
+                    "ALTER TABLE parse_session "
+                    "ADD COLUMN IF NOT EXISTS prompt_version VARCHAR(40)"
+                )
+            )
+            connection.execute(
+                text(
+                    "ALTER TABLE intel_session "
+                    "ADD COLUMN IF NOT EXISTS llm_snapshot TEXT"
+                )
+            )
+            connection.execute(
+                text(
+                    "ALTER TABLE intel_session "
+                    "ADD COLUMN IF NOT EXISTS prompt_version VARCHAR(40)"
+                )
+            )
+            connection.execute(
+                text(
+                    "ALTER TABLE planner_session "
+                    "ADD COLUMN IF NOT EXISTS llm_snapshot TEXT"
+                )
+            )
+            connection.execute(
+                text(
+                    "ALTER TABLE planner_session "
+                    "ADD COLUMN IF NOT EXISTS prompt_version VARCHAR(40)"
+                )
+            )
+            connection.execute(
+                text(
+                    "ALTER TABLE intel_chat_message "
+                    "ADD COLUMN IF NOT EXISTS provider VARCHAR(50)"
+                )
+            )
+            connection.execute(
+                text(
+                    "ALTER TABLE intel_chat_message "
+                    "ADD COLUMN IF NOT EXISTS llm_snapshot TEXT"
+                )
+            )
+            connection.execute(
+                text(
+                    "ALTER TABLE intel_chat_message "
+                    "ADD COLUMN IF NOT EXISTS prompt_version VARCHAR(40)"
+                )
+            )
 
         with PostgresSaver.from_conn_string(
             to_psycopg_connection_string(database_url)

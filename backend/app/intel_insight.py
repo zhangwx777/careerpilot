@@ -1,15 +1,15 @@
 import json
 import logging
-import re
 from collections.abc import Callable
 from urllib.parse import urlsplit, urlunsplit
 
-from pydantic import ValidationError
 from sqlalchemy import select
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.intel_schemas import IntelInsight
 from app.llm.provider import chat
+from app.llm.prompts import insight_prompt
+from app.llm.structured import StructuredOutputError, clean_json, complete_structured
 from app.models import Application, InterviewIntel, Position
 
 
@@ -21,7 +21,8 @@ logger = logging.getLogger(__name__)
 
 
 def _clean_json(content: str) -> str:
-    return re.sub(r"^```(?:json)?\s*|\s*```$", "", content.strip(), flags=re.IGNORECASE)
+    """Compatibility wrapper; new structured tasks use app.llm.structured."""
+    return clean_json(content)
 
 
 def _source_alias(material_id: int, source_id: str) -> str:
@@ -87,22 +88,12 @@ def _build_input(position: Position, materials: list[InterviewIntel]) -> tuple[s
         },
         ensure_ascii=False,
     )
-    prompt = (
-        "你是岗位面试洞察整理器。只依据输入中的面经问题、准备事项和岗位 JD 输出 JSON。\n"
-        "高频考察方向必须按能力方向语义聚合，不要求问题文字相同；同一来源只能计一次。"
-        "只有至少来自两个不同 source_ids 的方向才能进入 high_frequency_directions。"
-        "高频统计不受 round_type 限制，但必须保留涉及轮次。"
-        "core_questions 最多 8 条，选择最值得准备的问题，可包含只出现一次但重要的问题。"
-        "preparation_items 只能围绕 high_frequency_directions 和 core_questions 生成。"
-        "所有 source_ids 必须来自输入的 source_ids，不能创造新的来源 ID。"
-        "不要输出代码变量名、schema 字段解释或内部实现名称。\n"
-        f"JSON Schema：{schema}\n输入：{content}"
-    )
+    prompt = insight_prompt(schema, content)
     return prompt, allowed
 
 
 def _parse(content: str, allowed: set[str]) -> IntelInsight:
-    result = IntelInsight.model_validate_json(_clean_json(content))
+    result = IntelInsight.model_validate_json(clean_json(content))
     directions = []
     for item in result.high_frequency_directions:
         ids = sorted(set(item.source_ids) & allowed)
@@ -130,26 +121,25 @@ def _parse(content: str, allowed: set[str]) -> IntelInsight:
     )
 
 
-def _generate(prompt: str, provider: str, allowed: set[str]) -> IntelInsight:
-    raw = chat([{"role": "user", "content": prompt}], provider=provider, response_format={"type": "json_object"})
+def _generate(prompt: str, provider: str, allowed: set[str], llm_config: dict | None = None) -> IntelInsight:
     try:
-        return _parse(raw, allowed)
-    except (ValidationError, ValueError, TypeError) as first_error:
-        repaired = chat(
-            [
-                {"role": "user", "content": prompt},
-                {"role": "user", "content": f"上一次输出无效，请只返回修正后的 JSON。错误：{first_error}\n上一次结果：{raw}"},
-            ],
-            provider=provider,
-            response_format={"type": "json_object"},
+        return complete_structured(
+            [{"role": "user", "content": prompt}],
+            provider,
+            lambda content: _parse(content, allowed),
+            chat_fn=chat,
+            config=llm_config,
         )
-        try:
-            return _parse(repaired, allowed)
-        except (ValidationError, ValueError, TypeError) as exc:
-            raise IntelInsightError(f"岗位面试洞察结构化结果无效：{exc}") from exc
+    except StructuredOutputError:
+        raise IntelInsightError("岗位面试洞察结构化结果无效，请稍后重试") from None
 
 
-def rebuild_position_insight(position_id: int, provider: str, session_factory: Callable[[], Session] | sessionmaker) -> None:
+def rebuild_position_insight(
+    position_id: int,
+    provider: str,
+    session_factory: Callable[[], Session] | sessionmaker,
+    llm_config: dict | None = None,
+) -> None:
     try:
         with session_factory() as db:
             position = db.scalar(select(Position).where(Position.id == position_id))
@@ -170,7 +160,7 @@ def rebuild_position_insight(position_id: int, provider: str, session_factory: C
             position.intel_insight = IntelInsight(status="生成中").model_dump(mode="json")
             db.commit()
             prompt, allowed = _build_input(position, materials)
-        insight = _generate(prompt, provider, allowed)
+        insight = _generate(prompt, provider, allowed, llm_config=llm_config)
         with session_factory() as db:
             position = db.get(Position, position_id)
             if position is not None:

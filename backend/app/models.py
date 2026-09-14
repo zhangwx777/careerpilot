@@ -1,12 +1,17 @@
 from datetime import date, datetime, timezone
 from uuid import UUID, uuid4
 
-from sqlalchemy import JSON, Date, DateTime, Enum, ForeignKey, Integer, String, Text
+from sqlalchemy import JSON, Boolean, Date, DateTime, Enum, ForeignKey, Integer, String, Text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db import Base
 from app.llm.registry import default_provider
+
+
+# JSONB is useful in PostgreSQL, but the lightweight CRUD tests use SQLite.
+# Keep one portable type so metadata can be created by either dialect.
+PortableJSON = JSON().with_variant(JSONB, "postgresql")
 
 # 投递状态：网申 → 笔试 → 一面 → 二面 → 三面 → HR面 → offer / 挂
 APPLICATION_STATUS = (
@@ -44,6 +49,8 @@ INTEL_SESSION_STATUS = ("聚合中", "待裁决", "已完成", "已丢弃", "失
 PLANNER_SESSION_STATUS = ("生成中", "待确认", "已确认", "已完成", "已丢弃", "失败")
 
 PREPARATION_TASK_STATUS = ("待处理", "已完成", "已跳过")
+LLM_PROVIDER_NAMES = ("openai", "anthropic", "deepseek", "qwen")
+LLM_VALIDATION_STATUS = ("未验证", "已验证", "验证失败")
 
 
 def _now() -> datetime:
@@ -63,6 +70,37 @@ class Company(Base):
     )
 
 
+class LlmProviderConfig(Base):
+    """本机单用户的 provider 覆盖配置；API key 只保存密文。"""
+
+    __tablename__ = "llm_provider_config"
+
+    provider: Mapped[str] = mapped_column(String(50), primary_key=True)
+    encrypted_api_key: Mapped[str | None] = mapped_column(Text)
+    model: Mapped[str] = mapped_column(String(200), nullable=False, default="")
+    base_url: Mapped[str | None] = mapped_column(String(1000))
+    validation_status: Mapped[str] = mapped_column(
+        String(20), nullable=False, default="未验证"
+    )
+    validation_message: Mapped[str | None] = mapped_column(Text)
+    last_tested_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=_now, onupdate=_now
+    )
+
+
+class LlmSettings(Base):
+    __tablename__ = "llm_settings"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, default=1)
+    default_provider: Mapped[str | None] = mapped_column(String(50))
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=_now, onupdate=_now
+    )
+
+
 class Position(Base):
     __tablename__ = "position"
 
@@ -72,7 +110,7 @@ class Position(Base):
     )
     title: Mapped[str] = mapped_column(String(200), nullable=False)
     jd_text: Mapped[str | None] = mapped_column(Text)
-    intel_insight: Mapped[dict | None] = mapped_column(JSONB)
+    intel_insight: Mapped[dict | None] = mapped_column(PortableJSON)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
 
     company: Mapped["Company"] = relationship(back_populates="positions")
@@ -147,8 +185,8 @@ class ParseSession(Base):
     thread_id: Mapped[UUID] = mapped_column(default=uuid4, unique=True, nullable=False)
     raw_text: Mapped[str] = mapped_column(Text, nullable=False)
     provider: Mapped[str] = mapped_column(String(50), nullable=False)
-    extracted_payload: Mapped[dict | None] = mapped_column(JSONB)
-    confirmed_payload: Mapped[dict | None] = mapped_column(JSONB)
+    extracted_payload: Mapped[dict | None] = mapped_column(PortableJSON)
+    confirmed_payload: Mapped[dict | None] = mapped_column(PortableJSON)
     status: Mapped[str] = mapped_column(
         Enum(*PARSE_SESSION_STATUS, name="parse_session_status"),
         nullable=False,
@@ -160,6 +198,8 @@ class ParseSession(Base):
     error_message: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
     resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    llm_snapshot: Mapped[str | None] = mapped_column(Text)
+    prompt_version: Mapped[str | None] = mapped_column(String(40))
 
     timeline_node: Mapped["TimelineNode | None"] = relationship()
 
@@ -174,9 +214,9 @@ class InterviewIntel(Base):
     title: Mapped[str] = mapped_column(String(200), nullable=False, default="未命名面经")
     round_type: Mapped[str] = mapped_column(String(20), nullable=False, default="未注明")
     provider: Mapped[str] = mapped_column(String(50), nullable=False, default=default_provider)
-    payload: Mapped[dict] = mapped_column(JSONB, nullable=False)
+    payload: Mapped[dict] = mapped_column(PortableJSON, nullable=False)
     confidence: Mapped[float | None] = mapped_column()
-    sources: Mapped[list] = mapped_column(JSONB, default=list)
+    sources: Mapped[list] = mapped_column(PortableJSON, default=list)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
 
     application: Mapped["Application"] = relationship(back_populates="intels")
@@ -191,8 +231,11 @@ class IntelChatMessage(Base):
     )
     role: Mapped[str] = mapped_column(String(20), nullable=False)
     content: Mapped[str] = mapped_column(Text, nullable=False)
+    provider: Mapped[str | None] = mapped_column(String(50))
     status: Mapped[str] = mapped_column(String(20), nullable=False, default="已完成")
-    source_ids: Mapped[list] = mapped_column(JSONB, default=list)
+    source_ids: Mapped[list] = mapped_column(PortableJSON, default=list)
+    llm_snapshot: Mapped[str | None] = mapped_column(Text)
+    prompt_version: Mapped[str | None] = mapped_column(String(40))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
 
     position: Mapped["Position"] = relationship()
@@ -209,10 +252,10 @@ class IntelSession(Base):
     provider: Mapped[str] = mapped_column(String(50), nullable=False)
     round_type: Mapped[str] = mapped_column(String(20), nullable=False, default="未注明")
     user_paste: Mapped[str | None] = mapped_column(Text)
-    image_texts: Mapped[list] = mapped_column(JSONB, default=list)
-    draft_payload: Mapped[dict | None] = mapped_column(JSONB)
-    conflicts: Mapped[list | None] = mapped_column(JSONB)
-    progress_payload: Mapped[dict | None] = mapped_column(JSONB)
+    image_texts: Mapped[list] = mapped_column(PortableJSON, default=list)
+    draft_payload: Mapped[dict | None] = mapped_column(PortableJSON)
+    conflicts: Mapped[list | None] = mapped_column(PortableJSON)
+    progress_payload: Mapped[dict | None] = mapped_column(PortableJSON)
     status: Mapped[str] = mapped_column(
         Enum(*INTEL_SESSION_STATUS, name="intel_session_status"),
         nullable=False,
@@ -224,6 +267,8 @@ class IntelSession(Base):
     error_message: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
     resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    llm_snapshot: Mapped[str | None] = mapped_column(Text)
+    prompt_version: Mapped[str | None] = mapped_column(String(40))
 
     application: Mapped["Application"] = relationship(back_populates="intel_sessions")
     interview_intel: Mapped["InterviewIntel | None"] = relationship()
@@ -249,9 +294,9 @@ class PlannerSession(Base):
     provider: Mapped[str] = mapped_column(String(50), nullable=False)
     resume_snapshot: Mapped[str] = mapped_column(Text, nullable=False)
     jd_snapshot: Mapped[str] = mapped_column(Text, nullable=False)
-    intel_snapshot: Mapped[list] = mapped_column(JSONB, default=list)
-    available_windows: Mapped[list] = mapped_column(JSONB, nullable=False)
-    draft_payload: Mapped[dict | None] = mapped_column(JSONB)
+    intel_snapshot: Mapped[list] = mapped_column(PortableJSON, default=list)
+    available_windows: Mapped[list] = mapped_column(PortableJSON, nullable=False)
+    draft_payload: Mapped[dict | None] = mapped_column(PortableJSON)
     status: Mapped[str] = mapped_column(
         Enum(*PLANNER_SESSION_STATUS, name="planner_session_status"),
         nullable=False,
@@ -260,6 +305,8 @@ class PlannerSession(Base):
     error_message: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
     resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    llm_snapshot: Mapped[str | None] = mapped_column(Text)
+    prompt_version: Mapped[str | None] = mapped_column(String(40))
 
     application: Mapped["Application"] = relationship()
     tasks: Mapped[list["PreparationTask"]] = relationship(
@@ -280,7 +327,7 @@ class PreparationTask(Base):
     title: Mapped[str] = mapped_column(String(200), nullable=False)
     detail: Mapped[str | None] = mapped_column(Text)
     gap: Mapped[str | None] = mapped_column(String(200))
-    source_ids: Mapped[list] = mapped_column(JSONB, default=list)
+    source_ids: Mapped[list] = mapped_column(PortableJSON, default=list)
     scheduled_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     ends_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     estimated_minutes: Mapped[int] = mapped_column(Integer, nullable=False)
@@ -304,7 +351,7 @@ class DailyBriefing(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     briefing_date: Mapped[date] = mapped_column(Date, nullable=False, unique=True)
-    payload: Mapped[dict] = mapped_column(JSONB, nullable=False)
+    payload: Mapped[dict] = mapped_column(PortableJSON, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
 
     reported_sources: Mapped[list["ReportedSource"]] = relationship(

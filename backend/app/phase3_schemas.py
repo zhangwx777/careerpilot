@@ -13,10 +13,12 @@ NodeType = Literal[*NODE_TYPE]
 NodeStatus = Literal[*NODE_STATUS]
 ParseSessionStatus = Literal[*PARSE_SESSION_STATUS]
 RawNoticeText = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1)]
+Provider = Literal["qwen", "openai", "anthropic", "deepseek"]
 
 
 class ParseSessionCreate(BaseModel):
     raw_text: RawNoticeText
+    provider: Provider | None = None
 
 
 class NoticeApplicationCreate(BaseModel):

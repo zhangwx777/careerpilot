@@ -29,7 +29,7 @@ class Settings(BaseSettings):
     test_database_url: str | None = None
     anysearch_api_key: str = ""
 
-    # 四家厂商各自的三件套，全部由 .env 提供，代码不预设任何值。
+    # 四家厂商各自的三件套，作为 .env 兼容默认值；网页配置会在运行时覆盖。
     # 空字符串表示未配置。
     anthropic_api_key: str = ""
     anthropic_base_url: str = ""
@@ -49,6 +49,8 @@ class Settings(BaseSettings):
 
     llm_timeout_seconds: int = 45
     llm_retries: int = 0
+    # Optional in legacy .env-only mode; required only when saving UI config.
+    llm_config_secret: str = ""
 
 
 settings = Settings()

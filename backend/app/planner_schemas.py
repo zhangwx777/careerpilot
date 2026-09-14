@@ -51,7 +51,7 @@ class PlannerAction(BaseModel):
     title: NonEmptyText = Field(max_length=200)
     detail: str | None = Field(default=None, max_length=5000)
     priority: int = Field(ge=1, le=5)
-    source_ids: list[str] = Field(default_factory=list)
+    source_ids: list[str] = Field(default_factory=list, max_length=20)
 
 
 class PlannerTaskDraft(BaseModel):
@@ -60,7 +60,7 @@ class PlannerTaskDraft(BaseModel):
     title: NonEmptyText = Field(max_length=200)
     detail: str | None = Field(default=None, max_length=5000)
     gap: NonEmptyText = Field(max_length=200)
-    source_ids: list[str] = Field(default_factory=list)
+    source_ids: list[str] = Field(default_factory=list, max_length=20)
     estimated_minutes: int = Field(ge=15, le=480)
 
 
@@ -69,7 +69,7 @@ class PlannerDraft(BaseModel):
 
     summary: str | None = Field(default=None, max_length=5000)
     strengths: list[Gap] = Field(default_factory=list, max_length=20)
-    gaps: list[Gap] = Field(default_factory=list)
+    gaps: list[Gap] = Field(default_factory=list, max_length=20)
     actions: list[PlannerAction] = Field(default_factory=list, max_length=20)
     tasks: list[PlannerTaskDraft] = Field(default_factory=list, max_length=20)
 
@@ -85,8 +85,9 @@ class PlannerDraft(BaseModel):
                 )
                 for index, task in enumerate(self.tasks, 1)
             ]
-        if not self.actions:
-            raise ValueError("至少需要一项准备行动")
+        # Missing evidence is a valid result: the model should be able to
+        # explain that preparation data is insufficient without inventing an
+        # action merely to satisfy the schema.
         return self
 
 
@@ -107,7 +108,7 @@ class PlannerSessionCreate(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     application_id: PositiveId
-    provider: Provider
+    provider: Provider | None = None
 
 
 class PlannerConfirmation(BaseModel):

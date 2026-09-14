@@ -3,6 +3,7 @@ from datetime import datetime
 from unittest.mock import patch
 from zoneinfo import ZoneInfo
 
+from app.llm.provider import LlmCallError
 from app.parsing import NoticeParseError, extract_notice
 
 
@@ -20,7 +21,7 @@ class NoticeParsingTestCase(unittest.TestCase):
             '"ends_at":"2026-09-09T21:00:00+08:00","source":"邮件"}'
         )
 
-        result = extract_notice("请于明晚参加笔试", self.requested_at)
+        result = extract_notice("请于明晚参加笔试", self.requested_at, provider="qwen")
 
         self.assertEqual(result.company_name, "示例科技")
         self.assertEqual(result.node_type, "笔试")
@@ -55,7 +56,7 @@ class NoticeParsingTestCase(unittest.TestCase):
         self.assertEqual(result.time_mode, "截止窗口")
         self.assertEqual(result.deadline_workdays, 3)
 
-    @patch("app.parsing.chat", return_value="```json\n{}\n```")
+    @patch("app.parsing.chat", side_effect=["not-json", "still-not-json"])
     def test_rejects_non_json_response(self, _mock_chat):
         with self.assertRaises(NoticeParseError):
             extract_notice("通知", self.requested_at)
@@ -65,6 +66,11 @@ class NoticeParsingTestCase(unittest.TestCase):
         with self.assertRaisesRegex(NoticeParseError, "模型调用失败"):
             extract_notice("通知", self.requested_at)
         mock_chat.assert_called_once()
+
+    @patch("app.parsing.chat", side_effect=LlmCallError("unavailable"))
+    def test_preserves_safe_provider_error_category(self, _mock_chat):
+        with self.assertRaisesRegex(NoticeParseError, "模型服务暂时不可用"):
+            extract_notice("通知", self.requested_at)
 
     @patch("app.parsing.chat")
     def test_rejects_naive_or_reversed_times(self, mock_chat):

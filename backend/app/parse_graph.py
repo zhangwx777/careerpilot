@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from app.db import to_psycopg_connection_string
 from app.intel_reminders import sync_intel_reminder_for_application
+from app.llm.config_store import config_from_snapshot
 from app.models import Application, ParseSession, TimelineNode
 from app.parsing import extract_notice
 from app.phase3_schemas import ParseConfirmation
@@ -35,10 +36,16 @@ def build_parse_graph(
     session_factory: Callable[[], Session],
 ):
     def extract_node(state: ParseGraphState):
+        with session_factory() as db:
+            parse_session = db.get(ParseSession, state["parse_session_id"])
+            if parse_session is None:
+                raise ParseGraphStateError("解析会话不存在")
+            llm_config = config_from_snapshot(parse_session.llm_snapshot, db, state["provider"])
         extraction = extract_notice(
             state["raw_text"],
             datetime.fromisoformat(state["requested_at"]),
             state["provider"],
+            llm_config=llm_config,
         )
         payload = extraction.model_dump(mode="json")
         with session_factory() as db:

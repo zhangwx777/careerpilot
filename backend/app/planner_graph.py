@@ -14,6 +14,7 @@ from app.models import PlannerSession, PreparationTask, TimelineNode
 from app.planner import schedule_tasks, validate_task_intervals
 from app.planner_parsing import extract_plan
 from app.planner_schemas import AvailabilityWindow, PlannerConfirmation, PlannerDraft, ScheduledTask
+from app.llm.config_store import config_from_snapshot
 
 
 class PlannerGraphError(Exception):
@@ -39,6 +40,7 @@ def build_planner_graph(checkpointer: PostgresSaver, session_factory: Callable[[
                 raise PlannerGraphError("备战计划会话不存在")
             return {
                 "provider": item.provider,
+                "llm_snapshot": item.llm_snapshot,
                 "resume_text": item.resume_snapshot,
                 "jd_text": item.jd_snapshot,
                 "intel_snapshot": item.intel_snapshot,
@@ -47,7 +49,13 @@ def build_planner_graph(checkpointer: PostgresSaver, session_factory: Callable[[
 
     def analyze_gaps(state: PlannerGraphState):
         draft = extract_plan(
-            state["resume_text"], state["jd_text"], state["intel_snapshot"], state["provider"]
+            state["resume_text"],
+            state["jd_text"],
+            state["intel_snapshot"],
+            state["provider"],
+            llm_config=config_from_snapshot(
+                state.get("llm_snapshot"), None, state["provider"]
+            ),
         )
         return {"draft": draft.model_dump(mode="json")}
 

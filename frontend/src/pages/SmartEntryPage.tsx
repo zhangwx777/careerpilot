@@ -20,6 +20,7 @@ import {
   type Application,
   type NodeType,
   type ParseSession,
+  type ProviderOption,
   type TimeMode,
 } from "../types";
 
@@ -55,6 +56,8 @@ export function SmartEntryPage() {
   const [session, setSession] = useState<ParseSession | null>(null);
   const [pendingSessions, setPendingSessions] = useState<ParseSession[]>([]);
   const [applications, setApplications] = useState<Application[]>([]);
+  const [providers, setProviders] = useState<ProviderOption[]>([]);
+  const [provider, setProvider] = useState("");
   const [applicationQuery, setApplicationQuery] = useState("");
   const [applicationId, setApplicationId] = useState(0);
   const [companyName, setCompanyName] = useState("");
@@ -74,6 +77,10 @@ export function SmartEntryPage() {
 
   const applySession = useCallback((value: ParseSession) => {
     setSession(value);
+    // A session is bound to the provider snapshot created with it. Keep the
+    // selector aligned with that snapshot instead of showing the current
+    // global default while an older task is being reviewed.
+    setProvider(value.provider);
     if (value.status === "解析中" || value.status === "待确认") {
       saveSessionId(window.localStorage, activeNoticeSessionKey, value.id);
     } else {
@@ -113,6 +120,19 @@ export function SmartEntryPage() {
   useEffect(() => {
     loadPending();
   }, [loadPending]);
+
+  useEffect(() => {
+    let cancelled = false;
+    api.providers.list().then((items) => {
+      if (cancelled) return;
+      const configured = items.filter((item) => item.configured);
+      setProviders(configured);
+      setProvider((current) => configured.some((item) => item.name === current)
+        ? current
+        : configured.find((item) => item.is_default)?.name ?? configured[0]?.name ?? "");
+    }).catch((reason: Error) => { if (!cancelled) setError(reason.message); });
+    return () => { cancelled = true; };
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -180,7 +200,7 @@ export function SmartEntryPage() {
     setParsing(true);
     setError("");
     try {
-      const created = await api.parseSessions.create(rawText.trim());
+      const created = await api.parseSessions.create(rawText.trim(), provider || undefined);
       clearDraft(window.localStorage, noticeDraftKey);
       applySession(created);
       loadPending();
@@ -333,22 +353,30 @@ export function SmartEntryPage() {
           <span className="skeleton" /><span className="skeleton" /><span className="skeleton" />
         </div>
       ) : (
-        <div className="smart-entry-grid">
+        <div className={`smart-entry-grid${session ? " has-session" : " start-state"}`}>
           <form className="panel notice-input-panel" onSubmit={parse}>
             <div className="section-title">
               <MagicWand size={21} weight="duotone" aria-hidden="true" />
               <div><h2>通知原文</h2><span>邮件、短信或网页文字</span></div>
             </div>
             <textarea
-              rows={16}
+              rows={10}
               value={rawText}
               onChange={(event) => setRawText(event.target.value)}
               disabled={Boolean(session)}
               placeholder="例如：你好，请于 9 月 12 日 19:00 参加线上笔试，预计 90 分钟……"
               aria-label="招聘通知原文"
             />
+            <label className="field-block provider-inline-field">
+              <span>分析模型</span>
+              <select value={provider} onChange={(event) => setProvider(event.target.value)} disabled={Boolean(session) || parsing}>
+                {providers.length === 0 && <option value="">请先在设置页配置模型</option>}
+                {providers.map((item) => <option key={item.name} value={item.name}>{item.label} · {item.model}</option>)}
+              </select>
+              <small>本次解析可覆盖设置页的默认模型。</small>
+            </label>
             {!session && (
-              <button className="button primary parse-button" disabled={parsing} type="submit">
+              <button className="button primary parse-button" disabled={parsing || !provider} type="submit">
                 <MagicWand size={18} weight="bold" aria-hidden="true" />
                 {parsing ? "正在识别通知…" : "开始识别"}
               </button>

@@ -35,7 +35,7 @@ class PostgresInitializationTestCase(unittest.TestCase):
             inspector = inspect(engine)
             tables = set(inspector.get_table_names())
             self.assertIn("parse_session", tables)
-            self.assertTrue({"resume_profile", "planner_session", "preparation_task", "daily_briefing", "reported_source"} <= tables)
+            self.assertTrue({"resume_profile", "planner_session", "preparation_task", "daily_briefing", "reported_source", "llm_provider_config", "llm_settings"} <= tables)
             self.assertIn("checkpoints", tables)
             self.assertIn("checkpoint_writes", tables)
 
@@ -44,6 +44,12 @@ class PostgresInitializationTestCase(unittest.TestCase):
             }
             self.assertIn("ends_at", timeline_columns)
             self.assertTrue({"title", "detail"} <= timeline_columns)
+
+            for table in ("parse_session", "intel_session", "planner_session"):
+                columns = {column["name"] for column in inspector.get_columns(table)}
+                self.assertTrue({"llm_snapshot", "prompt_version"} <= columns)
+            chat_columns = {column["name"] for column in inspector.get_columns("intel_chat_message")}
+            self.assertTrue({"provider", "llm_snapshot", "prompt_version"} <= chat_columns)
 
             timeline_indexes = {
                 index["name"] for index in inspector.get_indexes("timeline_node")

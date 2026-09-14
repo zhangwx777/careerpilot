@@ -1,6 +1,35 @@
 export interface ProviderOption {
   name: string;
+  label: string;
+  description: string;
   model: string;
+  base_url: string | null;
+  api_key_masked: string | null;
+  configured: boolean;
+  source: "env" | "database" | null;
+  validation_status: "未验证" | "已验证" | "验证失败";
+  validation_message: string | null;
+  last_tested_at: string | null;
+  is_default: boolean;
+}
+
+export interface ProviderConfigInput {
+  api_key?: string | null;
+  model: string;
+  base_url?: string | null;
+}
+
+export interface ProviderTestResult {
+  provider: string;
+  ok: boolean;
+  message: string;
+  latency_ms: number | null;
+}
+
+export interface ProviderModelsResult {
+  provider: string;
+  models: string[];
+  message: string | null;
 }
 
 export interface PipelineBucket {

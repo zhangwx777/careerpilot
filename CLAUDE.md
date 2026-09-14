@@ -19,7 +19,7 @@ cd backend
 .venv/Scripts/python.exe -m uvicorn app.main:app --port 8000
 ```
 
-日常启动优先在仓库根目录双击或执行 `start.bat`。它会初始化数据库，启动或复用健康服务，并在前端 5173 端口就绪后打开浏览器；需要加载后端代码更新时，先关闭旧后端终端。
+日常启动优先在仓库根目录双击或执行 `start.bat`。它会初始化数据库，为本次运行获取新的项目端口（优先后端 8000、前端 5173，被占用时顺延），并尝试打开浏览器。自动打开失败不会关闭服务；始终以后端/前端启动时打印的实际 URL 为准。停止时在启动终端按 `Ctrl+C`；脚本会清理本次启动的进程，并在 `taskkill` 被系统拒绝时回退到 `Stop-Process`。
 
 前端（在 `frontend/` 下，包管理器是 pnpm via corepack）：
 
@@ -48,9 +48,9 @@ $env:TEST_DATABASE_URL=<开发库URL但把库名换成 qiuzhao_test>     # Power
 ## 架构要点（跨文件才能看清的部分）
 
 **多模型 provider 层**（`app/llm/`）是全项目 LLM 调用的唯一入口，理解它是理解全局的前提：
-- `registry.py` 把 4 家 provider（anthropic/openai/deepseek/qwen）映射到 `{api_key, api_base, model}`，三件套**全部来自 `.env`，代码不预设任何默认值**，model 名用 LiteLLM 的 `provider/model` 格式。
-- `provider.py` 的 `chat(messages, provider, response_format=None)` 是统一出口，**provider 由调用方显式传入**。改动时严禁把 provider 或 model 名写死在业务代码里（parsing.py 曾有 `provider="qwen"` 硬编码遗留，已改成参数）。
-- 前端“分析模型”下拉同样不写死：读 `GET /api/providers`（`api.py`，用 `registry.has_key` 逻辑只返回 key 和 model 都非空的厂商 + 模型名）。改厂商列表改配置即可，不动前端。
+- `registry.py` 提供四家 provider（openai/anthropic/deepseek/qwen）的 `.env` 兼容配置；`config_store.py` 读取数据库覆盖，数据库配置优先，删除后回退 `.env`。明确设置的全局默认优先级最高；未设置全局默认时，最近更新且有效的网页覆盖优先于 `.env`。model 名用 LiteLLM 的 `provider/model` 格式（网页设置页可从模型目录选择）。
+- `provider.py` 的 `chat(messages, provider, response_format=None, config=None)` 是统一出口，**provider 由调用方显式传入**。改动时严禁把 provider 或 model 名写死在业务代码里；调用错误必须经过安全包装，不能把 LiteLLM 原始异常或 API Key 写入日志/响应。
+- 前端“分析模型”下拉和设置页读 `GET /api/providers`，只展示脱敏状态；设置页通过 `POST /api/llm/providers/{provider}/models` 按 API Key 与 Base URL 读取模型目录，再由用户选择模型。任务创建时显式解析全局默认或任务级覆盖。网页保存前需要 `.env` 中的 `LLM_CONFIG_SECRET`，否则保持旧 `.env-only` 兼容模式。
 - `.env` 优先于系统环境变量（config.py 定制了 settings 源顺序）。
 
 **LangGraph 图**（只在控制流本身需要图编排处用，非装饰）：
@@ -75,10 +75,12 @@ $env:TEST_DATABASE_URL=<开发库URL但把库名换成 qiuzhao_test>     # Power
 
 ## 环境与约束
 
-- 后端 Python 3.12 + FastAPI + SQLAlchemy 2.0；数据库 **PostgreSQL（明确不用 SQLite）**，情报用 JSONB。
+- 后端 Python 3.12 + FastAPI + SQLAlchemy 2.0；生产数据库 **PostgreSQL**，情报用 JSONB；ORM 测试使用可移植 JSON 类型以便 SQLite 单元测试收集。
 - 本机另有 Docker 容器 `linker-local-db`（端口 5434）属于其他项目，**不要碰**。本项目开发库 `qiuzhao` / 测试库 `qiuzhao_test` 在本地 PG 5432，账号 `qiuzhao_app`。
 - `.env` 含密码和 key，已 gitignore，不入库；换机需重建。数据库数据不进 git，用 pg_dump 手动迁移。
 - 健康检查：`GET http://127.0.0.1:8000/health` 返回 `{"status":"ok","db":true}`。
+
+模型目录排查：Base URL 应填写 API 根路径（例如 `https://gateway.example/v1`），不要填写用户名、密码、query、fragment 或完整 `/chat/completions`。后端会对自定义地址尝试规范化后的 `/models`，并在根路径未带 `/v1` 时回退到 `/v1/models`；如果两者均不可达，先检查 Python 进程的防火墙/代理权限，再检查网关是否实现模型目录接口。测试和解析都只返回脱敏错误，不把 LiteLLM 原始异常或 API Key 写入响应。
 
 ## 协作流程
 

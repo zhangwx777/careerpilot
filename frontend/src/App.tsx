@@ -9,6 +9,7 @@ import { TimelinePage } from "./pages/TimelinePage";
 import { IntelPage } from "./pages/IntelPage";
 import { PlannerPage } from "./pages/PlannerPage";
 import { BriefingPage } from "./pages/BriefingPage";
+import { SettingsPage } from "./pages/SettingsPage";
 
 export default function App() {
   return (
@@ -27,6 +28,7 @@ export default function App() {
         <Route path="/planner" element={<PlannerPage />} />
         <Route path="/planner/:id" element={<PlannerPage />} />
         <Route path="/daily-briefings" element={<BriefingPage />} />
+        <Route path="/settings" element={<SettingsPage />} />
         <Route path="*" element={<Navigate to="/dashboard" replace />} />
       </Route>
     </Routes>

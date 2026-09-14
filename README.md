@@ -34,7 +34,12 @@
 
 ```text
 GET  /api/dashboard                     作战总览：各阶段投递数 + 冲突/临期/逾期的待处理节点
-GET  /api/providers                     当前 .env 里已配好 key 和模型名的厂商列表
+GET  /api/providers                     四家模型的脱敏配置状态（网页覆盖优先于 .env）
+PUT  /api/llm/providers/{provider}      保存网页模型配置（API Key 仅密文落库）
+POST /api/llm/providers/{provider}/test 测试连接（可只提交临时覆盖字段；失败仍可保存，标记为待验证/失败）
+POST /api/llm/providers/{provider}/models 读取当前 API Key/Base URL 可用模型（不落库）
+DELETE /api/llm/providers/{provider}    删除网页覆盖并回退到 .env
+PUT  /api/llm/default                   设置全局默认模型
 PATCH /api/applications/{id}            编辑投递，可直接修正当前阶段（不受只能向后的限制）
 PATCH /api/applications/{id}/status     台账里推进阶段，只能向后或标记为“挂”
 ```
@@ -89,7 +94,7 @@ qiuzhao-agent/
 
 ### 首次安装
 
-请先启动本地 PostgreSQL，并将项目根目录的 `.env.example` 复制为 `.env`，填入数据库连接和模型 Key。
+请先启动本地 PostgreSQL，并将项目根目录的 `.env.example` 复制为 `.env`，填入数据库连接。模型可以继续写在 `.env`，也可以启动后打开“模型配置”页填写。
 
 ```bash
 cd C:\qiuzhao-agent\backend
@@ -109,11 +114,9 @@ cd C:\qiuzhao-agent
 .\start.bat
 ```
 
-脚本会初始化数据库、启动或复用健康的后端与前端服务；缺失前端依赖时会自动修复。前端就绪后会自动打开 `http://localhost:5173/`。前端进程会保持在启动终端中；后端健康检查地址为 `http://127.0.0.1:8000/health`。
+脚本会初始化数据库，并为本次运行获取新的项目端口（优先后端 8000、前端 5173；若被其他程序占用则顺延）。这样代码更新后不会误复用旧的项目进程。缺失前端依赖时会自动修复。浏览器自动打开受系统限制时，脚本会保留服务并打印可手动打开的地址；以后端和前端启动时打印的实际 URL 为准。
 
-若脚本提示 5173 端口已被不健康的旧服务占用，请先关闭对应的旧终端，再重新双击 `start.bat`。脚本不会为抢占端口改用其他前端地址，避免浏览器打开错误服务。
-
-停止服务：在启动终端按 `Ctrl+C`，PowerShell 包装器会在前端退出后自动清理 5173 和 8000 端口的前后端子进程。若终端已经关闭或仍有旧进程，双击根目录的 `stop.bat`；它只处理本项目约定的 5173、8000 端口。
+停止服务：在启动终端按 `Ctrl+C`，PowerShell 包装器会清理本次启动的前后端子进程。若终端被强制关闭，重新运行 `start.bat` 会清理可识别的旧项目进程；不要手动结束同端口上的其他应用。
 
 ### 手动启动
 
@@ -125,7 +128,7 @@ cd C:\qiuzhao-agent\backend
 .\.venv\Scripts\python.exe -m scripts.init_db
 .\.venv\Scripts\python.exe -m uvicorn app.main:app --host 127.0.0.1 --port 8000
 
-# 终端二：前端（启动后自动打开浏览器，并固定使用 5173 端口）
+# 终端二：前端（手动启动时使用 5173；端口被占用时请改用其他端口，并同步设置 VITE_API_TARGET）
 cd C:\qiuzhao-agent\frontend
 corepack pnpm exec vite --open --port 5173 --strictPort
 ```
@@ -136,7 +139,7 @@ corepack pnpm exec vite --open --port 5173 --strictPort
 
 ```powershell
 cd C:\qiuzhao-agent\backend
-.\.venv\Scripts\python.exe -m unittest discover -s tests -q
+.\.venv\Scripts\python.exe -m pytest -p no:cacheprovider
 cd ..\frontend
 corepack pnpm test
 corepack pnpm build
@@ -144,12 +147,23 @@ corepack pnpm build
 
 未配置 `TEST_DATABASE_URL` 时，数据库集成测试不会执行；这不应视为集成测试通过。
 
+### 模型配置与密钥
+
+设置页支持 OpenAI、Anthropic、DeepSeek、Qwen。网页保存的配置优先于同名 `.env` 配置；删除网页覆盖后自动回退到 `.env`。API Key 使用 Fernet 加密写入 `llm_provider_config`，接口只返回掩码，不写入浏览器存储。
+
+要启用网页保存，请在 `.env` 增加一个仅服务端使用的 `LLM_CONFIG_SECRET`（可使用随机长字符串），然后重启后端并运行一次 `scripts.init_db`。不设置该变量时仍保持旧的 `.env-only` 模式，适合已有电脑和旧启动方式；此模式下任务无法加密保存配置快照，会按旧行为读取 `.env`。
+
+任务创建时会保存 provider、model、Base URL 和 prompt 版本的配置快照。修改默认模型不会影响已创建的解析、面经、备战或问答任务。Base URL 只接受 `http/https`，不得携带用户名、密码、query 或 fragment。当前版本按本机单用户设计，请勿将后端端口直接暴露到公网。
+
+模型调用会根据具体模型和兼容网关自动移除不支持的可选参数（例如推理模型不接受的 `temperature`）；网页“测试连接”使用与实际结构化任务相同的参数策略，四家 provider 均适用。
+
 ## 数据同步说明
 
 **代码**通过 git 同步，**数据库数据不进 git**（在本地 PG 实例中）。换电脑时：
 - 代码：`git clone` 即可。
 - 配置：`.env` 不入库（含密码/key），需在新机重新创建。
 - 数据：用 `pg_dump` / `psql` 手动导出导入，或后续改用云数据库（只需改 `.env` 连接串，代码无需改动）。
+- 如果使用了网页模型配置，数据库备份中的 API Key 是密文；必须把 `LLM_CONFIG_SECRET` 通过独立安全渠道备份，不能写进 git。删除网页覆盖前请确认 `.env` 中仍有可用回退配置；更换密钥前需要先完成数据迁移，避免旧快照无法解密。
 
 ## 开发进度
 

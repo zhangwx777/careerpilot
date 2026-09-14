@@ -12,6 +12,7 @@ from app.models import Application, InterviewIntel, PlannerSession, Position, Pr
 from app.planner_graph import PlannerGraphError, resume_planner_graph, start_planner_graph
 from app.planner_parsing import extract_plan
 from app.resume_extract import ResumeExtractError, extract_resume
+from app.llm.config_store import LlmConfigError, PROMPT_VERSION, config_from_snapshot, resolve_provider, snapshot_for
 from app.planner_schemas import (
     PlannerConfirmation,
     PlannerSessionCreate,
@@ -61,6 +62,7 @@ def _run_planner_session(session_id: int, thread_id: str) -> None:
                     item.jd_snapshot,
                     item.intel_snapshot,
                     item.provider,
+                    llm_config=config_from_snapshot(item.llm_snapshot, task_db, item.provider),
                 )
                 item.draft_payload = draft.model_dump(mode="json")
                 item.status = "已完成"
@@ -139,6 +141,11 @@ def create_planner_session(
     jd_text = (application.position.jd_text or "").strip()
     if not jd_text:
         raise HTTPException(422, "目标岗位缺少 JD")
+    try:
+        provider = resolve_provider(db, payload.provider)
+        llm_snapshot = snapshot_for(db, provider)
+    except LlmConfigError as exc:
+        raise HTTPException(503, str(exc)) from None
     intel_snapshot = [
         {"id": intel.id, "payload": intel.payload, "confidence": intel.confidence}
         for intel in db.scalars(
@@ -150,7 +157,9 @@ def create_planner_session(
     ]
     item = PlannerSession(
         application_id=application.id,
-        provider=payload.provider,
+        provider=provider,
+        llm_snapshot=llm_snapshot,
+        prompt_version=PROMPT_VERSION,
         resume_snapshot=resume.resume_text,
         jd_snapshot=jd_text,
         intel_snapshot=intel_snapshot,

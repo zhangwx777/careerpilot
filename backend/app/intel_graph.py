@@ -1,7 +1,6 @@
 from collections import defaultdict
 from collections.abc import Callable
 from datetime import datetime, timezone
-import json
 import logging
 from operator import add
 from typing import Annotated, TypedDict
@@ -11,6 +10,7 @@ from langgraph.checkpoint.postgres import PostgresSaver
 from langgraph.constants import END, START
 from langgraph.graph import StateGraph
 from langgraph.types import Command, interrupt
+from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session, sessionmaker
 
@@ -19,7 +19,10 @@ from app.db import to_psycopg_connection_string
 from app.intel_parsing import extract_intel
 from app.intel_insight import rebuild_position_insight
 from app.intel_schemas import Fact, IntelExtraction, IntelPayload, IntelQuestion, InterviewRound, PreparationItem, SourceRecord
+from app.llm.config_store import config_from_snapshot
+from app.llm.prompts import CRITIC_PROMPT
 from app.llm.provider import chat
+from app.llm.structured import StructuredOutputError, complete_structured
 from app.models import IntelSession, InterviewIntel
 
 logger = logging.getLogger(__name__)
@@ -27,6 +30,13 @@ logger = logging.getLogger(__name__)
 
 class IntelGraphError(Exception):
     pass
+
+
+class CriticResult(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    approved: bool
+    feedback: str = Field(default="", max_length=4000)
 
 
 class IntelGraphState(TypedDict, total=False):
@@ -49,6 +59,16 @@ class IntelGraphState(TypedDict, total=False):
     needs_review: bool
     critic_rejected: bool
     critic_feedback: str
+
+
+def _session_llm_config(
+    state: IntelGraphState, session_factory: Callable[[], Session]
+) -> dict:
+    with session_factory() as db:
+        item = db.get(IntelSession, state["intel_session_id"])
+        if item is None:
+            raise IntelGraphError("面经会话不存在")
+        return config_from_snapshot(item.llm_snapshot, db, state["provider"])
 
 
 INTERVIEW_SIGNALS = ("面经", "面试经历", "面试题", "一面", "二面", "三面", "技术面", "HR面", "复盘", "问了", "笔试题", "面试流程")
@@ -159,12 +179,12 @@ def _merge(extractions: list[IntelExtraction], sources: list[SourceRecord]) -> I
     winning_summary = max(summary.items(), key=lambda item: len(item[1])) if summary else None
     return IntelPayload(
         summary=Fact(value=winning_summary[0], source_ids=sorted(winning_summary[1])) if winning_summary else None,
-        rounds=list(rounds.values()),
-        questions=list(questions.values()),
-        frequent_topics=[Fact(value=value, source_ids=sorted(ids)) for value, ids in topics.items()],
+        rounds=list(rounds.values())[:12],
+        questions=list(questions.values())[:50],
+        frequent_topics=[Fact(value=value, source_ids=sorted(ids)) for value, ids in topics.items()][:30],
         difficulty=Fact(value=winning_difficulty[2], source_ids=sorted(winning_difficulty[3])) if winning_difficulty and not conflicts else None,
-        preparation_items=list(preparation.values()),
-        conflicts=conflicts,
+        preparation_items=list(preparation.values())[:30],
+        conflicts=conflicts[:20],
     )
 
 
@@ -246,12 +266,26 @@ def build_intel_graph(checkpointer: PostgresSaver, session_factory: Callable[[],
             return {"extractions": {}, "payload": IntelPayload().model_dump(mode="json"), "confidence": 0.0}
         save_progress(state, f"正在提取 {len(sources)} 条来源", visible_sources(state["sources"]))
         feedback = state.get("critic_feedback", "")
+        llm_config = _session_llm_config(state, session_factory)
         extractions = {} if feedback else dict(state.get("extractions", {}))
         source_errors = list(state.get("source_errors", []))
         for source in sources:
             if source.id not in extractions:
                 try:
-                    extractions[source.id] = extract_intel(source, state["provider"], feedback=feedback).model_dump(mode="json")
+                    try:
+                        extracted = extract_intel(
+                            source,
+                            state["provider"],
+                            feedback=feedback,
+                            llm_config=llm_config,
+                        )
+                    except TypeError as exc:
+                        # Keep older integrations/fakes that only implement the
+                        # original three-argument extractor working.
+                        if "llm_config" not in str(exc):
+                            raise
+                        extracted = extract_intel(source, state["provider"], feedback=feedback)
+                    extractions[source.id] = extracted.model_dump(mode="json")
                 except Exception:
                     if source.kind == "manual" or source.id in {"user-paste", "manual"}:
                         raise
@@ -269,18 +303,19 @@ def build_intel_graph(checkpointer: PostgresSaver, session_factory: Callable[[],
     def critic(state: IntelGraphState):
         save_progress(state, "正在核验结论")
         payload = IntelPayload.model_validate(state["payload"])
-        content = chat(
-            [{"role": "user", "content": "审查以下面经 JSON 是否含无来源、编造或遗漏。只输出 {\"approved\": true/false, \"feedback\": \"...\"}。feedback 只写一句给求职者看的简洁中文，不要出现 schema 字段名、变量名、函数名、类名、JSON 校验错误或内部代码名称。\n" + payload.model_dump_json()}],
-            provider=state["provider"], response_format={"type": "json_object"},
-        )
+        llm_config = _session_llm_config(state, session_factory)
         try:
-            result = json.loads(content)
-        except (json.JSONDecodeError, TypeError) as exc:
-            raise IntelGraphError(f"反思模型返回的不是合法 JSON：{exc}") from exc
-        if not isinstance(result, dict) or not isinstance(result.get("approved"), bool) or not isinstance(result.get("feedback", ""), str):
-            raise IntelGraphError("反思模型返回结构无效")
-        rejected = not result["approved"]
-        return {"reflection_count": state.get("reflection_count", 0) + 1, "needs_review": bool(payload.conflicts), "critic_rejected": rejected, "critic_feedback": result["feedback"] if rejected else ""}
+            result = complete_structured(
+                [{"role": "user", "content": CRITIC_PROMPT + "\n面经 JSON：<payload>\n" + payload.model_dump_json() + "\n</payload>"}],
+                state["provider"],
+                CriticResult.model_validate_json,
+                chat_fn=chat,
+                config=llm_config,
+            )
+        except StructuredOutputError:
+            raise IntelGraphError("反思模型返回格式无效，请稍后重试") from None
+        rejected = not result.approved
+        return {"reflection_count": state.get("reflection_count", 0) + 1, "needs_review": bool(payload.conflicts), "critic_rejected": rejected, "critic_feedback": result.feedback if rejected else ""}
 
     def decide_review(state: IntelGraphState):
         return _decide_review(state)
@@ -349,7 +384,12 @@ def build_intel_graph(checkpointer: PostgresSaver, session_factory: Callable[[],
                 sync_intel_reminder(db, item.application_id, payload)
                 position_id = item.application.position_id
             try:
-                rebuild_position_insight(position_id, state["provider"], session_factory)
+                rebuild_position_insight(
+                    position_id,
+                    state["provider"],
+                    session_factory,
+                    llm_config=_session_llm_config(state, session_factory),
+                )
             except Exception:
                 logger.exception("岗位 %s 洞察重建失败", position_id)
                 with session_factory() as progress_db:

@@ -11,8 +11,9 @@ from app.application_records import materialize_position
 from app.db import SessionLocal, get_db
 from app.models import APPLICATION_STATUS, Application, Company, ParseSession, Position, TimelineNode
 from app.intel_reminders import INTERVIEW_NODE_TYPES, sync_intel_reminder_for_application
-from app.llm.registry import default_provider
+from app.llm.config_store import LlmConfigError, PROMPT_VERSION, resolve_provider, snapshot_for
 from app.parse_graph import ParseGraphStateError, resume_parse_graph, start_parse_graph
+from app.parsing import NoticeParseError
 from app.schemas import ApplicationRead
 from app.phase3_schemas import (
     DashboardRead,
@@ -103,13 +104,18 @@ def _run_parse_session(
         )
         if "__interrupt__" not in result:
             raise ParseGraphStateError("解析图未停在人工确认节点")
-    except Exception:
+    except Exception as exc:
         logger.exception("解析会话 %s 后台任务失败", parse_session_id)
+        error_message = (
+            str(exc)
+            if isinstance(exc, NoticeParseError)
+            else "解析失败，请检查通知内容或稍后重试"
+        )
         with SessionLocal() as task_db:
             parse_session = task_db.get(ParseSession, parse_session_id)
             if parse_session is not None and parse_session.status == "解析中":
                 parse_session.status = "解析失败"
-                parse_session.error_message = "解析失败，请检查通知内容或稍后重试"
+                parse_session.error_message = error_message
                 parse_session.resolved_at = datetime.now(timezone.utc)
                 task_db.commit()
 
@@ -123,12 +129,15 @@ def create_parse_session(
     payload: ParseSessionCreate, background_tasks: BackgroundTasks, db: DbSession
 ):
     try:
-        provider = default_provider()
-    except RuntimeError:
-        raise HTTPException(status_code=503, detail="暂无可用分析模型") from None
+        provider = resolve_provider(db, payload.provider)
+        llm_snapshot = snapshot_for(db, provider)
+    except LlmConfigError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from None
     parse_session = ParseSession(
         raw_text=payload.raw_text,
         provider=provider,
+        llm_snapshot=llm_snapshot,
+        prompt_version=PROMPT_VERSION,
         status="解析中",
     )
     db.add(parse_session)
