@@ -7,6 +7,7 @@ from sqlalchemy.orm import sessionmaker
 
 from app.intel_graph import IntelGraphError, _merge, resume_intel_graph, start_intel_graph
 from app.intel_schemas import Fact, IntelExtraction, SourceRecord
+from app.llm.config_store import save_provider
 from app.models import Application, Company, IntelSession, InterviewIntel, Position
 from scripts.init_db import initialize_database
 
@@ -19,6 +20,9 @@ class IntelGraphTestCase(unittest.TestCase):
         initialize_database(TEST_DATABASE_URL)
         cls.engine = create_engine(TEST_DATABASE_URL)
         cls.sessions = sessionmaker(bind=cls.engine, expire_on_commit=False)
+        # 图节点会解析模型配置；LLM 调用已 mock，这里只需库里有一条可用配置。
+        with cls.sessions() as db:
+            save_provider(db, "qwen", api_key="test-key", model="qwen/qwen-max", base_url=None)
 
     @classmethod
     def tearDownClass(cls):
@@ -49,17 +53,18 @@ class IntelGraphTestCase(unittest.TestCase):
         self.assertEqual(payload.difficulty.value, "困难")
         self.assertEqual(payload.conflicts, [])
 
+    @patch("app.intel_graph.rebuild_position_insight")
     @patch("app.intel_graph.chat", return_value='{"approved": true, "feedback": ""}')
     @patch("app.intel_graph.extract_intel")
     @patch("app.intel_graph.search")
-    def test_conflict_interrupt_resumes_once(self, mock_search, mock_extract, _mock_chat):
+    def test_conflict_interrupt_resumes_once(self, mock_search, mock_extract, _mock_chat, _mock_insight):
         mock_search.return_value = [{"title": "甲面经", "url": "https://a.test", "text": "一面问了算法"}, {"title": "乙面经", "url": "https://b.test", "text": "二面问了项目"}]
         def extraction(source, _provider, feedback=None):
             value = "困难" if source.id.endswith("-1") else "一般"
             return IntelExtraction(difficulty=Fact(value=value, source_ids=[source.id]))
         mock_extract.side_effect = extraction
         session_id, thread_id = self._session()
-        result = start_intel_graph(session_id, thread_id, "qwen", "测试公司 后端", None, TEST_DATABASE_URL, self.sessions)
+        result = start_intel_graph(session_id, thread_id, "qwen", "测试公司 后端", None, TEST_DATABASE_URL, self.sessions, supplement_web=True)
         self.assertIn("__interrupt__", result)
         with self.sessions() as db: self.assertEqual(db.get(IntelSession, session_id).status, "待裁决")
         resume_intel_graph(thread_id, {"difficulty": "困难"}, TEST_DATABASE_URL, self.sessions)
@@ -69,12 +74,13 @@ class IntelGraphTestCase(unittest.TestCase):
             intel = db.scalars(select(InterviewIntel)).one()
             self.assertEqual(intel.payload["difficulty"]["value"], "困难")
 
+    @patch("app.intel_graph.rebuild_position_insight")
     @patch("app.intel_graph.chat", side_effect=['{"approved": false, "feedback": "删除没有来源的结论"}', '{"approved": true, "feedback": ""}'])
     @patch("app.intel_graph.extract_intel", return_value=IntelExtraction(frequent_topics=[Fact(value="算法", source_ids=["anysearch-1-1"])]))
     @patch("app.intel_graph.search", return_value=[{"title": "甲面经", "url": "https://a.test", "text": "一面问了算法"}, {"title": "乙面经", "url": "https://b.test", "text": "二面问了项目"}])
-    def test_critic_feedback_reextracts_sources(self, _mock_search, mock_extract, _mock_chat):
+    def test_critic_feedback_reextracts_sources(self, _mock_search, mock_extract, _mock_chat, _mock_insight):
         session_id, thread_id = self._session()
-        result = start_intel_graph(session_id, thread_id, "qwen", "测试公司 后端", None, TEST_DATABASE_URL, self.sessions)
+        result = start_intel_graph(session_id, thread_id, "qwen", "测试公司 后端", None, TEST_DATABASE_URL, self.sessions, supplement_web=True)
         self.assertNotIn("__interrupt__", result)
         self.assertEqual(mock_extract.call_count, 4)
         self.assertEqual(mock_extract.call_args_list[2].kwargs["feedback"], "删除没有来源的结论")
@@ -95,11 +101,12 @@ class IntelGraphTestCase(unittest.TestCase):
         with self.assertRaisesRegex(IntelGraphError, "反思模型返回格式无效"):
             start_intel_graph(session_id, thread_id, "qwen", "测试公司 后端", None, TEST_DATABASE_URL, self.sessions)
 
+    @patch("app.intel_graph.rebuild_position_insight")
     @patch("app.intel_graph.chat", return_value='{"approved": true, "feedback": ""}')
     @patch("app.intel_graph.search", side_effect=[[], [], []])
-    def test_supplement_search_uses_different_queries(self, mock_search, _mock_chat):
+    def test_supplement_search_uses_different_queries(self, mock_search, _mock_chat, _mock_insight):
         session_id, thread_id = self._session()
-        start_intel_graph(session_id, thread_id, "qwen", "测试公司 后端", None, TEST_DATABASE_URL, self.sessions)
+        start_intel_graph(session_id, thread_id, "qwen", "测试公司 后端", None, TEST_DATABASE_URL, self.sessions, supplement_web=True)
         self.assertEqual(
             [call.args[0] for call in mock_search.call_args_list],
             ["测试公司 后端 面经", "测试公司 后端 面经 技术面 算法 项目 八股", "测试公司 后端 面经 笔试 高频题"],

@@ -7,7 +7,7 @@ from sqlalchemy.pool import StaticPool
 
 from app.db import Base, get_db
 from app.main import app
-from app.models import Application, Company, Position
+from app.models import Application, Company, Position, TimelineNode
 
 test_engine = create_engine(
     "sqlite+pysqlite:///:memory:",
@@ -16,7 +16,7 @@ test_engine = create_engine(
 )
 Base.metadata.create_all(
     test_engine,
-    tables=[Company.__table__, Position.__table__, Application.__table__],
+    tables=[Company.__table__, Position.__table__, Application.__table__, TimelineNode.__table__],
 )
 with test_engine.connect() as connection:
     connection.exec_driver_sql("PRAGMA foreign_keys=ON")
@@ -37,6 +37,7 @@ class CrudApiTestCase(unittest.TestCase):
         app.dependency_overrides.clear()
         self.session.close()
         with test_engine.begin() as connection:
+            connection.execute(delete(TimelineNode))
             connection.execute(delete(Application))
             connection.execute(delete(Position))
             connection.execute(delete(Company))
@@ -197,6 +198,20 @@ class CrudApiTestCase(unittest.TestCase):
             f"/api/applications/{application['id']}/status", json={"status": "AI面"}
         )
         self.assertEqual(ai_interview.status_code, 200, ai_interview.text)
+
+    def test_dashboard_counts_all_applications_as_applied(self):
+        for application_status in ("已投递", "测评", "笔试", "一面", "挂"):
+            self.create_application(status=application_status)
+
+        response = self.client.get("/api/dashboard")
+        self.assertEqual(response.status_code, 200, response.text)
+        counts = {item["status"]: item["count"] for item in response.json()["pipeline"]}
+
+        self.assertEqual(counts["已投递"], 5)
+        self.assertEqual(counts["测评"], 1)
+        self.assertEqual(counts["笔试"], 1)
+        self.assertEqual(counts["一面"], 1)
+        self.assertEqual(counts["挂"], 1)
 
     def test_application_create_materializes_job_and_keeps_reapplications(self):
         payload = {

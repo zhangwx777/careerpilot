@@ -38,7 +38,7 @@ class NoticeParsingTestCase(unittest.TestCase):
             '"scheduled_at":null,"ends_at":null,"source":"短信"}'
         )
 
-        result = extract_notice("请留意后续通知", self.requested_at)
+        result = extract_notice("请留意后续通知", self.requested_at, provider="qwen")
 
         self.assertIsNone(result.company_name)
         self.assertIsNone(result.scheduled_at)
@@ -51,7 +51,7 @@ class NoticeParsingTestCase(unittest.TestCase):
             '"scheduled_at":null,"ends_at":null,"source":"邮件"}'
         )
 
-        result = extract_notice("请在3个工作日内完成测评", self.requested_at)
+        result = extract_notice("请在3个工作日内完成测评", self.requested_at, provider="qwen")
 
         self.assertEqual(result.time_mode, "截止窗口")
         self.assertEqual(result.deadline_workdays, 3)
@@ -59,18 +59,18 @@ class NoticeParsingTestCase(unittest.TestCase):
     @patch("app.parsing.chat", side_effect=["not-json", "still-not-json"])
     def test_rejects_non_json_response(self, _mock_chat):
         with self.assertRaises(NoticeParseError):
-            extract_notice("通知", self.requested_at)
+            extract_notice("通知", self.requested_at, provider="qwen")
 
     @patch("app.parsing.chat", side_effect=RuntimeError("upstream failed"))
     def test_wraps_model_error_without_retry(self, mock_chat):
         with self.assertRaisesRegex(NoticeParseError, "模型调用失败"):
-            extract_notice("通知", self.requested_at)
+            extract_notice("通知", self.requested_at, provider="qwen")
         mock_chat.assert_called_once()
 
     @patch("app.parsing.chat", side_effect=LlmCallError("unavailable"))
     def test_preserves_safe_provider_error_category(self, _mock_chat):
         with self.assertRaisesRegex(NoticeParseError, "模型服务暂时不可用"):
-            extract_notice("通知", self.requested_at)
+            extract_notice("通知", self.requested_at, provider="qwen")
 
     @patch("app.parsing.chat")
     def test_rejects_naive_or_reversed_times(self, mock_chat):

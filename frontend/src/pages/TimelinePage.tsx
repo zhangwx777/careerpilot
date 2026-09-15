@@ -224,7 +224,7 @@ export function TimelinePage() {
       <div className="page-heading timeline-heading">
         <div>
           <span className="eyebrow">安排与提醒</span>
-          <h1>时间线</h1>
+          <h1>求职地图</h1>
           <p>所有确认过的截止、笔试与面试，都在同一个时间坐标里。</p>
         </div>
         <div className="view-switch" aria-label="切换时间线视图">

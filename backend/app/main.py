@@ -1,8 +1,11 @@
 import asyncio
 import logging
+from pathlib import Path
+import sys
 from contextlib import asynccontextmanager, suppress
 
 from fastapi import FastAPI
+from fastapi.staticfiles import StaticFiles
 from sqlalchemy import text
 
 from app.api import router
@@ -45,3 +48,9 @@ def health():
         logger.exception("健康检查数据库连接失败")
         return {"status": "error", "db": False, "detail": "数据库连接失败"}
     return {"status": "ok", "db": db_ok}
+
+
+_app_root = Path(sys.executable).resolve().parent if getattr(sys, "frozen", False) else Path(__file__).resolve().parents[2]
+_frontend_dir = _app_root / "frontend" / ("" if getattr(sys, "frozen", False) else "dist")
+if _frontend_dir.is_dir():
+    app.mount("/", StaticFiles(directory=_frontend_dir, html=True), name="frontend")

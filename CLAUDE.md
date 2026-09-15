@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## 项目定位
 
-求职作战台（qiuzhao-agent）：面向国内秋招/春招的**个人自用**求职辅助系统。不做自动投递，只做信息聚合与决策辅助——两条主线：A 进度指挥中心（投递台账 + 半自动解析通知 + 时间线冲突/临期检测），B 面经工作台（按公司＋岗位持续保存多份材料，跨轮次生成岗位洞察、准备重点和问答）。
+职航 CareerPilot：面向国内秋招/春招的**个人自用**求职决策工作台。不做自动投递，只做信息聚合与决策辅助——两条主线：A 求职总览（投递台账 + 半自动解析通知 + 求职地图冲突/临期检测），B 面经工作台（按公司＋岗位持续保存多份材料，跨轮次生成岗位洞察、准备重点和问答）。
 
 ## 常用命令
 
@@ -15,7 +15,7 @@ cd backend
 .venv/Scripts/python.exe -m pip install -e .           # 装依赖
 .venv/Scripts/python.exe -m scripts.init_db            # 初始化开发库：业务表 + langgraph checkpoint 表
 .venv/Scripts/python.exe -m scripts.init_db --test     # 初始化独立测试库 qiuzhao_test
-.venv/Scripts/python.exe -m scripts.smoke_llm          # 测四家模型连通（需 .env 已填 key）
+.venv/Scripts/python.exe -m scripts.smoke_llm          # 测试网页中已配置的模型连通性
 .venv/Scripts/python.exe -m uvicorn app.main:app --port 8000
 ```
 
@@ -48,10 +48,10 @@ $env:TEST_DATABASE_URL=<开发库URL但把库名换成 qiuzhao_test>     # Power
 ## 架构要点（跨文件才能看清的部分）
 
 **多模型 provider 层**（`app/llm/`）是全项目 LLM 调用的唯一入口，理解它是理解全局的前提：
-- `registry.py` 提供四家 provider（openai/anthropic/deepseek/qwen）的 `.env` 兼容配置；`config_store.py` 读取数据库覆盖，数据库配置优先，删除后回退 `.env`。明确设置的全局默认优先级最高；未设置全局默认时，最近更新且有效的网页覆盖优先于 `.env`。model 名用 LiteLLM 的 `provider/model` 格式（网页设置页可从模型目录选择）。
-- `provider.py` 的 `chat(messages, provider, response_format=None, config=None)` 是统一出口，**provider 由调用方显式传入**。改动时严禁把 provider 或 model 名写死在业务代码里；调用错误必须经过安全包装，不能把 LiteLLM 原始异常或 API Key 写入日志/响应。
-- 前端“分析模型”下拉和设置页读 `GET /api/providers`，只展示脱敏状态；设置页通过 `POST /api/llm/providers/{provider}/models` 按 API Key 与 Base URL 读取模型目录，再由用户选择模型。任务创建时显式解析全局默认或任务级覆盖。网页保存前需要 `.env` 中的 `LLM_CONFIG_SECRET`，否则保持旧 `.env-only` 兼容模式。
-- `.env` 优先于系统环境变量（config.py 定制了 settings 源顺序）。
+- `registry.py` 提供四家 provider（openai/anthropic/deepseek/qwen）的名称和统一调用参数；`config_store.py` 只读取网页数据库配置。明确设置的全局默认优先级最高；未设置全局默认时，最近更新且有效的网页配置优先。model 名用 LiteLLM 的 `provider/model` 格式（网页设置页可从模型目录选择）。
+- `provider.py` 的 `chat(messages, provider, response_format=None, config=None)` 是统一出口，**provider 由调用方显式传入，config 必须来自网页配置或任务快照**。改动时严禁把 provider 或 model 名写死在业务代码里；调用错误必须经过安全包装，不能把 LiteLLM 原始异常或 API Key 写入日志/响应。
+- 前端“分析模型”下拉和设置页读 `GET /api/providers`，只展示脱敏状态；设置页通过 `POST /api/llm/providers/{provider}/models` 按 API Key 与 Base URL 读取模型目录，再由用户选择模型。任务创建时显式解析全局默认或任务级覆盖。网页首次保存时自动生成根目录 `.llm_config_secret`，不需要手动配置环境变量。
+- `.env` 仅保存数据库、搜索服务和调用超时等运行参数；模型连接配置不再从 `.env` 读取。
 
 **LangGraph 图**（只在控制流本身需要图编排处用，非装饰）：
 - `parse_graph.py`（解析）：`START → extract → review_interrupt → persist → END`。`review_interrupt` 首个动作是 `interrupt()`，人工确认后 `Command(resume=...)` 恢复。
@@ -59,9 +59,16 @@ $env:TEST_DATABASE_URL=<开发库URL但把库名换成 qiuzhao_test>     # Power
 - `planner_graph.py` 仅保留历史备战任务的排期会话恢复；新的备战分析直接返回简历＋JD＋面经分析，不要求可用时间，也不创建新任务或时间线节点。
 - 解析图与面经图共用 `PostgresSaver` checkpointer（`db.py` 的 `to_psycopg_connection_string` 把 SQLAlchemy URL 转成 psycopg 原生串），靠 `thread_id`（存在对应 session 表）实现进程重启后恢复。持久化节点用 `with_for_update()` 行锁 + 幂等（已完成状态重复恢复不重复写库）。
 
-**会话与洞察表**：`parse_session`、`intel_session` 和 `planner_session` 保存可恢复会话；`interview_intel` 保存独立面经材料，`intel_chat_message` 保存岗位问答，`position.intel_insight` 保存岗位级洞察。数据模型主关系：company 1—n position 1—n application 1—n (timeline_node / interview_intel / *_session)；公司和岗位由创建投递时的直接输入自动归档，前端不要求预先建立岗位。枚举常量集中在 `models.py` 顶部。
+**有界 Agent 运行时**（`agent_runtime.py` / `agent_tools.py` / `agent_schemas.py`）是面经问答的执行层，与 LangGraph 图并列而非替代：图用于需要人工 interrupt 的固定控制流，Agent 用于「先检索再回答」的动态取证。
+- `agent_runtime.py` 的 `run_chat_agent()` 是 provider 中立的 ReAct 循环：模型自行决定调用哪些工具、调几轮，循环结束后由 `_finalize` 强制输出 `{answer, source_ids}` 的 JSON。所有 LLM 调用仍走 `llm/provider.py`，provider 和 config 由调用方传入，不在 Agent 层写死。
+- `agent_tools.py` 提供 7 个**只读**工具，分 `personal`（读本机资料）与 `public`（公开检索）两类，预算分开计数：`read_current_jd`、`search_current_intel`、`search_related_intel`（同公司其他岗位，标记 `related_position`）、`read_resume`、`search_timeline`、`read_chat_history`、`search_public_intel`。工具只读不写，Agent 不能改库。
+- 预算护栏由 `AgentBudget` 集中定义并落库到 `agent_run.budget`：步数 5、工具调用 8、个人读 3、公开搜 2、模型调用 6、时长 90s、单次工具结果 12k 字符、总上下文 40k 字符。任一维度触顶时该次工具调用返回失败原因、循环终止，状态记为 `budget_exceeded`（仍产出回答，只标注资料不完整）。改预算只改 `AgentBudget`，不要在业务代码里另写限制。
+- `agent_schemas.py` 的 `AgentSource.scope` 区分资料边界：`current_position` / `related_position` / `public` / `conversation`。回答中的 `source_ids` 只允许引用本次工具实际返回的来源，`_parse_chat_answer` 会校验，越界即判为编造并重试——这是「不编造原则」在 Agent 层的落点。
+- `agent_run` 表保存每次运行轨迹：`kind`、`status`、`stage`（推进到哪一步，前端轮询显示）、`steps`（每步调了哪些工具、耗时、命中来源）、`sources`（来源快照）、`budget`、`error_kind`。面经材料被删除后，快照中对应的 `material-*` 来源在读取时会被过滤，不显示已失效引用。
 
-**进度指挥中心的两条状态改法要分清**：`PATCH /api/applications/{id}/status`（`api.py`）是台账里的推进，只能向后或转「挂」；`PATCH /api/applications/{id}`（编辑投递）可把 status 直接改到任意阶段，是给「点错了阶段」的修正用，不走单向校验。前端落地页是作战总览（`/dashboard` → `GET /api/dashboard`，`phase3_api.py`），聚合各阶段投递计数与冲突/临期/逾期节点，复用 `timeline.py` 的 `alert_types`/`conflict_map`。
+**会话与洞察表**：`parse_session`、`intel_session` 和 `planner_session` 保存可恢复会话；`interview_intel` 保存独立面经材料，`intel_chat_message` 保存岗位问答，`position.intel_insight` 保存岗位级洞察。数据模型主关系：company 1—n position 1—n application 1—n (timeline_node / interview_intel / *_session)；公司和岗位由创建投递时的直接输入自动归档，前端不要求预先建立岗位。枚举常量集中在 `models.py` 顶部。`agent_run` 与 `intel_chat_message` 一对一（`assistant_message_id` 唯一），保存该条回答的 Agent 执行轨迹与来源快照。
+
+**求职总览的两条状态改法要分清**：`PATCH /api/applications/{id}/status`（`api.py`）是台账里的推进，只能向后或转「挂」；`PATCH /api/applications/{id}`（编辑投递）可把 status 直接改到任意阶段，是给「点错了阶段」的修正用，不走单向校验。前端落地页是求职总览（`/dashboard` → `GET /api/dashboard`，`phase3_api.py`），聚合各阶段投递计数与冲突/临期/逾期节点，复用 `timeline.py` 的 `alert_types`/`conflict_map`。
 
 **不编造原则贯穿数据流**：所有情报/解析字段可空，抽取器 prompt 要求未知返回 null、每条事实带 source_id，critic 专门查编造/无来源/遗漏。改抽取或聚合逻辑时守住这条。
 
@@ -77,7 +84,7 @@ $env:TEST_DATABASE_URL=<开发库URL但把库名换成 qiuzhao_test>     # Power
 
 - 后端 Python 3.12 + FastAPI + SQLAlchemy 2.0；生产数据库 **PostgreSQL**，情报用 JSONB；ORM 测试使用可移植 JSON 类型以便 SQLite 单元测试收集。
 - 本机另有 Docker 容器 `linker-local-db`（端口 5434）属于其他项目，**不要碰**。本项目开发库 `qiuzhao` / 测试库 `qiuzhao_test` 在本地 PG 5432，账号 `qiuzhao_app`。
-- `.env` 含密码和 key，已 gitignore，不入库；换机需重建。数据库数据不进 git，用 pg_dump 手动迁移。
+- `.env` 含密码和搜索服务 key，已 gitignore，不入库；换机需重建。数据库数据不进 git，用 pg_dump 手动迁移；网页模型设置还需安全复制 `.llm_config_secret`。
 - 健康检查：`GET http://127.0.0.1:8000/health` 返回 `{"status":"ok","db":true}`。
 
 模型目录排查：Base URL 应填写 API 根路径（例如 `https://gateway.example/v1`），不要填写用户名、密码、query、fragment 或完整 `/chat/completions`。后端会对自定义地址尝试规范化后的 `/models`，并在根路径未带 `/v1` 时回退到 `/v1/models`；如果两者均不可达，先检查 Python 进程的防火墙/代理权限，再检查网关是否实现模型目录接口。测试和解析都只返回脱敏错误，不把 LiteLLM 原始异常或 API Key 写入响应。

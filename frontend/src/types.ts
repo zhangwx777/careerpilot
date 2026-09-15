@@ -6,7 +6,7 @@ export interface ProviderOption {
   base_url: string | null;
   api_key_masked: string | null;
   configured: boolean;
-  source: "env" | "database" | null;
+  source: "database" | null;
   validation_status: "未验证" | "已验证" | "验证失败";
   validation_message: string | null;
   last_tested_at: string | null;
@@ -192,7 +192,8 @@ export interface IntelCoreQuestion { question: string; category: string; round_t
 export interface IntelInsightPreparation { title: string; detail: string; priority: number; source_ids: string[]; }
 export interface IntelInsight { status: "未生成" | "生成中" | "已生成" | "失败" | "暂无资料"; high_frequency_directions: IntelDirection[]; core_questions: IntelCoreQuestion[]; preparation_items: IntelInsightPreparation[]; error_message: string | null; }
 export interface IntelDossier { application_id: number; position_id: number; company_name: string; position_title: string; payload: IntelPayload; insight: IntelInsight; materials: InterviewIntel[]; sources: SourceRecord[]; reminder: { id: number; scheduled_at: string | null; title: string | null } | null; }
-export interface IntelChatMessage { id: number; role: "user" | "assistant"; content: string; status: "生成中" | "已完成" | "失败"; source_ids: string[]; created_at: string; }
+export interface IntelChatSource { id: string; title: string; url: string | null; kind: string; file_name: string | null; published_at: string | null; }
+export interface IntelChatMessage { id: number; role: "user" | "assistant"; content: string; status: "生成中" | "已完成" | "失败"; source_ids: string[]; agent_stage?: string | null; sources?: IntelChatSource[]; created_at: string; }
 
 export interface AvailabilityWindow { weekday: number; start: string; end: string; }
 export interface ResumeProfile { resume_text: string; file_name: string | null; updated_at: string; }

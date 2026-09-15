@@ -58,9 +58,14 @@ async def _search(query: str) -> list[dict]:
     return results
 
 
-def search(query: str) -> list[dict]:
+def search(query: str, *, timeout_seconds: float | None = None) -> list[dict]:
     try:
-        return asyncio.run(_search(query))
+        operation = _search(query)
+        if timeout_seconds is not None:
+            operation = asyncio.wait_for(operation, timeout_seconds)
+        return asyncio.run(operation)
+    except asyncio.TimeoutError as exc:
+        raise AnySearchError("AnySearch 查询超时") from exc
     except (AnySearchError, RuntimeError, ValueError) as exc:
         if isinstance(exc, AnySearchError):
             raise

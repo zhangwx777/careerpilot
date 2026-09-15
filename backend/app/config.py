@@ -29,28 +29,8 @@ class Settings(BaseSettings):
     test_database_url: str | None = None
     anysearch_api_key: str = ""
 
-    # 四家厂商各自的三件套，作为 .env 兼容默认值；网页配置会在运行时覆盖。
-    # 空字符串表示未配置。
-    anthropic_api_key: str = ""
-    anthropic_base_url: str = ""
-    anthropic_model: str = ""
-
-    openai_api_key: str = ""
-    openai_base_url: str = ""
-    openai_model: str = ""
-
-    deepseek_api_key: str = ""
-    deepseek_base_url: str = ""
-    deepseek_model: str = ""
-
-    dashscope_api_key: str = ""
-    dashscope_base_url: str = ""
-    dashscope_model: str = ""
-
     llm_timeout_seconds: int = 45
     llm_retries: int = 0
-    # Optional in legacy .env-only mode; required only when saving UI config.
-    llm_config_secret: str = ""
 
 
 settings = Settings()

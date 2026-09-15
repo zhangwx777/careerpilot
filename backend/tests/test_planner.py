@@ -7,6 +7,7 @@ from sqlalchemy import create_engine, delete, select
 from sqlalchemy.orm import sessionmaker
 
 from app.models import Application, Company, PlannerSession, Position, PreparationTask, ResumeProfile, TimelineNode
+from app.llm.config_store import save_provider, snapshot_for
 from app.planner import SHANGHAI, schedule_tasks
 from app.planner_graph import resume_planner_graph, start_planner_graph
 from app.planner_schemas import AvailabilityWindow, Gap, PlannerConfirmation, PlannerDraft, PlannerTaskDraft, ScheduledTask
@@ -21,6 +22,9 @@ class PlannerTestCase(unittest.TestCase):
         initialize_database(TEST_DATABASE_URL)
         cls.engine = create_engine(TEST_DATABASE_URL)
         cls.sessions = sessionmaker(bind=cls.engine, expire_on_commit=False)
+        # 图节点解析模型配置；extract_plan 已 mock，只需库里有一条可用配置。
+        with cls.sessions() as db:
+            save_provider(db, "qwen", api_key="test-key", model="qwen/qwen-max", base_url=None)
 
     @classmethod
     def tearDownClass(cls):
@@ -62,6 +66,7 @@ class PlannerTestCase(unittest.TestCase):
             item = PlannerSession(
                 application_id=self.application_id,
                 provider="qwen",
+                llm_snapshot=snapshot_for(db, "qwen"),
                 resume_snapshot="有 Python 项目经验",
                 jd_snapshot="熟悉 Python 和数据库",
                 intel_snapshot=[],

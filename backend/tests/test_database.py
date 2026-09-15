@@ -35,7 +35,7 @@ class PostgresInitializationTestCase(unittest.TestCase):
             inspector = inspect(engine)
             tables = set(inspector.get_table_names())
             self.assertIn("parse_session", tables)
-            self.assertTrue({"resume_profile", "planner_session", "preparation_task", "daily_briefing", "reported_source", "llm_provider_config", "llm_settings"} <= tables)
+            self.assertTrue({"resume_profile", "planner_session", "preparation_task", "daily_briefing", "reported_source", "llm_provider_config", "llm_settings", "agent_run"} <= tables)
             self.assertIn("checkpoints", tables)
             self.assertIn("checkpoint_writes", tables)
 

@@ -425,8 +425,12 @@ def get_dashboard(db: DbSession):
             select(Application.status, func.count()).group_by(Application.status)
         ).all()
     )
+    total_applications = sum(counts.values())
     pipeline = [
-        PipelineBucket(status=application_status, count=counts.get(application_status, 0))
+        PipelineBucket(
+            status=application_status,
+            count=total_applications if application_status == "已投递" else counts.get(application_status, 0),
+        )
         for application_status in APPLICATION_STATUS
     ]
 

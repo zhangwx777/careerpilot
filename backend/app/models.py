@@ -6,7 +6,6 @@ from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db import Base
-from app.llm.registry import default_provider
 
 
 # JSONB is useful in PostgreSQL, but the lightweight CRUD tests use SQLite.
@@ -213,7 +212,8 @@ class InterviewIntel(Base):
     )
     title: Mapped[str] = mapped_column(String(200), nullable=False, default="未命名面经")
     round_type: Mapped[str] = mapped_column(String(20), nullable=False, default="未注明")
-    provider: Mapped[str] = mapped_column(String(50), nullable=False, default=default_provider)
+    # 仅用于历史材料记录的 ORM 默认值；实际任务 provider 必须来自网页配置。
+    provider: Mapped[str] = mapped_column(String(50), nullable=False, default="qwen")
     payload: Mapped[dict] = mapped_column(PortableJSON, nullable=False)
     confidence: Mapped[float | None] = mapped_column()
     sources: Mapped[list] = mapped_column(PortableJSON, default=list)
@@ -239,6 +239,38 @@ class IntelChatMessage(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
 
     position: Mapped["Position"] = relationship()
+
+
+class AgentRun(Base):
+    """Bounded Agent execution trace and source snapshots."""
+
+    __tablename__ = "agent_run"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    kind: Mapped[str] = mapped_column(String(30), nullable=False)
+    assistant_message_id: Mapped[int | None] = mapped_column(
+        ForeignKey("intel_chat_message.id", ondelete="CASCADE"), unique=True
+    )
+    intel_session_id: Mapped[int | None] = mapped_column(
+        ForeignKey("intel_session.id", ondelete="CASCADE")
+    )
+    position_id: Mapped[int] = mapped_column(
+        ForeignKey("position.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    application_id: Mapped[int | None] = mapped_column(
+        ForeignKey("application.id", ondelete="CASCADE")
+    )
+    provider: Mapped[str] = mapped_column(String(50), nullable=False)
+    prompt_version: Mapped[str | None] = mapped_column(String(80))
+    status: Mapped[str] = mapped_column(String(30), nullable=False, default="running")
+    stage: Mapped[str | None] = mapped_column(String(100))
+    error_kind: Mapped[str | None] = mapped_column(String(50))
+    budget: Mapped[dict] = mapped_column(PortableJSON, default=dict)
+    steps: Mapped[list] = mapped_column(PortableJSON, default=list)
+    sources: Mapped[list] = mapped_column(PortableJSON, default=list)
+    error_message: Mapped[str | None] = mapped_column(Text)
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 
 class IntelSession(Base):

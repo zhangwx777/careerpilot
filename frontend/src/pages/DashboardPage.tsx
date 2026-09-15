@@ -67,12 +67,13 @@ export function DashboardPage() {
 
   const pipeline = data?.pipeline ?? [];
   const attention = data?.attention ?? [];
-  const totalApplications = pipeline.reduce((sum, bucket) => sum + bucket.count, 0);
+  const totalApplications = pipeline.find((bucket) => bucket.status === "已投递")?.count ?? 0;
   const activePipeline = pipeline.filter((bucket) => bucket.count > 0);
   const maxCount = activePipeline.reduce((max, bucket) => Math.max(max, bucket.count), 0);
-  const leadingStage = activePipeline.reduce(
+  const currentStages = activePipeline.filter((bucket) => bucket.status !== "已投递");
+  const leadingStage = currentStages.reduce(
     (leading, bucket) => (bucket.count > (leading?.count ?? 0) ? bucket : leading),
-    activePipeline[0],
+    currentStages[0],
   );
   const today = shanghaiDateKey(new Date());
   const attentionGroups = attentionGroupMeta.map((group) => ({
@@ -84,8 +85,8 @@ export function DashboardPage() {
     <section>
       <div className="page-heading">
         <div>
-          <span className="eyebrow">进度指挥中心</span>
-          <h1>作战总览</h1>
+          <span className="eyebrow">进度与关键节点</span>
+          <h1>求职总览</h1>
           <p>先看需要马上处理的节点，再看各阶段的投递分布。</p>
         </div>
       </div>
@@ -98,7 +99,7 @@ export function DashboardPage() {
         </div>
       ) : (
         <>
-          <div className="dashboard-stats" aria-label="作战总览摘要">
+          <div className="dashboard-stats" aria-label="求职总览摘要">
             <div className="dashboard-stat">
               <span>全部投递</span>
               <strong>{totalApplications}</strong>
@@ -169,7 +170,7 @@ export function DashboardPage() {
               <ChartBar size={20} weight="duotone" aria-hidden="true" />
               <div>
                 <h2>投递分布</h2>
-                <span>{totalApplications} 条投递记录</span>
+                <span>已投递为累计总数，其余为当前所在阶段</span>
               </div>
             </div>
             {totalApplications ? (

@@ -1,15 +1,29 @@
 """统一的多模型调用入口。
 
 用 LiteLLM 把 claude/openai/deepseek/qwen 收敛到一个 chat() 函数。
-调用时显式指定 provider，模型名/key/base_url 来自调用方传入的快照或 .env 兼容配置。
+调用时显式指定 provider，模型名/key/base_url 必须来自网页配置或任务快照。
 """
+
+import json
+from typing import Any, TypedDict
 
 import litellm
 
-from app.llm.registry import LLM_RETRIES, LLM_TIMEOUT_SECONDS, PROVIDERS
+from app.llm.registry import LLM_RETRIES, LLM_TIMEOUT_SECONDS
 
 
 _FALLBACK_PARAMETERS = ("temperature", "response_format")
+
+
+class ToolCall(TypedDict):
+    id: str
+    name: str
+    arguments: dict[str, Any]
+
+
+class LlmTurn(TypedDict):
+    content: str | None
+    tool_calls: list[ToolCall]
 
 
 def _unsupported_parameter_fallback(
@@ -84,6 +98,7 @@ class LlmCallError(RuntimeError):
             "auth": "模型认证失败，请检查 API key",
             "timeout": "模型请求超时，请稍后重试",
             "unavailable": "模型服务暂时不可用，请检查 Base URL 或网络",
+            "tool_call_unsupported": "当前模型不支持工具调用",
             "response": "模型返回异常，请稍后重试",
         }
         self.kind = kind if kind in messages else "response"
@@ -104,6 +119,17 @@ def _error_kind(exc: Exception) -> str:
     return "response"
 
 
+def _tool_call_unsupported(exc: Exception) -> bool:
+    error_name = type(exc).__name__.lower()
+    error_text = str(exc).lower()
+    if "unsupported" in error_name and "param" not in error_name:
+        return "tool" in error_name or "function" in error_name
+    return (
+        ("tool" in error_text or "function call" in error_text or "function_call" in error_text)
+        and any(token in error_text for token in ("unsupported", "not support", "not implemented", "doesn't support", "does not support"))
+    )
+
+
 def _request_kwargs(
     messages: list[dict],
     provider: str,
@@ -113,15 +139,19 @@ def _request_kwargs(
     stream: bool = False,
     generation: str = "structured",
 ) -> dict:
-    cfg = config if config is not None else PROVIDERS.get(provider)
+    cfg = config
     if cfg is None:
-        raise ValueError(f"未知 provider: {provider}")
+        raise RuntimeError("模型配置必须来自网页设置或任务快照")
     if not cfg.get("api_key"):
         raise RuntimeError(f"厂商 {provider} 未配置 API key")
     if not cfg.get("model"):
         raise RuntimeError(f"厂商 {provider} 未配置 model")
     kwargs: dict = {
         "model": cfg["model"],
+        # 网页配置里存的是厂商自己的裸模型名（如 deepseek-chat），LiteLLM 只能从
+        # claude-/gpt- 这类前缀反推厂商，deepseek/qwen 会直接报 Provider NOT
+        # provided。调用方已经知道 provider，显式传给 LiteLLM 完成路由。
+        "custom_llm_provider": provider,
         "messages": messages,
         "api_key": cfg["api_key"],
         "timeout": LLM_TIMEOUT_SECONDS,
@@ -168,6 +198,59 @@ def chat(
         resp = _completion_with_fallback(kwargs)
         return resp.choices[0].message.content
     except Exception as exc:
+        raise LlmCallError(_error_kind(exc)) from None
+
+
+def _normalize_tool_calls(message: Any) -> list[ToolCall]:
+    normalized: list[ToolCall] = []
+    for index, raw_call in enumerate(getattr(message, "tool_calls", None) or []):
+        function = raw_call.get("function") if isinstance(raw_call, dict) else getattr(raw_call, "function", None)
+        if function is None:
+            raise ValueError("工具调用缺少 function")
+        if isinstance(function, dict):
+            name = function.get("name")
+            arguments = function.get("arguments")
+        else:
+            name = getattr(function, "name", None)
+            arguments = getattr(function, "arguments", None)
+        if not isinstance(name, str) or not name.strip():
+            raise ValueError("工具调用缺少名称")
+        if isinstance(arguments, str):
+            arguments = json.loads(arguments)
+        if not isinstance(arguments, dict):
+            raise ValueError("工具调用参数不是 JSON 对象")
+        call_id = raw_call.get("id") if isinstance(raw_call, dict) else getattr(raw_call, "id", None)
+        normalized.append(
+            {
+                "id": str(call_id or f"tool-call-{index + 1}"),
+                "name": name.strip(),
+                "arguments": arguments,
+            }
+        )
+    return normalized
+
+
+def chat_with_tools(
+    messages: list[dict],
+    tools: list[dict],
+    provider: str,
+    config: dict | None = None,
+) -> LlmTurn:
+    """Call a model with tools and normalize provider-specific tool calls."""
+
+    kwargs = _request_kwargs(messages, provider, None, config, generation="chat")
+    kwargs["tools"] = tools
+    kwargs["tool_choice"] = "auto"
+    try:
+        response = _completion_with_fallback(kwargs)
+        message = response.choices[0].message
+        return {
+            "content": getattr(message, "content", None),
+            "tool_calls": _normalize_tool_calls(message),
+        }
+    except Exception as exc:
+        if _tool_call_unsupported(exc):
+            raise LlmCallError("tool_call_unsupported") from None
         raise LlmCallError(_error_kind(exc)) from None
 
 

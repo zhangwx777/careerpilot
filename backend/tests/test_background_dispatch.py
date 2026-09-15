@@ -41,9 +41,14 @@ class BackgroundDispatchTestCase(unittest.TestCase):
     def test_parse_create_queues_work_and_returns_pending_status(self, start_graph):
         tasks = BackgroundTasks()
 
-        created = create_parse_session(
-            ParseSessionCreate(raw_text="请参加笔试"), tasks, FakeParseDb()
-        )
+        with patch("app.phase3_api.resolve_provider", return_value="qwen"), patch(
+            "app.phase3_api.snapshot_for", return_value="snapshot"
+        ):
+            created = create_parse_session(
+                ParseSessionCreate(raw_text="请参加笔试", provider="qwen"),
+                tasks,
+                FakeParseDb(),
+            )
 
         self.assertEqual(created.status, "解析中")
         start_graph.assert_not_called()

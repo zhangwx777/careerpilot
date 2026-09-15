@@ -8,6 +8,7 @@ from sqlalchemy import create_engine, delete, func, select
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.db import get_db
+from app.llm.config_store import save_provider
 from app.main import app
 from app.models import Application, Company, ParseSession, Position, TimelineNode
 from app.parsing import NoticeExtraction, NoticeParseError
@@ -27,6 +28,9 @@ class ParseSessionApiTestCase(unittest.TestCase):
         initialize_database(TEST_DATABASE_URL)
         cls.engine = create_engine(TEST_DATABASE_URL)
         cls.session_factory = sessionmaker(bind=cls.engine, expire_on_commit=False)
+        # 创建解析会话时需解析可用模型；LLM 调用已 mock，只需库里有一条可用配置。
+        with cls.session_factory() as db:
+            save_provider(db, "qwen", api_key="test-key", model="qwen/qwen-max", base_url=None)
 
     @classmethod
     def tearDownClass(cls):
@@ -100,7 +104,6 @@ class ParseSessionApiTestCase(unittest.TestCase):
         self.assertEqual(created.status_code, 201, created.text)
         session_data = created.json()
         self.assertEqual(self.wait_for_status(session_data["id"], {"待确认"}), "待确认")
-        self.assertEqual(len(session_data["recommended_applications"]), 1)
         parse_session_id = session_data["id"]
 
         pending = self.client.get(

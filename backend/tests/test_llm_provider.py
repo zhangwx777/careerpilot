@@ -4,12 +4,30 @@ from unittest.mock import patch
 
 from litellm.exceptions import UnsupportedParamsError
 
-from app.llm.provider import _request_kwargs, chat, chat_stream
+from app.llm.provider import _request_kwargs, chat, chat_stream, chat_with_tools
 
 
 def _response(content: str):
     return SimpleNamespace(
         choices=[SimpleNamespace(message=SimpleNamespace(content=content))]
+    )
+
+
+def _tool_response(name: str = "lookup_status", arguments: str = '{"item":"alpha"}'):
+    return SimpleNamespace(
+        choices=[
+            SimpleNamespace(
+                message=SimpleNamespace(
+                    content=None,
+                    tool_calls=[
+                        SimpleNamespace(
+                            id="call-1",
+                            function=SimpleNamespace(name=name, arguments=arguments),
+                        )
+                    ],
+                )
+            )
+        ]
     )
 
 
@@ -26,6 +44,18 @@ class LlmProviderParametersTestCase(unittest.TestCase):
             "api_base": "https://api.example.test/v1",
             "model": "test-model",
         }
+
+    def test_request_passes_explicit_provider_to_litellm(self):
+        for provider in ("openai", "anthropic", "deepseek", "qwen"):
+            with self.subTest(provider=provider):
+                kwargs = _request_kwargs(
+                    [{"role": "user", "content": "{}"}],
+                    provider,
+                    {"type": "json_object"},
+                    self.config,
+                    generation="structured",
+                )
+                self.assertEqual(kwargs["custom_llm_provider"], provider)
 
     def test_all_providers_allow_litellm_to_drop_unsupported_parameters(self):
         for provider in ("openai", "anthropic", "deepseek", "qwen"):
@@ -134,6 +164,50 @@ class LlmProviderParametersTestCase(unittest.TestCase):
                 )
             )
 
+        completion.assert_called_once()
+
+    @patch("app.llm.provider.litellm.completion")
+    def test_chat_with_tools_normalizes_tool_call(self, completion):
+        completion.return_value = _tool_response()
+
+        result = chat_with_tools(
+            [{"role": "user", "content": "查一下 alpha"}],
+            [{"type": "function", "function": {"name": "lookup_status"}}],
+            "anthropic",
+            config=self.config,
+        )
+
+        self.assertEqual(result["content"], None)
+        self.assertEqual(
+            result["tool_calls"],
+            [{"id": "call-1", "name": "lookup_status", "arguments": {"item": "alpha"}}],
+        )
+        self.assertEqual(completion.call_args.kwargs["tool_choice"], "auto")
+        self.assertNotIn("response_format", completion.call_args.kwargs)
+
+    @patch("app.llm.provider.litellm.completion")
+    def test_chat_with_tools_rejects_invalid_arguments(self, completion):
+        completion.return_value = _tool_response(arguments="[]")
+
+        with self.assertRaisesRegex(RuntimeError, "模型返回异常"):
+            chat_with_tools(
+                [{"role": "user", "content": "查一下 alpha"}],
+                [{"type": "function", "function": {"name": "lookup_status"}}],
+                "anthropic",
+                config=self.config,
+            )
+
+    @patch("app.llm.provider.litellm.completion")
+    def test_chat_with_tools_reports_unsupported_models_without_fallback(self, completion):
+        completion.side_effect = RuntimeError("This model does not support tool calls")
+
+        with self.assertRaisesRegex(RuntimeError, "当前模型不支持工具调用"):
+            chat_with_tools(
+                [{"role": "user", "content": "查一下 alpha"}],
+                [{"type": "function", "function": {"name": "lookup_status"}}],
+                "qwen",
+                config=self.config,
+            )
         completion.assert_called_once()
 
 

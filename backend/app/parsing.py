@@ -6,7 +6,6 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_valida
 
 from app.llm.prompts import NOTICE_SYSTEM_PROMPT
 from app.llm.provider import LlmCallError, chat
-from app.llm.registry import default_provider
 from app.llm.structured import StructuredOutputError, complete_structured
 from app.models import NODE_TYPE, TIME_MODE
 
@@ -55,7 +54,8 @@ def extract_notice(
     provider: str | None = None,
     llm_config: dict | None = None,
 ) -> NoticeExtraction:
-    provider = provider or default_provider()
+    if not provider:
+        raise NoticeParseError("请先在设置页完成模型配置")
     reference_time = requested_at or datetime.now(SHANGHAI_TZ)
     if reference_time.utcoffset() is None:
         reference_time = reference_time.replace(tzinfo=SHANGHAI_TZ)

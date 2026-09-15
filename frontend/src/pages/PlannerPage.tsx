@@ -102,7 +102,7 @@ export function PlannerPage() {
       <div className="page-heading">
         <div>
           <span className="eyebrow">简历、JD 与已确认面经</span>
-          <h1>备战分析</h1>
+          <h1>备战中心</h1>
           <p>上传简历后，系统结合目标岗位 JD 和该岗位面经给出差距与准备重点。</p>
         </div>
       </div>

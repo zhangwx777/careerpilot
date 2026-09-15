@@ -12,14 +12,14 @@ import {
 import { NavLink, Outlet } from "react-router-dom";
 
 const links = [
-  { to: "/dashboard", label: "作战总览", icon: Gauge, group: "总览" },
+  { to: "/dashboard", label: "求职总览", icon: Gauge, group: "总览" },
   { to: "/applications", label: "投递台账", icon: ListChecks, group: "记录" },
-  { to: "/smart-entry", label: "通知录入", icon: MagicWand, group: "记录" },
-  { to: "/timeline", label: "时间线", icon: CalendarDots, group: "记录" },
+  { to: "/smart-entry", label: "智能录入", icon: MagicWand, group: "记录" },
+  { to: "/timeline", label: "求职地图", icon: CalendarDots, group: "记录" },
   { to: "/intel", label: "面经情报", icon: Brain, group: "分析" },
-  { to: "/planner", label: "备战计划", icon: ClipboardText, group: "分析" },
+  { to: "/planner", label: "备战中心", icon: ClipboardText, group: "分析" },
   { to: "/daily-briefings", label: "每日简报", icon: ClockCounterClockwise, group: "分析" },
-  { to: "/settings", label: "模型配置", icon: SlidersHorizontal, group: "工作区" },
+  { to: "/settings", label: "模型设置", icon: SlidersHorizontal, group: "工作区" },
 ];
 
 export function Layout() {
@@ -29,8 +29,8 @@ export function Layout() {
         <div className="brand">
           <span className="brand-mark" aria-hidden="true"><img src="/brand-mark.png" alt="" /></span>
           <div>
-            <strong>求职作战台</strong>
-            <span>校园招聘工作区</span>
+            <strong>职航</strong>
+            <span>CareerPilot · 求职决策工作台</span>
           </div>
         </div>
         <nav className="main-nav" aria-label="主导航">
@@ -56,7 +56,7 @@ export function Layout() {
         <header className="mobile-header">
           <div className="brand compact">
             <span className="brand-mark" aria-hidden="true"><img src="/brand-mark.png" alt="" /></span>
-            <strong>求职作战台</strong>
+            <strong>职航</strong>
           </div>
           <nav aria-label="移动端导航">
             {links.map(({ icon: Icon, ...link }) => (

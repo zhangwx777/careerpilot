@@ -1,8 +1,7 @@
 """Provider configuration and encrypted task snapshots.
 
-The process still supports the original .env based configuration.  A database
-row is an explicit local-user override; deleting it returns the provider to
-the .env value.  Secrets are never returned to API callers.
+Provider connection settings come from the local database and are captured in
+encrypted task snapshots. Secrets are never returned to API callers.
 """
 
 from __future__ import annotations
@@ -10,6 +9,7 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 import json
+from pathlib import Path
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 from urllib.parse import urlsplit
@@ -19,7 +19,7 @@ from sqlalchemy.orm import Session
 
 from app.config import settings
 from app.llm.prompts import PROMPT_VERSION
-from app.llm.registry import PROVIDERS
+from app.llm.registry import PROVIDER_NAMES
 from app.models import LLM_PROVIDER_NAMES, LlmProviderConfig, LlmSettings
 
 
@@ -37,6 +37,9 @@ class LlmConfigError(ValueError):
 
 class LlmModelsError(RuntimeError):
     """A safe, user-facing model catalogue error."""
+
+
+CONFIG_SECRET_FILE = Path(__file__).resolve().parents[3] / ".llm_config_secret"
 
 
 @dataclass(frozen=True)
@@ -72,19 +75,12 @@ def validate_base_url(value: str | None) -> str | None:
 
 
 def _fernet() -> Fernet:
-    secret = settings.llm_config_secret.strip()
-    if not secret:
-        raise LlmConfigError("网页持久化配置需要设置 LLM_CONFIG_SECRET")
-    raw = secret.encode("utf-8")
-    # Accept a normal Fernet key, or deterministically derive one from the
-    # operator-provided secret without ever logging the material.
     try:
-        return Fernet(raw)
-    except (ValueError, TypeError):
-        import base64
-        import hashlib
-
-        return Fernet(base64.urlsafe_b64encode(hashlib.sha256(raw).digest()))
+        secret = CONFIG_SECRET_FILE.read_text(encoding="ascii").strip()
+    except FileNotFoundError:
+        secret = Fernet.generate_key().decode("ascii")
+        CONFIG_SECRET_FILE.write_text(secret, encoding="ascii")
+    return Fernet(secret.encode("ascii"))
 
 
 def encrypt_text(value: str) -> str:
@@ -95,36 +91,18 @@ def decrypt_text(value: str) -> str:
     try:
         return _fernet().decrypt(value.encode("ascii")).decode("utf-8")
     except (InvalidToken, ValueError, UnicodeDecodeError) as exc:
-        raise LlmConfigError("模型配置密钥无法解密，请检查 LLM_CONFIG_SECRET") from exc
-
-
-def _env_config(provider: str) -> dict:
-    validate_provider(provider)
-    config = dict(PROVIDERS[provider])
-    try:
-        config["api_base"] = validate_base_url(config.get("api_base"))
-    except LlmConfigError as exc:
-        # Keep a malformed legacy environment value from leaking through the
-        # status endpoint; callers can present a safe actionable message.
-        config["api_base"] = None
-        config["_base_url_error"] = str(exc)
-    return config
+        raise LlmConfigError("本机模型配置密钥无法解密，请检查 .llm_config_secret") from exc
 
 
 def get_effective_config(db: Session | None, provider: str) -> dict:
-    """Return a LiteLLM-compatible config, preferring a database override."""
+    """Return the web-configured LiteLLM settings."""
 
     validate_provider(provider)
-    env_config = _env_config(provider)
     if db is None:
-        if env_config.get("_base_url_error"):
-            raise LlmConfigError(".env 中的 Base URL 无效，请修正后重启服务")
-        return env_config
+        raise LlmConfigError("请先在设置页完成模型配置")
     row = db.get(LlmProviderConfig, provider)
     if row is None or not row.enabled:
-        if env_config.get("_base_url_error"):
-            raise LlmConfigError(".env 中的 Base URL 无效，请修正后重启服务")
-        return env_config
+        raise LlmConfigError(f"模型 {provider} 尚未配置 API key 和 model")
     api_key = decrypt_text(row.encrypted_api_key) if row.encrypted_api_key else ""
     base_url = validate_base_url(row.base_url)
     return {
@@ -173,9 +151,13 @@ def list_available_models(db: Session | None, provider: str, *, overrides: dict 
     """Read a provider's model catalogue without persisting temporary fields."""
 
     validate_provider(provider)
-    config = get_effective_config(db, provider)
-    if overrides:
-        config = {**config, **overrides}
+    try:
+        config = get_effective_config(db, provider)
+    except LlmConfigError:
+        if not overrides or not overrides.get("api_key"):
+            raise
+        config = {}
+    config = {**config, **(overrides or {})}
     api_key = str(config.get("api_key") or "").strip()
     if not api_key:
         raise LlmModelsError("请先填写 API key")
@@ -286,11 +268,7 @@ def resolve_provider(db: Session | None, requested: str | None = None) -> str:
     settings_row = db.get(LlmSettings, 1) if db is not None else None
     default = settings_row.default_provider if settings_row else None
     candidates = [default] if default else []
-    # A saved web configuration is an explicit user choice and should win over
-    # legacy .env fallbacks until the user selects another default.  Sort by
-    # updated_at so the most recently edited web provider is the natural choice
-    # for an existing installation whose default_provider is still empty.
-    if db is not None and not default:
+    if db is not None:
         database_rows = (
             db.query(LlmProviderConfig)
             .filter(LlmProviderConfig.enabled.is_(True))
@@ -298,12 +276,7 @@ def resolve_provider(db: Session | None, requested: str | None = None) -> str:
             .all()
         )
         candidates.extend(row.provider for row in database_rows)
-    # Keep the historical registry order for legacy .env-only installations.
-    candidates.extend(
-        name for name in PROVIDERS
-        if name in LLM_PROVIDER_NAMES and name != default
-    )
-    candidates.extend(name for name in LLM_PROVIDER_NAMES if name != default and name not in candidates)
+    candidates.extend(name for name in PROVIDER_NAMES if name not in candidates)
     for provider in candidates:
         if provider:
             try:
@@ -330,7 +303,6 @@ def list_provider_status(db: Session) -> list[dict]:
     result = []
     for provider in LLM_PROVIDER_NAMES:
         row = rows.get(provider)
-        env = _env_config(provider)
         if row and row.enabled:
             model = row.model
             try:
@@ -347,13 +319,13 @@ def list_provider_status(db: Session) -> list[dict]:
             masked = mask_key(decrypt_text(row.encrypted_api_key)) if row.encrypted_api_key else None
             tested_at = row.last_tested_at
         else:
-            model = env.get("model") or ""
-            configured = bool(env.get("api_key") and model and not env.get("_base_url_error"))
-            source = "env" if (env.get("api_key") and model) else None
-            status = "验证失败" if env.get("_base_url_error") else "已验证" if configured else "未验证"
-            message = env.get("_base_url_error")
-            masked = mask_key(env.get("api_key"))
-            base_url = env.get("api_base")
+            model = ""
+            configured = False
+            source = None
+            status = "未验证"
+            message = None
+            masked = None
+            base_url = None
             tested_at = None
         result.append(
             {
@@ -401,13 +373,21 @@ def save_provider(
     if row is None:
         row = LlmProviderConfig(provider=provider)
         db.add(row)
+        connection_changed = True
+    else:
+        connection_changed = (
+            bool(api_key is not None and api_key.strip())
+            or model != row.model
+            or base_url != row.base_url
+        )
     row.encrypted_api_key = encrypted
     row.model = model
     row.base_url = base_url
-    row.validation_status = validation_status
-    row.validation_message = validation_message
-    # Changing any connection field invalidates the previous test result.
-    row.last_tested_at = None
+    if connection_changed:
+        row.validation_status = validation_status
+        row.validation_message = validation_message
+        # Changing a connection field invalidates the previous test result.
+        row.last_tested_at = None
     row.enabled = True
     db.commit()
     db.refresh(row)

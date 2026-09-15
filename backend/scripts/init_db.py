@@ -187,6 +187,12 @@ def initialize_database(database_url: str) -> None:
                     "ADD COLUMN IF NOT EXISTS prompt_version VARCHAR(40)"
                 )
             )
+            connection.execute(
+                text(
+                    "ALTER TABLE agent_run "
+                    "ADD COLUMN IF NOT EXISTS error_kind VARCHAR(50)"
+                )
+            )
 
         with PostgresSaver.from_conn_string(
             to_psycopg_connection_string(database_url)

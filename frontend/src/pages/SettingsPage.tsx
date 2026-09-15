@@ -30,7 +30,7 @@ function statusLabel(item: ProviderOption) {
 }
 
 function sourceLabel(item: ProviderOption) {
-  return item.source === "database" ? "网页" : item.source === "env" ? ".env" : "—";
+  return item.source === "database" ? "网页" : "—";
 }
 
 export function SettingsPage() {
@@ -113,7 +113,7 @@ export function SettingsPage() {
       const saved = await api.providers.save(selectedProvider.name, payload());
       setProviders((current) => current.map((item) => item.name === saved.name ? saved : item));
       setForm((current) => ({ ...current, api_key: "" }));
-      setMessage("配置已保存。密钥只保存在服务端密文中。");
+      setMessage("配置已保存。密钥只保存在本机服务端密文中。");
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "配置保存失败");
     } finally { setSaving(false); }
@@ -146,12 +146,12 @@ export function SettingsPage() {
     setError(""); setMessage("");
     try {
       applyProviders(await api.providers.remove(selectedProvider.name));
-      setMessage("网页覆盖配置已删除；若 .env 中有配置，将自动回退到 .env。");
+      setMessage("网页模型配置已删除。");
     } catch (reason) { setError(reason instanceof Error ? reason.message : "配置删除失败"); }
   }
 
   if (loading) {
-    return <section><div className="page-heading"><div><span className="eyebrow">工作区设置</span><h1>模型配置</h1></div></div><div className="panel loading-state" aria-label="正在读取模型配置"><span className="skeleton" /><span className="skeleton" /><span className="skeleton" /></div></section>;
+    return <section><div className="page-heading"><div><span className="eyebrow">工作区设置</span><h1>模型设置</h1></div></div><div className="panel loading-state" aria-label="正在读取模型配置"><span className="skeleton" /><span className="skeleton" /><span className="skeleton" /></div></section>;
   }
 
   return (
@@ -159,7 +159,7 @@ export function SettingsPage() {
       <div className="page-heading settings-heading">
         <div>
           <span className="eyebrow">工作区设置 · 本机单用户</span>
-          <h1>模型配置</h1>
+          <h1>模型设置</h1>
           <p>在同一处管理多个模型连接；任务创建时会固定当时的配置。</p>
         </div>
         <div className="settings-security-note"><LockKey size={18} /><span>密钥只回传掩码，不写入浏览器存储。</span></div>

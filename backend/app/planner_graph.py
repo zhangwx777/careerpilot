@@ -24,6 +24,7 @@ class PlannerGraphError(Exception):
 class PlannerGraphState(TypedDict, total=False):
     planner_session_id: int
     provider: str
+    llm_snapshot: str | None
     resume_text: str
     jd_text: str
     intel_snapshot: list

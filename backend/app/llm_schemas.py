@@ -58,7 +58,7 @@ class ProviderRead(BaseModel):
     base_url: str | None
     api_key_masked: str | None
     configured: bool
-    source: Literal["env", "database"] | None
+    source: Literal["database"] | None
     validation_status: Literal["未验证", "已验证", "验证失败"]
     validation_message: str | None
     last_tested_at: datetime | None

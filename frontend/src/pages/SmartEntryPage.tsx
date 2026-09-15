@@ -341,7 +341,7 @@ export function SmartEntryPage() {
       <div className="page-heading">
         <div>
           <span className="eyebrow">AI 提取，人工确认</span>
-          <h1>通知录入</h1>
+          <h1>智能录入</h1>
           <p>粘贴通知，核对关键信息，再把确定的安排写入时间线。</p>
         </div>
       </div>

@@ -68,6 +68,9 @@ class IntelFeatureTestCase(unittest.TestCase):
                 item.id = 1
                 item.created_at = datetime.now(timezone.utc)
 
+            def get(self, _model, _pk):
+                return None
+
         class FakeTasks:
             def __init__(self):
                 self.calls = []
@@ -77,7 +80,9 @@ class IntelFeatureTestCase(unittest.TestCase):
 
         db = FakeDb()
         tasks = FakeTasks()
-        with patch("app.intel_api._chat_context", return_value=(application, IntelPayload(), [source])):
+        with patch("app.intel_api._chat_context", return_value=(application, IntelPayload(), [source])), \
+                patch("app.intel_api.resolve_provider", return_value="qwen"), \
+                patch("app.intel_api.snapshot_for", return_value=None):
             result = create_intel_chat(
                 IntelChatCreate(application_id=1, provider="qwen", question="如何设计 Agent workflow？"),
                 tasks,
