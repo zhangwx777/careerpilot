@@ -1,12 +1,12 @@
 ﻿$ErrorActionPreference = 'Stop'
 
 $appRoot = $PSScriptRoot
-$dataRoot = Join-Path $env:LOCALAPPDATA 'QiuzhaoAgent'
+$dataRoot = Join-Path $env:LOCALAPPDATA 'CareerPilot'
 $dbData = Join-Path $dataRoot 'postgres'
 $stateFile = Join-Path $dataRoot 'runtime.json'
 $logRoot = Join-Path $dataRoot 'logs'
 $pgBin = Join-Path $appRoot 'postgresql\bin'
-$backendExe = Join-Path $appRoot 'QiuzhaoAgentBackend.exe'
+$backendExe = Join-Path $appRoot 'CareerPilotBackend.exe'
 
 New-Item -ItemType Directory -Force -Path $dataRoot, $logRoot | Out-Null
 

@@ -1,7 +1,7 @@
 ﻿$ErrorActionPreference = 'Stop'
 
 $sourceRoot = $PSScriptRoot
-$installRoot = Join-Path $env:LOCALAPPDATA 'Programs\QiuzhaoAgent'
+$installRoot = Join-Path $env:LOCALAPPDATA 'Programs\CareerPilot'
 $startMenuRoot = Join-Path $env:APPDATA 'Microsoft\Windows\Start Menu\Programs\职航 CareerPilot'
 $desktop = [Environment]::GetFolderPath('Desktop')
 

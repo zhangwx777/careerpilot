@@ -96,6 +96,21 @@ careerpilot/
 
 ## 启动服务
 
+### Windows 安装包
+
+推荐普通使用者直接运行 `dist\CareerPilotSetup.exe`。安装完成后会自动启动“职航 CareerPilot”，并在桌面和开始菜单创建快捷方式。
+
+安装包内置后端、前端和本地 PostgreSQL，使用者无需额外安装 Python、Node.js、pnpm、PostgreSQL 或解压缩软件。数据仅保存在当前 Windows 用户目录；首次进入后，在“模型设置”页填写 Provider、API Key、Base URL 和默认模型。
+
+开发者可在已配置 Python 3.12、Node.js、PyInstaller 和 PostgreSQL 18 的构建机执行：
+
+```powershell
+cd C:\careerpilot
+.\packaging\build.ps1
+```
+
+构建产物为 `dist\CareerPilotSetup.exe`。构建脚本只打包当前 Git 提交的源码，不携带 `.env`、本地数据库数据或模型密钥。
+
 ### 首次安装
 
 请先安装 Git、Python 3.12、Node.js（含 Corepack）和 PostgreSQL。以下命令会获取项目、创建本地环境并安装依赖：

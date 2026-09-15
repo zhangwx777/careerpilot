@@ -1,6 +1,6 @@
 ﻿$ErrorActionPreference = 'SilentlyContinue'
 
-$dataRoot = Join-Path $env:LOCALAPPDATA 'QiuzhaoAgent'
+$dataRoot = Join-Path $env:LOCALAPPDATA 'CareerPilot'
 $stateFile = Join-Path $dataRoot 'runtime.json'
 if (-not (Test-Path -LiteralPath $stateFile)) { exit 0 }
 

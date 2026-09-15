@@ -8,7 +8,7 @@ from pathlib import Path
 
 def main() -> int:
     root = Path(getattr(sys, "_MEIPASS", Path(__file__).parent))
-    with tempfile.TemporaryDirectory(prefix="QiuzhaoAgentSetup-") as temp:
+    with tempfile.TemporaryDirectory(prefix="CareerPilotSetup-") as temp:
         extract = Path(temp)
         with zipfile.ZipFile(root / "payload.zip") as archive:
             archive.extractall(extract)
