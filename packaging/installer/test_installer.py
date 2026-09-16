@@ -12,10 +12,12 @@ class InstallerContractTests(unittest.TestCase):
         script = Path(__file__).parents[1].joinpath("build.ps1").read_text(encoding="utf-8")
         self.assertNotIn("ImageFormat]::Icon", script)
 
-    def test_start_script_does_not_redirect_pg_ctl_start(self):
+    def test_start_script_waits_for_postgres_readiness_without_waiting_for_pg_ctl(self):
         script = Path(__file__).parents[1].joinpath("installed", "start.ps1").read_text(encoding="utf-8")
         self.assertNotIn("-o \"-h 127.0.0.1 -p $dbPort\" start *>", script)
-        self.assertIn("Start-Process -FilePath $pgCtl", script)
+        self.assertNotIn("start\" -Wait", script)
+        self.assertIn("start -W", script)
+        self.assertIn("function Test-Postgres", script)
 
 
 if __name__ == "__main__":
