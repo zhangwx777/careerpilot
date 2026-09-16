@@ -140,7 +140,7 @@ function createWindow() {
     minHeight: 720,
     show: false,
     icon: path.join(appRoot, "brand-mark.png"),
-    webPreferences: { contextIsolation: true },
+    webPreferences: { contextIsolation: true, zoomFactor: 0.9 },
   });
   window.once("ready-to-show", () => window.show());
   window.loadURL(`http://127.0.0.1:${backendPort}`);

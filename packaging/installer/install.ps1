@@ -29,4 +29,4 @@ New-Shortcut (Join-Path $desktop '职航 CareerPilot.lnk') $app '' $icon
 New-Shortcut (Join-Path $startMenuRoot '启动职航 CareerPilot.lnk') $app '' $icon
 New-Shortcut (Join-Path $startMenuRoot '卸载职航 CareerPilot.lnk') $powershell "-NoProfile -ExecutionPolicy Bypass -File `"$installRoot\uninstall.ps1`"" $icon
 
-Start-Process -FilePath $app
+Start-Process -FilePath $app -WorkingDirectory $installRoot

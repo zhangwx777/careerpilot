@@ -15,6 +15,7 @@ class InstallerContractTests(unittest.TestCase):
     def test_install_script_targets_the_desktop_application(self):
         script = Path(__file__).with_name("install.ps1").read_text(encoding="utf-8")
         self.assertIn("CareerPilot.exe", script)
+        self.assertIn("-WorkingDirectory $installRoot", script)
         self.assertNotIn("start.vbs", script)
         self.assertNotIn("wscript.exe", script)
 
@@ -26,6 +27,10 @@ class InstallerContractTests(unittest.TestCase):
         self.assertIn("app.on(\"before-quit\", shutdown)", script)
         self.assertIn("await stopPostgres()", script)
         self.assertNotIn("postgres-start.log", script)
+
+    def test_desktop_shell_uses_ninety_percent_zoom(self):
+        script = Path(__file__).parents[2].joinpath("desktop", "main.cjs").read_text(encoding="utf-8")
+        self.assertIn("zoomFactor: 0.9", script)
 
     def test_build_pins_the_electron_runtime_version(self):
         script = Path(__file__).parents[1].joinpath("build.ps1").read_text(encoding="utf-8")
