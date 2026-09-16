@@ -96,7 +96,7 @@ try {
 $electronSource = Join-Path $sourceRoot 'desktop'
 Push-Location (Join-Path $sourceRoot 'frontend')
 try {
-    & corepack pnpm exec electron-packager $electronSource CareerPilot --platform=win32 --arch=x64 --out $electronRoot --overwrite --icon $iconPath
+    & corepack pnpm exec electron-packager $electronSource CareerPilot --platform=win32 --arch=x64 --electron-version=37.10.3 --out $electronRoot --overwrite --icon $iconPath
     if ($LASTEXITCODE -ne 0) { throw 'Desktop application packaging failed.' }
 } finally {
     Pop-Location

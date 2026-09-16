@@ -27,6 +27,10 @@ class InstallerContractTests(unittest.TestCase):
         self.assertIn("await stopPostgres()", script)
         self.assertNotIn("postgres-start.log", script)
 
+    def test_build_pins_the_electron_runtime_version(self):
+        script = Path(__file__).parents[1].joinpath("build.ps1").read_text(encoding="utf-8")
+        self.assertIn("--electron-version=37.10.3", script)
+
 
 if __name__ == "__main__":
     unittest.main()
