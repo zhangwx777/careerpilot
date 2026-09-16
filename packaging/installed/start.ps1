@@ -63,7 +63,7 @@ if (-not (Test-Path -LiteralPath $initdb) -or -not (Test-Path -LiteralPath $pgCt
 }
 
 New-Item -ItemType Directory -Force -Path $dbData | Out-Null
-$pgStatus = & $pgCtl -D $dbData status 2>&1
+$pgStatus = & $pgCtl -D $dbData status 2>$null
 if ($LASTEXITCODE -eq 0) {
     & $pgCtl -D $dbData stop -m fast *> (Join-Path $logRoot 'postgres-stop.log')
     Start-Sleep -Milliseconds 500

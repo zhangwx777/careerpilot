@@ -19,6 +19,11 @@ class InstallerContractTests(unittest.TestCase):
         self.assertIn("start -W", script)
         self.assertIn("function Test-Postgres", script)
 
+    def test_start_script_allows_an_uninitialized_database_directory(self):
+        script = Path(__file__).parents[1].joinpath("installed", "start.ps1").read_text(encoding="utf-8")
+        self.assertIn("$pgStatus = & $pgCtl -D $dbData status 2>$null", script)
+        self.assertNotIn("$pgCtl -D $dbData status 2>&1", script)
+
 
 if __name__ == "__main__":
     unittest.main()
