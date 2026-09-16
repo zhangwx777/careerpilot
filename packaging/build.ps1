@@ -8,6 +8,7 @@ $payloadArchive = Join-Path $buildRoot 'payload.zip'
 $pyDist = Join-Path $buildRoot 'pyinstaller'
 $pyWork = Join-Path $buildRoot 'pyinstaller-work'
 $artifact = Join-Path $root 'dist\CareerPilotSetup.exe'
+$portableArtifact = Join-Path $root 'dist\CareerPilot-portable.zip'
 $pgHome = 'C:\Program Files\PostgreSQL\18'
 
 if ($buildRoot -notlike "$root\build\installer*") { throw 'Invalid build path.' }
@@ -59,12 +60,27 @@ Copy-Item -Path (Join-Path $PSScriptRoot 'installed\*') -Destination $payloadRoo
 Copy-Item -Path (Join-Path $PSScriptRoot 'installer\install.ps1') -Destination (Join-Path $payloadRoot 'install.ps1') -Force
 Copy-Item -Path (Join-Path $PSScriptRoot 'installer\uninstall.ps1') -Destination (Join-Path $payloadRoot 'uninstall.ps1') -Force
 
+$iconSource = Join-Path $sourceRoot 'frontend\public\brand-mark.png'
+$iconPath = Join-Path $payloadRoot 'brand-mark.ico'
+Add-Type -AssemblyName System.Drawing
+$sourceImage = [System.Drawing.Image]::FromFile($iconSource)
+$iconImage = New-Object System.Drawing.Bitmap(256, 256)
+$graphics = [System.Drawing.Graphics]::FromImage($iconImage)
+$graphics.DrawImage($sourceImage, 0, 0, 256, 256)
+$iconImage.Save($iconPath, [System.Drawing.Imaging.ImageFormat]::Icon)
+$graphics.Dispose()
+$iconImage.Dispose()
+$sourceImage.Dispose()
+
+if (Test-Path -LiteralPath $portableArtifact) { Remove-Item -LiteralPath $portableArtifact -Force }
+Compress-Archive -Path (Join-Path $payloadRoot '*') -DestinationPath $portableArtifact -CompressionLevel Fastest -Force
+
 Compress-Archive -Path (Join-Path $payloadRoot '*') -DestinationPath $payloadArchive -CompressionLevel Fastest -Force
 
 if (Test-Path -LiteralPath $artifact) { Remove-Item -LiteralPath $artifact -Force }
 Push-Location $root
 try {
-    & $python -m PyInstaller --noconfirm --clean --onefile --name CareerPilotSetup --distpath (Split-Path $artifact) --workpath (Join-Path $buildRoot 'setup-work') --specpath $buildRoot --add-data "$payloadArchive;." (Join-Path $PSScriptRoot 'installer\launcher.py')
+    & $python -m PyInstaller --noconfirm --clean --onefile --name CareerPilotSetup --icon $iconPath --distpath (Split-Path $artifact) --workpath (Join-Path $buildRoot 'setup-work') --specpath $buildRoot --add-data "$payloadArchive;." (Join-Path $PSScriptRoot 'installer\launcher.py')
     if ($LASTEXITCODE -ne 0) { throw 'Installer packaging failed.' }
 } finally {
     Pop-Location
@@ -73,6 +89,8 @@ if (-not (Test-Path -LiteralPath $artifact)) { throw 'Installer creation failed.
 
 [pscustomobject]@{
     Artifact = $artifact
+    PortableArtifact = $portableArtifact
     SourceCommit = (git rev-parse HEAD)
     SizeMB = [math]::Round((Get-Item $artifact).Length / 1MB, 1)
+    PortableSizeMB = [math]::Round((Get-Item $portableArtifact).Length / 1MB, 1)
 } | Format-List
