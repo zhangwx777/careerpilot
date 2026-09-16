@@ -18,11 +18,20 @@ class InstallerContractTests(unittest.TestCase):
         self.assertNotIn("start\" -Wait", script)
         self.assertIn("start -W", script)
         self.assertIn("function Test-Postgres", script)
+        self.assertIn("$originalErrorActionPreference = $ErrorActionPreference", script)
 
     def test_start_script_allows_an_uninitialized_database_directory(self):
         script = Path(__file__).parents[1].joinpath("installed", "start.ps1").read_text(encoding="utf-8")
         self.assertIn("$pgStatus = & $pgCtl -D $dbData status 2>$null", script)
         self.assertNotIn("$pgCtl -D $dbData status 2>&1", script)
+
+    def test_launchers_show_progress_instead_of_hiding_it(self):
+        vbs = Path(__file__).parents[1].joinpath("installed", "start.vbs").read_text(encoding="utf-8")
+        script = Path(__file__).parents[1].joinpath("installed", "start.ps1").read_text(encoding="utf-8")
+        launcher = Path(__file__).with_name("launcher.py").read_text(encoding="utf-8")
+        self.assertIn("shell.Run command, 1, False", vbs)
+        self.assertIn("Write-Host '职航正在启动，请稍候...'", script)
+        self.assertIn('print("正在安装职航 CareerPilot...")', launcher)
 
 
 if __name__ == "__main__":

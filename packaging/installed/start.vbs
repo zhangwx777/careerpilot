@@ -1,8 +1,9 @@
 Option Explicit
 
-Dim shell, fso, root, command
+Dim shell, fso, root, command, powershell
 Set shell = CreateObject("WScript.Shell")
 Set fso = CreateObject("Scripting.FileSystemObject")
 root = fso.GetParentFolderName(WScript.ScriptFullName)
-command = "powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File """ & root & "\start.ps1"""
-shell.Run command, 0, False
+powershell = shell.ExpandEnvironmentStrings("%SystemRoot%") & "\System32\WindowsPowerShell\v1.0\powershell.exe"
+command = """" & powershell & """ -NoProfile -ExecutionPolicy Bypass -File """ & root & "\start.ps1"""
+shell.Run command, 1, False

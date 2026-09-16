@@ -9,6 +9,7 @@ $pgBin = Join-Path $appRoot 'postgresql\bin'
 $backendExe = Join-Path $appRoot 'CareerPilotBackend.exe'
 
 New-Item -ItemType Directory -Force -Path $dataRoot, $logRoot | Out-Null
+Write-Host '职航正在启动，请稍候...'
 
 function Find-FreePort([int]$preferred) {
     for ($port = $preferred; $port -lt ($preferred + 100); $port++) {
@@ -34,14 +35,21 @@ function Test-Backend([int]$port) {
 }
 
 function Test-Postgres([int]$port) {
-    & $pgIsReady -h 127.0.0.1 -p $port *> $null
-    return $LASTEXITCODE -eq 0
+    $originalErrorActionPreference = $ErrorActionPreference
+    try {
+        $ErrorActionPreference = 'Continue'
+        & $pgIsReady -h 127.0.0.1 -p $port *> $null
+        return $LASTEXITCODE -eq 0
+    } finally {
+        $ErrorActionPreference = $originalErrorActionPreference
+    }
 }
 
 if (Test-Path -LiteralPath $stateFile) {
     try {
         $state = Get-Content -Raw -LiteralPath $stateFile | ConvertFrom-Json
         if (Test-Backend ([int]$state.backend_port)) {
+            Write-Host '服务已运行，正在打开浏览器...'
             Start-Process "http://127.0.0.1:$([int]$state.backend_port)" | Out-Null
             exit 0
         }
@@ -70,12 +78,14 @@ if ($LASTEXITCODE -eq 0) {
 }
 $dbPort = Find-FreePort 55432
 if (-not (Test-Path -LiteralPath (Join-Path $dbData 'PG_VERSION'))) {
+    Write-Host '正在初始化本地数据...'
     $initLog = Join-Path $logRoot 'initdb.log'
     & $initdb -D $dbData -L $pgShare -U qiuzhao_app -A trust --encoding=UTF8 --no-locale *> $initLog
     if ($LASTEXITCODE -ne 0) { throw '本地数据库初始化失败，请查看日志。' }
 }
 
 $pgLog = Join-Path $logRoot 'postgres.log'
+Write-Host '正在启动本地服务...'
 $pgStart = Start-Process -FilePath $pgCtl -ArgumentList "-D `"$dbData`" -l `"$pgLog`" -o `"-h 127.0.0.1 -p $dbPort`" start -W" -PassThru -WindowStyle Hidden -RedirectStandardOutput (Join-Path $logRoot 'postgres-start.log') -RedirectStandardError (Join-Path $logRoot 'postgres-start-error.log')
 $pgReady = $false
 for ($i = 0; $i -lt 40; $i++) {
@@ -114,4 +124,5 @@ if (-not $ready) {
     db_data = $dbData
 } | ConvertTo-Json | Set-Content -LiteralPath $stateFile -Encoding UTF8
 
+Write-Host '职航已启动，正在打开浏览器...'
 Start-Process "http://127.0.0.1:$backendPort" | Out-Null
