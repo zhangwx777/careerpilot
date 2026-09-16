@@ -2,15 +2,15 @@ import os
 
 import uvicorn
 
-from app.db import Base, engine
-import app.models
+from app.config import settings
 from app.main import app
+from scripts.init_db import initialize_database
 
 
 if __name__ == "__main__":
-    Base.metadata.create_all(engine)
+    initialize_database(settings.database_url)
     uvicorn.run(
         app,
         host="127.0.0.1",
-        port=int(os.environ.get("QIUZHAO_BACKEND_PORT", "8000")),
+        port=int(os.environ.get("CAREERPILOT_BACKEND_PORT", "8000")),
     )

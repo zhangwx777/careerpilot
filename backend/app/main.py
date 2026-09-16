@@ -1,7 +1,7 @@
 import asyncio
 import logging
+import os
 from pathlib import Path
-import sys
 from contextlib import asynccontextmanager, suppress
 
 from fastapi import FastAPI
@@ -50,7 +50,11 @@ def health():
     return {"status": "ok", "db": db_ok}
 
 
-_app_root = Path(sys.executable).resolve().parent if getattr(sys, "frozen", False) else Path(__file__).resolve().parents[2]
-_frontend_dir = _app_root / "frontend" / ("" if getattr(sys, "frozen", False) else "dist")
+_app_root = (
+    Path(os.environ["CAREERPILOT_APP_ROOT"])
+    if os.environ.get("CAREERPILOT_APP_ROOT")
+    else Path(__file__).resolve().parents[2]
+)
+_frontend_dir = _app_root / "frontend" / "dist"
 if _frontend_dir.is_dir():
     app.mount("/", StaticFiles(directory=_frontend_dir, html=True), name="frontend")

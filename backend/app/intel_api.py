@@ -15,7 +15,7 @@ from app.agent_runtime import DEFAULT_BUDGET, run_chat_agent
 from app.agent_tools import AgentToolContext, build_chat_toolset
 from app.config import settings
 from app.db import SessionLocal, get_db
-from app.intel_graph import _merge, resume_intel_graph, start_intel_graph
+from app.intel_graph import ROUND_FACTS_LIMIT, _merge, resume_intel_graph, start_intel_graph
 from app.intel_insight import rebuild_position_insight
 from app.intel_reminders import cached_intel_payload
 from app.intel_schemas import IntelChatAnswer, IntelInsight, IntelPayload, IntelRoundType, SourceRecord
@@ -312,6 +312,22 @@ def _namespace_payload(value, source_map: dict[str, str]):
     return value
 
 
+def _read_dossier_material(namespaced_payload) -> IntelPayload:
+    """解析已存材料的 payload。历史数据可能在合并截断修复前写入，
+    某轮次的 focus_topics/question_types 超过 schema 上限 20，直接 model_validate 会 too_long 报错。
+    此处对超限的 round 内列表按上限截断后再校验，让老数据能正常读出。"""
+    rounds = namespaced_payload.get("rounds") if isinstance(namespaced_payload, dict) else None
+    if isinstance(rounds, list):
+        for round_item in rounds:
+            if not isinstance(round_item, dict):
+                continue
+            for key in ("focus_topics", "question_types"):
+                facts = round_item.get(key)
+                if isinstance(facts, list) and len(facts) > ROUND_FACTS_LIMIT:
+                    round_item[key] = facts[:ROUND_FACTS_LIMIT]
+    return IntelPayload.model_validate(namespaced_payload)
+
+
 def _dossier_payload(intels: list[InterviewIntel]) -> tuple[IntelPayload, list[SourceRecord]]:
     payloads = []
     sources = []
@@ -321,7 +337,7 @@ def _dossier_payload(intels: list[InterviewIntel]) -> tuple[IntelPayload, list[S
             for source in (material.sources or [])
             if source.get("id")
         }
-        payloads.append(IntelPayload.model_validate(_namespace_payload(material.payload, source_map)))
+        payloads.append(_read_dossier_material(_namespace_payload(material.payload, source_map)))
         for source in material.sources or []:
             if source.get("id"):
                 sources.append(SourceRecord.model_validate({**source, "id": source_map[source["id"]]}))

@@ -9,6 +9,7 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 import json
+import os
 from pathlib import Path
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
@@ -39,7 +40,11 @@ class LlmModelsError(RuntimeError):
     """A safe, user-facing model catalogue error."""
 
 
-CONFIG_SECRET_FILE = Path(__file__).resolve().parents[3] / ".llm_config_secret"
+CONFIG_SECRET_FILE = (
+    Path(os.environ["CAREERPILOT_DATA_DIR"]) / ".llm_config_secret"
+    if os.environ.get("CAREERPILOT_DATA_DIR")
+    else Path(__file__).resolve().parents[3] / ".llm_config_secret"
+)
 
 
 @dataclass(frozen=True)

@@ -6,15 +6,17 @@ const net = require("node:net");
 const path = require("node:path");
 
 const appRoot = path.dirname(process.execPath);
+const appLayer = path.join(appRoot, "app");
+const runtimeRoot = path.join(appRoot, "runtime");
 const dataRoot = path.join(process.env.LOCALAPPDATA, "CareerPilot");
 const dbData = path.join(dataRoot, "postgres");
 const logRoot = path.join(dataRoot, "logs");
 const stateFile = path.join(dataRoot, "runtime.json");
-const pgBin = path.join(appRoot, "postgresql", "bin");
+const pgBin = path.join(runtimeRoot, "postgresql", "bin");
 const pgCtl = path.join(pgBin, "pg_ctl.exe");
 const pgIsReady = path.join(pgBin, "pg_isready.exe");
 const initdb = path.join(pgBin, "initdb.exe");
-const backendExe = path.join(appRoot, "CareerPilotBackend.exe");
+const backendExe = path.join(runtimeRoot, "backend", "CareerPilotBackend.exe");
 
 let backend;
 let window;
@@ -96,7 +98,7 @@ function stopPreviousRun() {
 function startPostgres() {
   fs.mkdirSync(dbData, { recursive: true });
   if (!fs.existsSync(path.join(dbData, "PG_VERSION"))) {
-    const result = run(initdb, ["-D", dbData, "-L", path.join(appRoot, "postgresql", "share"), "-U", "qiuzhao_app", "-A", "trust", "--encoding=UTF8", "--no-locale"]);
+    const result = run(initdb, ["-D", dbData, "-L", path.join(runtimeRoot, "postgresql", "share"), "-U", "qiuzhao_app", "-A", "trust", "--encoding=UTF8", "--no-locale"]);
     if (result.status !== 0) throw new Error("本地数据库初始化失败，请重新安装。 ");
   }
   spawn(pgCtl, ["-D", dbData, "-l", path.join(logRoot, "postgres.log"), "-o", `-h 127.0.0.1 -p ${dbPort}`, "start"], { detached: false, stdio: "ignore", windowsHide: true });
@@ -106,12 +108,14 @@ function startBackend() {
   const output = fs.openSync(path.join(logRoot, "backend.log"), "a");
   const errors = fs.openSync(path.join(logRoot, "backend-error.log"), "a");
   backend = spawn(backendExe, [], {
-    cwd: appRoot,
+    cwd: appLayer,
     env: {
       ...process.env,
       DATABASE_URL: `postgresql+psycopg://qiuzhao_app@127.0.0.1:${dbPort}/postgres`,
       TEST_DATABASE_URL: "",
-      QIUZHAO_BACKEND_PORT: String(backendPort),
+      CAREERPILOT_APP_ROOT: appLayer,
+      CAREERPILOT_DATA_DIR: dataRoot,
+      CAREERPILOT_BACKEND_PORT: String(backendPort),
     },
     stdio: ["ignore", output, errors],
     windowsHide: true,

@@ -27,6 +27,10 @@ from app.models import IntelSession, InterviewIntel
 
 logger = logging.getLogger(__name__)
 
+# 与 InterviewRound.question_types / focus_topics 的 schema 上限一致（max_length=20）。
+# 合并多份材料时按值去重后可能超过该上限，必须在此截断，否则写入库、读取时会触发校验 500。
+ROUND_FACTS_LIMIT = 20
+
 
 class IntelGraphError(Exception):
     pass
@@ -135,7 +139,7 @@ def _merge(extractions: list[IntelExtraction], sources: list[SourceRecord]) -> I
                     for fact in incoming:
                         previous = merged.get(fact.value)
                         merged[fact.value] = fact if previous is None else previous.model_copy(update={"source_ids": sorted(set(previous.source_ids) | set(fact.source_ids))})
-                    return list(merged.values())
+                    return list(merged.values())[:ROUND_FACTS_LIMIT]
 
                 rounds[item.round_type] = current.model_copy(update={
                     "duration_minutes": current.duration_minutes or item.duration_minutes,
