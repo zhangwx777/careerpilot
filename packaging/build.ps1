@@ -62,15 +62,35 @@ Copy-Item -Path (Join-Path $PSScriptRoot 'installer\uninstall.ps1') -Destination
 
 $iconSource = Join-Path $sourceRoot 'frontend\public\brand-mark.png'
 $iconPath = Join-Path $payloadRoot 'brand-mark.ico'
+$iconPng = Join-Path $buildRoot 'brand-mark-256.png'
 Add-Type -AssemblyName System.Drawing
 $sourceImage = [System.Drawing.Image]::FromFile($iconSource)
 $iconImage = New-Object System.Drawing.Bitmap(256, 256)
 $graphics = [System.Drawing.Graphics]::FromImage($iconImage)
 $graphics.DrawImage($sourceImage, 0, 0, 256, 256)
-$iconImage.Save($iconPath, [System.Drawing.Imaging.ImageFormat]::Icon)
+$iconImage.Save($iconPng, [System.Drawing.Imaging.ImageFormat]::Png)
 $graphics.Dispose()
 $iconImage.Dispose()
 $sourceImage.Dispose()
+$iconBytes = [System.IO.File]::ReadAllBytes($iconPng)
+$iconStream = [System.IO.File]::Open($iconPath, [System.IO.FileMode]::Create)
+$iconWriter = New-Object System.IO.BinaryWriter($iconStream)
+try {
+    $iconWriter.Write([uint16]0)
+    $iconWriter.Write([uint16]1)
+    $iconWriter.Write([uint16]1)
+    $iconWriter.Write([byte]0)
+    $iconWriter.Write([byte]0)
+    $iconWriter.Write([byte]0)
+    $iconWriter.Write([byte]0)
+    $iconWriter.Write([uint16]1)
+    $iconWriter.Write([uint16]32)
+    $iconWriter.Write([uint32]$iconBytes.Length)
+    $iconWriter.Write([uint32]22)
+    $iconWriter.Write($iconBytes)
+} finally {
+    $iconWriter.Dispose()
+}
 
 if (Test-Path -LiteralPath $portableArtifact) { Remove-Item -LiteralPath $portableArtifact -Force }
 Compress-Archive -Path (Join-Path $payloadRoot '*') -DestinationPath $portableArtifact -CompressionLevel Fastest -Force
