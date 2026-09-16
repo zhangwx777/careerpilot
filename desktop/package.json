@@ -1,0 +1,6 @@
+{
+  "name": "careerpilot-desktop",
+  "private": true,
+  "version": "1.0.0",
+  "main": "main.cjs"
+}

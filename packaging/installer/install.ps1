@@ -22,12 +22,11 @@ function New-Shortcut([string]$path, [string]$target, [string]$arguments, [strin
     $shortcut.Save()
 }
 
-$wscript = Join-Path $env:WINDIR 'System32\wscript.exe'
 $powershell = Join-Path $env:WINDIR 'System32\WindowsPowerShell\v1.0\powershell.exe'
 $icon = Join-Path $installRoot 'brand-mark.ico'
-New-Shortcut (Join-Path $desktop '职航 CareerPilot.lnk') $wscript "`"$installRoot\start.vbs`"" $icon
-New-Shortcut (Join-Path $startMenuRoot '启动职航 CareerPilot.lnk') $wscript "`"$installRoot\start.vbs`"" $icon
-New-Shortcut (Join-Path $startMenuRoot '停止职航 CareerPilot.lnk') $powershell "-NoProfile -ExecutionPolicy Bypass -File `"$installRoot\stop.ps1`"" $icon
+$app = Join-Path $installRoot 'CareerPilot.exe'
+New-Shortcut (Join-Path $desktop '职航 CareerPilot.lnk') $app '' $icon
+New-Shortcut (Join-Path $startMenuRoot '启动职航 CareerPilot.lnk') $app '' $icon
 New-Shortcut (Join-Path $startMenuRoot '卸载职航 CareerPilot.lnk') $powershell "-NoProfile -ExecutionPolicy Bypass -File `"$installRoot\uninstall.ps1`"" $icon
 
-Start-Process -FilePath $wscript -ArgumentList ('"{0}"' -f (Join-Path $installRoot 'start.vbs'))
+Start-Process -FilePath $app

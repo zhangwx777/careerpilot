@@ -98,11 +98,11 @@ careerpilot/
 
 ### Windows 应用包
 
-推荐普通使用者使用 `dist\CareerPilot-portable.zip`。将 ZIP 解压到任意有写入权限的目录，双击其中的 `start.vbs` 即可启动“职航 CareerPilot”；Windows 自带解压功能即可使用，不需要额外安装解压缩软件。
+推荐普通使用者使用 `dist\CareerPilot-portable.zip`。将 ZIP 解压到任意有写入权限的目录，双击其中的 `CareerPilot.exe` 即可启动“职航 CareerPilot”；Windows 自带解压功能即可使用，不需要额外安装解压缩软件。关闭应用窗口会自动停止本地服务。
 
 也可以运行 `dist\CareerPilotSetup.exe`。这是一个免管理员权限的安装程序，会将应用安装到当前用户目录，并在桌面和开始菜单创建快捷方式。
 
-两种应用包都内置后端、前端和本地 PostgreSQL，使用者无需额外安装 Python、Node.js、pnpm 或 PostgreSQL。数据仅保存在当前 Windows 用户目录；首次进入后，在“模型设置”页填写 Provider、API Key、Base URL 和默认模型。
+两种应用包都内置桌面应用、后端、前端和本地 PostgreSQL，使用者无需额外安装 Python、Node.js、pnpm、PostgreSQL 或浏览器。数据仅保存在当前 Windows 用户目录；首次进入后，在“模型设置”页填写 Provider、API Key、Base URL 和默认模型。
 
 开发者可在已配置 Python 3.12、Node.js、PyInstaller 和 PostgreSQL 18 的构建机执行：
 
@@ -111,7 +111,7 @@ cd C:\careerpilot
 .\packaging\build.ps1
 ```
 
-构建产物为 `dist\CareerPilot-portable.zip` 和 `dist\CareerPilotSetup.exe`。构建脚本只打包当前 Git 提交的源码，不携带 `.env`、本地数据库数据或模型密钥。
+构建产物为 `dist\CareerPilot-portable.zip` 和 `dist\CareerPilotSetup.exe`。构建脚本只打包当前 Git 提交的源码，不携带 `.env`、本地数据库数据或模型密钥；构建还会下载 Electron 运行时，最终用户不需要安装 Node.js。
 
 ### 首次安装
 

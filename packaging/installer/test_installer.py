@@ -12,26 +12,20 @@ class InstallerContractTests(unittest.TestCase):
         script = Path(__file__).parents[1].joinpath("build.ps1").read_text(encoding="utf-8")
         self.assertNotIn("ImageFormat]::Icon", script)
 
-    def test_start_script_waits_for_postgres_readiness_without_waiting_for_pg_ctl(self):
-        script = Path(__file__).parents[1].joinpath("installed", "start.ps1").read_text(encoding="utf-8")
-        self.assertNotIn("-o \"-h 127.0.0.1 -p $dbPort\" start *>", script)
-        self.assertNotIn("start\" -Wait", script)
-        self.assertIn("start -W", script)
-        self.assertIn("function Test-Postgres", script)
-        self.assertIn("$originalErrorActionPreference = $ErrorActionPreference", script)
+    def test_install_script_targets_the_desktop_application(self):
+        script = Path(__file__).with_name("install.ps1").read_text(encoding="utf-8")
+        self.assertIn("CareerPilot.exe", script)
+        self.assertNotIn("start.vbs", script)
+        self.assertNotIn("wscript.exe", script)
 
-    def test_start_script_allows_an_uninitialized_database_directory(self):
-        script = Path(__file__).parents[1].joinpath("installed", "start.ps1").read_text(encoding="utf-8")
-        self.assertIn("$pgStatus = & $pgCtl -D $dbData status 2>$null", script)
-        self.assertNotIn("$pgCtl -D $dbData status 2>&1", script)
-
-    def test_launchers_show_progress_instead_of_hiding_it(self):
-        vbs = Path(__file__).parents[1].joinpath("installed", "start.vbs").read_text(encoding="utf-8")
-        script = Path(__file__).parents[1].joinpath("installed", "start.ps1").read_text(encoding="utf-8")
-        launcher = Path(__file__).with_name("launcher.py").read_text(encoding="utf-8")
-        self.assertIn("shell.Run command, 1, False", vbs)
-        self.assertIn("Write-Host '职航正在启动，请稍候...'", script)
-        self.assertIn('print("正在安装职航 CareerPilot...")', launcher)
+    def test_desktop_shell_owns_the_service_lifecycle(self):
+        script = Path(__file__).parents[2].joinpath("desktop", "main.cjs").read_text(encoding="utf-8")
+        self.assertIn("app.requestSingleInstanceLock()", script)
+        self.assertIn("spawn(backendExe", script)
+        self.assertIn("pg_ctl.exe", script)
+        self.assertIn("app.on(\"before-quit\", shutdown)", script)
+        self.assertIn("await stopPostgres()", script)
+        self.assertNotIn("postgres-start.log", script)
 
 
 if __name__ == "__main__":

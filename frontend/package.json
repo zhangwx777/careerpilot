@@ -1,5 +1,5 @@
 {
-  "name": "qiuzhao-agent-frontend",
+  "name": "careerpilot",
   "private": true,
   "version": "0.1.0",
   "packageManager": "pnpm@12.3.4",
@@ -18,9 +18,11 @@
     "react-router-dom": "^7.0.0"
   },
   "devDependencies": {
+    "@electron/packager": "^18.4.4",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
     "@vitejs/plugin-react": "^4.3.0",
+    "electron": "^37.6.0",
     "typescript": "^5.7.0",
     "vite": "^6.0.0"
   }

@@ -7,6 +7,7 @@ $payloadRoot = Join-Path $buildRoot 'payload'
 $payloadArchive = Join-Path $buildRoot 'payload.zip'
 $pyDist = Join-Path $buildRoot 'pyinstaller'
 $pyWork = Join-Path $buildRoot 'pyinstaller-work'
+$electronRoot = Join-Path $buildRoot 'electron'
 $artifact = Join-Path $root 'dist\CareerPilotSetup.exe'
 $portableArtifact = Join-Path $root 'dist\CareerPilot-portable.zip'
 $pgHome = 'C:\Program Files\PostgreSQL\18'
@@ -56,12 +57,12 @@ New-Item -ItemType Directory -Force -Path (Join-Path $payloadRoot 'postgresql\bi
 Copy-Item -Path (Join-Path $pgHome 'bin\*') -Destination (Join-Path $payloadRoot 'postgresql\bin') -Recurse -Force
 Copy-Item -Path (Join-Path $pgHome 'lib\*') -Destination (Join-Path $payloadRoot 'postgresql\lib') -Recurse -Force
 Copy-Item -Path (Join-Path $pgHome 'share\*') -Destination (Join-Path $payloadRoot 'postgresql\share') -Recurse -Force
-Copy-Item -Path (Join-Path $PSScriptRoot 'installed\*') -Destination $payloadRoot -Recurse -Force
+Copy-Item -Path (Join-Path $PSScriptRoot 'installed\stop.ps1') -Destination $payloadRoot -Force
 Copy-Item -Path (Join-Path $PSScriptRoot 'installer\install.ps1') -Destination (Join-Path $payloadRoot 'install.ps1') -Force
 Copy-Item -Path (Join-Path $PSScriptRoot 'installer\uninstall.ps1') -Destination (Join-Path $payloadRoot 'uninstall.ps1') -Force
 
 $iconSource = Join-Path $sourceRoot 'frontend\public\brand-mark.png'
-$iconPath = Join-Path $payloadRoot 'brand-mark.ico'
+$iconPath = Join-Path $buildRoot 'brand-mark.ico'
 $iconPng = Join-Path $buildRoot 'brand-mark-256.png'
 Add-Type -AssemblyName System.Drawing
 $sourceImage = [System.Drawing.Image]::FromFile($iconSource)
@@ -91,6 +92,18 @@ try {
 } finally {
     $iconWriter.Dispose()
 }
+
+$electronSource = Join-Path $sourceRoot 'desktop'
+Push-Location (Join-Path $sourceRoot 'frontend')
+try {
+    & corepack pnpm exec electron-packager $electronSource CareerPilot --platform=win32 --arch=x64 --out $electronRoot --overwrite --icon $iconPath
+    if ($LASTEXITCODE -ne 0) { throw 'Desktop application packaging failed.' }
+} finally {
+    Pop-Location
+}
+Copy-Item -Path (Join-Path $electronRoot 'CareerPilot-win32-x64\*') -Destination $payloadRoot -Recurse -Force
+Copy-Item -LiteralPath $iconPath -Destination (Join-Path $payloadRoot 'brand-mark.ico') -Force
+Copy-Item -LiteralPath $iconSource -Destination (Join-Path $payloadRoot 'brand-mark.png') -Force
 
 if (Test-Path -LiteralPath $portableArtifact) { Remove-Item -LiteralPath $portableArtifact -Force }
 Compress-Archive -Path (Join-Path $payloadRoot '*') -DestinationPath $portableArtifact -CompressionLevel Fastest -Force

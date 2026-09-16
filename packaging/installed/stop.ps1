@@ -5,8 +5,9 @@ $stateFile = Join-Path $dataRoot 'runtime.json'
 if (-not (Test-Path -LiteralPath $stateFile)) { exit 0 }
 
 $state = Get-Content -Raw -LiteralPath $stateFile | ConvertFrom-Json
-$process = Get-Process -Id ([int]$state.backend_pid) -ErrorAction SilentlyContinue
-if ($null -ne $process) { Stop-Process -Id $process.Id -Force }
+foreach ($pid in @($state.desktop_pid, $state.backend_pid)) {
+    if ($null -ne $pid) { Stop-Process -Id ([int]$pid) -Force -ErrorAction SilentlyContinue }
+}
 
 $pgCtl = Join-Path $PSScriptRoot 'postgresql\bin\pg_ctl.exe'
 if (Test-Path -LiteralPath $pgCtl) {
