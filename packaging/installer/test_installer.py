@@ -12,6 +12,11 @@ class InstallerContractTests(unittest.TestCase):
         script = Path(__file__).parents[1].joinpath("build.ps1").read_text(encoding="utf-8")
         self.assertNotIn("ImageFormat]::Icon", script)
 
+    def test_start_script_does_not_redirect_pg_ctl_start(self):
+        script = Path(__file__).parents[1].joinpath("installed", "start.ps1").read_text(encoding="utf-8")
+        self.assertNotIn("-o \"-h 127.0.0.1 -p $dbPort\" start *>", script)
+        self.assertIn("Start-Process -FilePath $pgCtl", script)
+
 
 if __name__ == "__main__":
     unittest.main()

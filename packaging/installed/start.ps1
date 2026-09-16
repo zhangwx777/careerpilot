@@ -70,8 +70,8 @@ if (-not (Test-Path -LiteralPath (Join-Path $dbData 'PG_VERSION'))) {
 }
 
 $pgLog = Join-Path $logRoot 'postgres.log'
-& $pgCtl -D $dbData -l $pgLog -o "-h 127.0.0.1 -p $dbPort" start *> (Join-Path $logRoot 'postgres-start.log')
-if ($LASTEXITCODE -ne 0) { throw '本地数据库启动失败，请查看日志。' }
+$pgStart = Start-Process -FilePath $pgCtl -ArgumentList "-D `"$dbData`" -l `"$pgLog`" -o `"-h 127.0.0.1 -p $dbPort`" start" -Wait -PassThru -WindowStyle Hidden -RedirectStandardOutput (Join-Path $logRoot 'postgres-start.log') -RedirectStandardError (Join-Path $logRoot 'postgres-start-error.log')
+if ($pgStart.ExitCode -ne 0) { throw '本地数据库启动失败，请查看日志。' }
 
 $backendPort = Find-FreePort 58080
 $env:DATABASE_URL = "postgresql+psycopg://qiuzhao_app@127.0.0.1:$dbPort/postgres"
