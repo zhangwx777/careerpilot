@@ -7,6 +7,12 @@ from litellm.exceptions import UnsupportedParamsError
 from app.llm.provider import _request_kwargs, chat, chat_stream, chat_with_tools
 
 
+class ProviderError(Exception):
+    def __init__(self, message: str, status_code: int | None = None):
+        super().__init__(message)
+        self.status_code = status_code
+
+
 def _response(content: str):
     return SimpleNamespace(
         choices=[SimpleNamespace(message=SimpleNamespace(content=content))]
@@ -120,6 +126,28 @@ class LlmProviderParametersTestCase(unittest.TestCase):
         self.assertEqual(result, '{"ok":true}')
         self.assertEqual(completion.call_count, 2)
         self.assertNotIn("response_format", completion.call_args_list[1].kwargs)
+
+    @patch("app.llm.provider.litellm.completion")
+    def test_chat_classifies_provider_failures_for_connection_test(self, completion):
+        cases = [
+            (ProviderError("invalid api key", 401), "模型认证失败，请检查 API Key 是否有效或已过期"),
+            (ProviderError("insufficient balance", 402), "模型账户无权限或余额不足，请检查供应商账户"),
+            (ProviderError("forbidden", 403), "模型账户无权限或余额不足，请检查供应商账户"),
+            (ProviderError("model not found", 404), "模型或 Base URL 不存在，请检查 Model 和 Base URL"),
+            (ProviderError("rate limit exceeded", 429), "请求过于频繁或额度受限，请稍后重试"),
+            (ProviderError("bad gateway", 502), "模型服务暂时不可用，请稍后重试或检查 Base URL/网络"),
+        ]
+
+        for error, expected in cases:
+            with self.subTest(error=str(error)):
+                completion.reset_mock()
+                completion.side_effect = error
+                with self.assertRaisesRegex(RuntimeError, expected):
+                    chat(
+                        [{"role": "user", "content": "{}"}],
+                        "deepseek",
+                        config=self.config,
+                    )
 
     @patch("app.llm.provider.litellm.completion")
     def test_stream_retries_before_any_chunk_when_parameter_is_rejected(self, completion):

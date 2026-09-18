@@ -95,9 +95,12 @@ class LlmCallError(RuntimeError):
 
     def __init__(self, kind: str):
         messages = {
-            "auth": "模型认证失败，请检查 API key",
+            "auth": "模型认证失败，请检查 API Key 是否有效或已过期",
+            "permission": "模型账户无权限或余额不足，请检查供应商账户",
+            "model_or_endpoint": "模型或 Base URL 不存在，请检查 Model 和 Base URL",
+            "rate_limit": "请求过于频繁或额度受限，请稍后重试",
             "timeout": "模型请求超时，请稍后重试",
-            "unavailable": "模型服务暂时不可用，请检查 Base URL 或网络",
+            "unavailable": "模型服务暂时不可用，请稍后重试或检查 Base URL/网络",
             "tool_call_unsupported": "当前模型不支持工具调用",
             "response": "模型返回异常，请稍后重试",
         }
@@ -107,14 +110,52 @@ class LlmCallError(RuntimeError):
 
 def _error_kind(exc: Exception) -> str:
     name = type(exc).__name__.lower()
+    error_text = str(exc).lower()
     status = getattr(exc, "status_code", None)
-    if "auth" in name or "permission" in name or status in {401, 403}:
+    if status == 401 or any(
+        token in error_text
+        for token in ("invalid api key", "incorrect api key", "authentication failed", "unauthorized")
+    ):
         return "auth"
+    if status in {402, 403} or any(
+        token in error_text
+        for token in ("insufficient balance", "insufficient quota", "payment required", "forbidden")
+    ):
+        return "permission"
+    if status == 404 or any(
+        token in error_text
+        for token in (
+            "model not found",
+            "model does not exist",
+            "model not exist",
+            "invalid model",
+            "model_not_found",
+            "unknown model",
+            "endpoint not found",
+        )
+    ):
+        return "model_or_endpoint"
+    if status == 429 or "rate limit" in error_text or "too many requests" in error_text:
+        return "rate_limit"
     if "timeout" in name or "timedout" in name:
         return "timeout"
     if isinstance(status, int) and status >= 500:
         return "unavailable"
-    if any(token in name for token in ("connection", "proxy", "serviceunavailable", "ratelimit")):
+    if any(
+        token in name or token in error_text
+        for token in (
+            "connection",
+            "proxy",
+            "serviceunavailable",
+            "bad gateway",
+            "gateway timeout",
+            "connection refused",
+            "network is unreachable",
+            "name or service not known",
+            "temporary failure in name resolution",
+            "ssl",
+        )
+    ):
         return "unavailable"
     return "response"
 
