@@ -5,7 +5,7 @@ from uuid import UUID
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints, model_validator
 from typing_extensions import Annotated
 
-from app.models import NODE_STATUS, NODE_TYPE, PARSE_SESSION_STATUS
+from app.models import NODE_STATUS, NODE_TYPE, PARSE_SESSION_STATUS, PREPARATION_TASK_STATUS
 from app.parsing import NoticeExtraction, TimeMode
 from app.schemas import ApplicationRead, Name, PositiveId
 
@@ -113,6 +113,32 @@ class PipelineBucket(BaseModel):
     count: int
 
 
+PreparationTaskStatus = Literal[*PREPARATION_TASK_STATUS]
+
+
+class DashboardActionRead(BaseModel):
+    task_id: int
+    planner_session_id: int
+    application_id: int
+    company_name: str
+    position_title: str
+    title: str
+    detail: str | None
+    priority: int
+    status: PreparationTaskStatus
+    estimated_minutes: int
+    scheduled_at: datetime | None
+    deferred_until: datetime | None
+    source_ids: list[str]
+
+
+class DashboardActionsRead(BaseModel):
+    items: list[DashboardActionRead]
+    total: int
+    pending_count: int
+
+
 class DashboardRead(BaseModel):
     pipeline: list[PipelineBucket]
     attention: list[TimelineNodeRead]
+    today_actions: DashboardActionsRead

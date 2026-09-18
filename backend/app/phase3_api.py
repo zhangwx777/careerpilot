@@ -9,13 +9,23 @@ from sqlalchemy.orm import Session, joinedload
 from app.config import settings
 from app.application_records import materialize_position
 from app.db import SessionLocal, get_db
-from app.models import APPLICATION_STATUS, Application, Company, ParseSession, Position, TimelineNode
+from app.models import (
+    APPLICATION_STATUS,
+    Application,
+    Company,
+    ParseSession,
+    Position,
+    PreparationTask,
+    TimelineNode,
+)
 from app.intel_reminders import INTERVIEW_NODE_TYPES, sync_intel_reminder_for_application
 from app.llm.config_store import LlmConfigError, PROMPT_VERSION, resolve_provider, snapshot_for
 from app.parse_graph import ParseGraphStateError, resume_parse_graph, start_parse_graph
 from app.parsing import NoticeParseError
 from app.schemas import ApplicationRead
 from app.phase3_schemas import (
+    DashboardActionRead,
+    DashboardActionsRead,
     DashboardRead,
     ParseConfirmation,
     NoticeApplicationCreate,
@@ -452,7 +462,54 @@ def get_dashboard(db: DbSession):
     now = datetime.now(timezone.utc)
     reads = [_timeline_read(node, conflicts, now) for node in nodes]
     attention = [read for read in reads if read.alert_types]
-    return DashboardRead(pipeline=pipeline, attention=attention)
+    visible_tasks = list(
+        db.scalars(
+            select(PreparationTask)
+            .options(
+                joinedload(PreparationTask.application)
+                .joinedload(Application.position)
+                .joinedload(Position.company)
+            )
+            .where(
+                PreparationTask.status == "待处理",
+                (PreparationTask.deferred_until.is_(None))
+                | (PreparationTask.deferred_until <= now),
+            )
+            .order_by(
+                PreparationTask.priority.asc(),
+                PreparationTask.scheduled_at.asc().nulls_last(),
+                PreparationTask.created_at.asc(),
+                PreparationTask.id.asc(),
+            )
+        ).all()
+    )
+    today_actions = DashboardActionsRead(
+        items=[
+            DashboardActionRead(
+                task_id=task.id,
+                planner_session_id=task.planner_session_id,
+                application_id=task.application_id,
+                company_name=task.application.position.company.name,
+                position_title=task.application.position.title,
+                title=task.title,
+                detail=task.detail,
+                priority=task.priority,
+                status=task.status,
+                estimated_minutes=task.estimated_minutes,
+                scheduled_at=task.scheduled_at,
+                deferred_until=task.deferred_until,
+                source_ids=task.source_ids or [],
+            )
+            for task in visible_tasks[:5]
+        ],
+        total=len(visible_tasks),
+        pending_count=len(visible_tasks),
+    )
+    return DashboardRead(
+        pipeline=pipeline,
+        attention=attention,
+        today_actions=today_actions,
+    )
 
 
 @router.patch("/timeline/{timeline_node_id}/status", response_model=TimelineNodeRead)

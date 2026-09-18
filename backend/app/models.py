@@ -1,7 +1,7 @@
 from datetime import date, datetime, timezone
 from uuid import UUID, uuid4
 
-from sqlalchemy import JSON, Boolean, Date, DateTime, Enum, ForeignKey, Integer, String, Text
+from sqlalchemy import JSON, Boolean, Date, DateTime, Enum, ForeignKey, Integer, String, Text, UniqueConstraint
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -348,6 +348,13 @@ class PlannerSession(Base):
 
 class PreparationTask(Base):
     __tablename__ = "preparation_task"
+    __table_args__ = (
+        UniqueConstraint(
+            "planner_session_id",
+            "action_index",
+            name="uq_preparation_task_session_action",
+        ),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     planner_session_id: Mapped[int] = mapped_column(
@@ -360,9 +367,12 @@ class PreparationTask(Base):
     detail: Mapped[str | None] = mapped_column(Text)
     gap: Mapped[str | None] = mapped_column(String(200))
     source_ids: Mapped[list] = mapped_column(PortableJSON, default=list)
-    scheduled_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
-    ends_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
-    estimated_minutes: Mapped[int] = mapped_column(Integer, nullable=False)
+    scheduled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    ends_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    estimated_minutes: Mapped[int] = mapped_column(Integer, nullable=False, default=30)
+    priority: Mapped[int] = mapped_column(Integer, nullable=False, default=3)
+    action_index: Mapped[int | None] = mapped_column(Integer)
+    deferred_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     status: Mapped[str] = mapped_column(
         Enum(*PREPARATION_TASK_STATUS, name="preparation_task_status"),
         nullable=False,

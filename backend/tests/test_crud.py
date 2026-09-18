@@ -7,7 +7,7 @@ from sqlalchemy.pool import StaticPool
 
 from app.db import Base, get_db
 from app.main import app
-from app.models import Application, Company, Position, TimelineNode
+from app.models import Application, Company, PlannerSession, Position, PreparationTask, TimelineNode
 
 test_engine = create_engine(
     "sqlite+pysqlite:///:memory:",
@@ -16,7 +16,14 @@ test_engine = create_engine(
 )
 Base.metadata.create_all(
     test_engine,
-    tables=[Company.__table__, Position.__table__, Application.__table__, TimelineNode.__table__],
+    tables=[
+        Company.__table__,
+        Position.__table__,
+        Application.__table__,
+        PlannerSession.__table__,
+        PreparationTask.__table__,
+        TimelineNode.__table__,
+    ],
 )
 with test_engine.connect() as connection:
     connection.exec_driver_sql("PRAGMA foreign_keys=ON")
@@ -37,6 +44,8 @@ class CrudApiTestCase(unittest.TestCase):
         app.dependency_overrides.clear()
         self.session.close()
         with test_engine.begin() as connection:
+            connection.execute(delete(PreparationTask))
+            connection.execute(delete(PlannerSession))
             connection.execute(delete(TimelineNode))
             connection.execute(delete(Application))
             connection.execute(delete(Position))

@@ -15,6 +15,7 @@ from app.resume_extract import ResumeExtractError, extract_resume
 from app.llm.config_store import LlmConfigError, PROMPT_VERSION, config_from_snapshot, resolve_provider, snapshot_for
 from app.planner_schemas import (
     PlannerConfirmation,
+    PlannerAction,
     PlannerSessionCreate,
     PlannerSessionRead,
     PlannerSessionStatus,
@@ -31,6 +32,42 @@ DbSession = Annotated[Session, Depends(get_db)]
 Page = Annotated[int, Query(ge=1)]
 PageSize = Annotated[int, Query(ge=1, le=100)]
 logger = logging.getLogger(__name__)
+
+
+def materialize_planner_actions(db: Session, item: PlannerSession) -> int:
+    """Persist one idempotent preparation task for each planner action."""
+
+    actions = (item.draft_payload or {}).get("actions")
+    if not isinstance(actions, list):
+        return 0
+    existing = set(
+        db.scalars(
+            select(PreparationTask.action_index).where(
+                PreparationTask.planner_session_id == item.id,
+                PreparationTask.action_index.is_not(None),
+            )
+        ).all()
+    )
+    created = 0
+    for action_index, raw_action in enumerate(actions):
+        if action_index in existing:
+            continue
+        action = PlannerAction.model_validate(raw_action)
+        db.add(
+            PreparationTask(
+                planner_session_id=item.id,
+                application_id=item.application_id,
+                title=action.title,
+                detail=action.detail,
+                source_ids=action.source_ids,
+                estimated_minutes=30,
+                priority=action.priority,
+                action_index=action_index,
+                status="待处理",
+            )
+        )
+        created += 1
+    return created
 
 
 def _get_session(db: Session, planner_session_id: int) -> PlannerSession:
@@ -65,6 +102,7 @@ def _run_planner_session(session_id: int, thread_id: str) -> None:
                     llm_config=config_from_snapshot(item.llm_snapshot, task_db, item.provider),
                 )
                 item.draft_payload = draft.model_dump(mode="json")
+                materialize_planner_actions(task_db, item)
                 item.status = "已完成"
                 item.resolved_at = datetime.now(timezone.utc)
                 task_db.commit()
@@ -200,6 +238,16 @@ def get_planner_session(planner_session_id: int, db: DbSession):
     return _session_read(_get_session(db, planner_session_id))
 
 
+@router.post("/planner-sessions/{planner_session_id}/materialize-actions", response_model=PlannerSessionRead)
+def materialize_planner_session_actions(planner_session_id: int, db: DbSession):
+    item = _get_session(db, planner_session_id)
+    if item.status != "已完成":
+        raise HTTPException(status_code=409, detail="只有已完成的备战分析可以生成准备行动")
+    materialize_planner_actions(db, item)
+    db.commit()
+    return _session_read(_get_session(db, planner_session_id))
+
+
 @router.post("/planner-sessions/{planner_session_id}/confirm", response_model=PlannerSessionRead)
 def confirm_planner_session(planner_session_id: int, payload: PlannerConfirmation, db: DbSession):
     item = _get_session(db, planner_session_id)
@@ -240,18 +288,29 @@ def list_preparation_tasks(
     page_size: PageSize = 20,
     application_id: int | None = Query(default=None, gt=0),
     task_status: PreparationTaskStatus | None = Query(default=None, alias="status"),
+    include_deferred: bool = Query(default=False),
 ):
     filters = []
     if application_id is not None:
         filters.append(PreparationTask.application_id == application_id)
     if task_status is not None:
         filters.append(PreparationTask.status == task_status)
+    if not include_deferred:
+        filters.append(
+            (PreparationTask.deferred_until.is_(None))
+            | (PreparationTask.deferred_until <= datetime.now(timezone.utc))
+        )
     total = db.scalar(select(func.count()).select_from(PreparationTask).where(*filters)) or 0
     items = list(
         db.scalars(
             select(PreparationTask)
             .where(*filters)
-            .order_by(PreparationTask.scheduled_at.asc(), PreparationTask.id.asc())
+            .order_by(
+                PreparationTask.scheduled_at.asc().nulls_last(),
+                PreparationTask.priority.asc(),
+                PreparationTask.created_at.asc(),
+                PreparationTask.id.asc(),
+            )
             .offset((page - 1) * page_size)
             .limit(page_size)
         ).all()
@@ -265,6 +324,12 @@ def update_preparation_task_status(task_id: int, payload: PreparationTaskStatusU
     if task is None:
         raise HTTPException(404, "备战任务不存在")
     task.status = payload.status
+    if payload.status != "待处理":
+        task.deferred_until = None
+    elif "deferred_until" in payload.model_fields_set:
+        if payload.deferred_until is not None and payload.deferred_until.utcoffset() is None:
+            raise HTTPException(422, "延期时间必须包含时区")
+        task.deferred_until = payload.deferred_until
     if task.timeline_node_id is not None:
         node = db.get(TimelineNode, task.timeline_node_id)
         if node is not None:

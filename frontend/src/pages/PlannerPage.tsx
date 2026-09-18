@@ -7,7 +7,7 @@ import { ConfirmDialog } from "../components/ConfirmDialog";
 import { loadDraft, loadSessionId, saveDraft, saveSessionId, clearDraft } from "../drafts";
 import { formatDateTime } from "../format";
 import { usePolling } from "../hooks/usePolling";
-import type { Application, PlannerReport, PlannerSession, ProviderOption, ResumeProfile } from "../types";
+import type { Application, PlannerReport, PlannerSession, PreparationTask, ProviderOption, ResumeProfile } from "../types";
 
 const plannerDraftKey = "qiuzhao-agent:planner-draft";
 const activePlannerSessionKey = "qiuzhao-agent:planner-active-session";
@@ -30,6 +30,7 @@ export function PlannerPage() {
   const [fileName, setFileName] = useState(draft.fileName);
   const [session, setSession] = useState<PlannerSession | null>(null);
   const [history, setHistory] = useState<PlannerSession[]>([]);
+  const [sessionTasks, setSessionTasks] = useState<PreparationTask[]>([]);
   const [uploading, setUploading] = useState(false);
   const [loading, setLoading] = useState(false);
   const [confirmingResumeDelete, setConfirmingResumeDelete] = useState(false);
@@ -73,6 +74,16 @@ export function PlannerPage() {
     refresh();
     return () => { cancelled = true; };
   }, [navigate, sessionId]);
+
+  useEffect(() => {
+    if (!sessionId || session?.status !== "已完成") {
+      setSessionTasks([]);
+      return;
+    }
+    api.planner.tasks({ application_id: session.application_id, page_size: 100, include_deferred: true })
+      .then((result) => setSessionTasks(result.items.filter((task) => task.planner_session_id === sessionId)))
+      .catch((reason: Error) => setError(reason.message));
+  }, [session?.application_id, session?.status, sessionId]);
 
   usePolling({
     enabled: Boolean(sessionId && session?.status === "生成中"),
@@ -123,6 +134,27 @@ export function PlannerPage() {
     try { const created = await api.planner.create({ application_id: applicationId, provider }); setSession(created); saveSessionId(window.localStorage, activePlannerSessionKey, created.id); navigate(`/planner/${created.id}`, { replace: true }); }
     catch (reason) { setError(reason instanceof Error ? reason.message : "备战分析失败"); }
     finally { setLoading(false); }
+  }
+
+  async function updateAction(task: PreparationTask, status: PreparationTask["status"]) {
+    try {
+      const updated = await api.planner.updateTask(task.id, status);
+      setSessionTasks((current) => current.map((item) => item.id === updated.id ? updated : item));
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "行动状态更新失败");
+    }
+  }
+
+  async function materializeActions() {
+    if (!sessionId) return;
+    try {
+      const updated = await api.planner.materializeActions(sessionId);
+      setSession(updated);
+      const result = await api.planner.tasks({ application_id: updated.application_id, page_size: 100, include_deferred: true });
+      setSessionTasks(result.items.filter((task) => task.planner_session_id === sessionId));
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "准备行动生成失败");
+    }
   }
 
   const report = session?.draft_payload && isReport(session.draft_payload) ? session.draft_payload : null;
@@ -257,17 +289,33 @@ export function PlannerPage() {
                 </section>
               </div>
               <section className="planner-actions">
-                <h3>准备行动</h3>
-                {report.actions.map((item) => (
+                <div className="planner-actions-heading">
+                  <h3>准备行动</h3>
+                  {session.status === "已完成" && sessionTasks.length < report.actions.length && (
+                    <button className="button ghost compact-button" type="button" onClick={() => void materializeActions()}>生成行动</button>
+                  )}
+                </div>
+                {report.actions.map((item, index) => {
+                  const task = sessionTasks.find((candidate) => candidate.action_index === index);
+                  return (
                   <article key={item.title}>
                     <span>{item.priority}</span>
                     <div>
                       <strong>{item.title}</strong>
                       <p>{item.detail ?? ""}</p>
                       {item.source_ids.length > 0 && <small>引用面经：{item.source_ids.join("、")}</small>}
+                      {task && <div className="planner-action-status">
+                        <span className={`task-status task-status-${task.status}`}>{task.status}</span>
+                        {task.status === "待处理" && <>
+                          <button className="button ghost compact-button" type="button" onClick={() => void updateAction(task, "已完成")}>完成</button>
+                          <button className="button ghost compact-button" type="button" onClick={() => void updateAction(task, "已跳过")}>跳过</button>
+                        </>}
+                        {task.status !== "待处理" && <button className="button ghost compact-button" type="button" onClick={() => void updateAction(task, "待处理")}>重新打开</button>}
+                      </div>}
                     </div>
                   </article>
-                ))}
+                  );
+                })}
               </section>
             </>
           )}

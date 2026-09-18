@@ -141,9 +141,12 @@ class PreparationTaskRead(BaseModel):
     detail: str | None
     gap: str | None
     source_ids: list[str]
-    scheduled_at: datetime
-    ends_at: datetime
+    scheduled_at: datetime | None
+    ends_at: datetime | None
     estimated_minutes: int
+    priority: int
+    action_index: int | None
+    deferred_until: datetime | None
     status: PreparationTaskStatus
     timeline_node_id: int | None
     created_at: datetime
@@ -158,3 +161,4 @@ class PreparationTaskPage(BaseModel):
 
 class PreparationTaskStatusUpdate(BaseModel):
     status: PreparationTaskStatus
+    deferred_until: datetime | None = None

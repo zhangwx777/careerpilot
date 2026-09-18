@@ -21,7 +21,7 @@ import type {
   ScheduledTask,
 } from "./types";
 
-type QueryValue = string | number | undefined;
+type QueryValue = string | number | boolean | undefined;
 
 export type ApiErrorKind = "config" | "auth" | "timeout" | "format" | "network" | "unknown";
 
@@ -213,10 +213,11 @@ export const api = {
     create: (input: { application_id: number; provider?: string }) => request<PlannerSession>("/api/planner-sessions", { method: "POST", body: JSON.stringify(input) }),
     sessions: () => request<PlannerSession[]>("/api/planner-sessions"),
     session: (id: number) => request<PlannerSession>(`/api/planner-sessions/${id}`),
+    materializeActions: (id: number) => request<PlannerSession>(`/api/planner-sessions/${id}/materialize-actions`, { method: "POST" }),
     confirm: (id: number, tasks: ScheduledTask[]) => request<PlannerSession>(`/api/planner-sessions/${id}/confirm`, { method: "POST", body: JSON.stringify({ tasks }) }),
     discard: (id: number) => request<PlannerSession>(`/api/planner-sessions/${id}/discard`, { method: "POST" }),
-    tasks: (params: { page?: number; page_size?: number; application_id?: number; status?: PreparationTask["status"] } = {}) => request<Page<PreparationTask>>(`/api/preparation-tasks${queryString(params)}`),
-    updateTask: (id: number, status: PreparationTask["status"]) => request<PreparationTask>(`/api/preparation-tasks/${id}/status`, { method: "PATCH", body: JSON.stringify({ status }) }),
+    tasks: (params: { page?: number; page_size?: number; application_id?: number; status?: PreparationTask["status"]; include_deferred?: boolean } = {}) => request<Page<PreparationTask>>(`/api/preparation-tasks${queryString(params)}`),
+    updateTask: (id: number, status: PreparationTask["status"], deferred_until?: string | null) => request<PreparationTask>(`/api/preparation-tasks/${id}/status`, { method: "PATCH", body: JSON.stringify({ status, ...(deferred_until !== undefined ? { deferred_until } : {}) }) }),
   },
   briefings: {
     run: () => request<DailyBriefing>("/api/daily-briefings/run", { method: "POST" }),

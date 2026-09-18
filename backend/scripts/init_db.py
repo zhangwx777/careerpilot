@@ -193,6 +193,50 @@ def initialize_database(database_url: str) -> None:
                     "ADD COLUMN IF NOT EXISTS error_kind VARCHAR(50)"
                 )
             )
+            connection.execute(
+                text(
+                    "ALTER TABLE preparation_task "
+                    "ALTER COLUMN scheduled_at DROP NOT NULL"
+                )
+            )
+            connection.execute(
+                text(
+                    "ALTER TABLE preparation_task "
+                    "ALTER COLUMN ends_at DROP NOT NULL"
+                )
+            )
+            connection.execute(
+                text(
+                    "ALTER TABLE preparation_task "
+                    "ADD COLUMN IF NOT EXISTS priority INTEGER NOT NULL DEFAULT 3"
+                )
+            )
+            connection.execute(
+                text(
+                    "ALTER TABLE preparation_task "
+                    "ADD COLUMN IF NOT EXISTS action_index INTEGER"
+                )
+            )
+            connection.execute(
+                text(
+                    "ALTER TABLE preparation_task "
+                    "ADD COLUMN IF NOT EXISTS deferred_until TIMESTAMPTZ"
+                )
+            )
+            connection.execute(
+                text(
+                    "CREATE UNIQUE INDEX IF NOT EXISTS "
+                    "uq_preparation_task_session_action "
+                    "ON preparation_task (planner_session_id, action_index) "
+                    "WHERE action_index IS NOT NULL"
+                )
+            )
+            connection.execute(
+                text(
+                    "CREATE INDEX IF NOT EXISTS ix_preparation_task_deferred_until "
+                    "ON preparation_task (deferred_until)"
+                )
+            )
 
         with PostgresSaver.from_conn_string(
             to_psycopg_connection_string(database_url)

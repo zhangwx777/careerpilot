@@ -1,10 +1,10 @@
 import { useEffect, useState } from "react";
-import { ChartBar, CheckCircle, Warning } from "@phosphor-icons/react";
+import { ArrowRight, ChartBar, CheckCircle, Clock, Warning } from "@phosphor-icons/react";
 import { Link } from "react-router-dom";
 
 import { api } from "../api";
 import { formatDateTime } from "../format";
-import type { Dashboard, TimelineNode } from "../types";
+import type { Dashboard, DashboardAction, TimelineNode } from "../types";
 
 type AttentionGroupKey = "overdue" | "today" | "week" | "later";
 
@@ -46,6 +46,7 @@ export function DashboardPage() {
   const [data, setData] = useState<Dashboard | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [updatingTaskId, setUpdatingTaskId] = useState<number | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -81,6 +82,41 @@ export function DashboardPage() {
     items: attention.filter((node) => attentionGroup(node, today) === group.key),
   }));
 
+  async function updateAction(task: DashboardAction, status: DashboardAction["status"], deferredUntil?: string | null) {
+    setUpdatingTaskId(task.task_id);
+    setError("");
+    try {
+      await api.planner.updateTask(task.task_id, status, deferredUntil);
+      setData((current) => {
+        if (!current) return current;
+        const remaining = current.today_actions.items.filter((item) => item.task_id !== task.task_id);
+        const nextTask = status === "待处理" && !deferredUntil
+          ? { ...task, status, deferred_until: null }
+          : null;
+        return {
+          ...current,
+          today_actions: {
+            ...current.today_actions,
+            items: nextTask ? [...remaining, nextTask].sort((a, b) => a.priority - b.priority) : remaining,
+            total: Math.max(0, current.today_actions.total - (nextTask ? 0 : 1)),
+            pending_count: Math.max(0, current.today_actions.pending_count - (nextTask ? 0 : 1)),
+          },
+        };
+      });
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "行动状态更新失败");
+    } finally {
+      setUpdatingTaskId(null);
+    }
+  }
+
+  function tomorrowAtNine(): string {
+    const date = new Date();
+    date.setDate(date.getDate() + 1);
+    date.setHours(9, 0, 0, 0);
+    return date.toISOString();
+  }
+
   return (
     <section>
       <div className="page-heading">
@@ -99,6 +135,52 @@ export function DashboardPage() {
         </div>
       ) : (
         <>
+          <section className="panel dashboard-panel dashboard-actions-panel">
+            <div className="section-title">
+              <CheckCircle size={20} weight="duotone" aria-hidden="true" />
+              <div>
+                <h2>今天先做</h2>
+                <span>{data?.today_actions.total ? `${data.today_actions.total} 个准备行动待处理` : "当前没有待完成的准备行动"}</span>
+              </div>
+            </div>
+            {data?.today_actions.items.length ? (
+              <div className="dashboard-action-items">
+                {data.today_actions.items.map((task) => (
+                  <article className="dashboard-action-row" key={task.task_id}>
+                    <div className="dashboard-action-main">
+                      <div className="dashboard-action-heading">
+                        <span className={`priority-chip priority-${task.priority}`}>P{task.priority}</span>
+                        <strong>{task.title}</strong>
+                      </div>
+                      <span>{task.company_name} · {task.position_title}</span>
+                      {task.detail && <p>{task.detail}</p>}
+                      <small><Clock size={14} /> 预计 {task.estimated_minutes} 分钟</small>
+                    </div>
+                    <div className="dashboard-action-actions">
+                      <button className="button primary compact-button" type="button" disabled={updatingTaskId === task.task_id} onClick={() => void updateAction(task, "已完成")}>完成</button>
+                      <button className="button ghost compact-button" type="button" disabled={updatingTaskId === task.task_id} onClick={() => void updateAction(task, "已跳过")}>跳过</button>
+                      <button className="button ghost compact-button" type="button" disabled={updatingTaskId === task.task_id} onClick={() => void updateAction(task, "待处理", tomorrowAtNine())}>明天再做</button>
+                      <Link className="dashboard-action-link" to={`/applications/${task.application_id}/edit`}>岗位</Link>
+                      <Link className="dashboard-action-link" to={`/planner/${task.planner_session_id ?? ""}`} aria-label={`查看 ${task.title}`}>
+                        查看 <ArrowRight size={15} />
+                      </Link>
+                    </div>
+                  </article>
+                ))}
+              </div>
+            ) : (
+              <div className="empty-state">
+                <CheckCircle size={36} weight="duotone" aria-hidden="true" />
+                <strong>当前没有待完成的准备行动</strong>
+                <span>上传简历并生成一次备战分析后，准备行动会出现在这里。</span>
+                <Link to="/planner">去备战中心</Link>
+              </div>
+            )}
+            {(data?.today_actions.total ?? 0) > (data?.today_actions.items.length ?? 0) && (
+              <Link className="dashboard-more-link" to="/planner">查看全部行动 <ArrowRight size={15} /></Link>
+            )}
+          </section>
+
           <div className="dashboard-stats" aria-label="求职总览摘要">
             <div className="dashboard-stat">
               <span>全部投递</span>

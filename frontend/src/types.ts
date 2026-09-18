@@ -40,6 +40,27 @@ export interface PipelineBucket {
 export interface Dashboard {
   pipeline: PipelineBucket[];
   attention: TimelineNode[];
+  today_actions: {
+    items: DashboardAction[];
+    total: number;
+    pending_count: number;
+  };
+}
+
+export interface DashboardAction {
+  task_id: number;
+  planner_session_id: number;
+  application_id: number;
+  company_name: string;
+  position_title: string;
+  title: string;
+  detail: string | null;
+  priority: number;
+  status: "待处理" | "已完成" | "已跳过";
+  estimated_minutes: number;
+  scheduled_at: string | null;
+  deferred_until: string | null;
+  source_ids: string[];
 }
 
 export const APPLICATION_STATUSES = [
@@ -202,5 +223,5 @@ export interface PlannerAction { title: string; detail: string | null; priority:
 export interface PlannerReport { summary: string | null; strengths: PlannerGap[]; gaps: PlannerGap[]; actions: PlannerAction[]; }
 export interface ScheduledTask { title: string; detail: string | null; gap: string; source_ids: string[]; estimated_minutes: number; scheduled_at: string; ends_at: string; }
 export interface PlannerSession { id: number; application_id: number; application: Application; provider: string; available_windows: AvailabilityWindow[]; draft_payload: PlannerReport | { gaps: PlannerGap[]; tasks: ScheduledTask[] } | null; status: "生成中" | "待确认" | "已确认" | "已完成" | "已丢弃" | "失败"; error_message: string | null; created_at: string; resolved_at: string | null; }
-export interface PreparationTask { id: number; planner_session_id: number; application_id: number; title: string; detail: string | null; gap: string | null; source_ids: string[]; scheduled_at: string; ends_at: string; estimated_minutes: number; status: "待处理" | "已完成" | "已跳过"; timeline_node_id: number | null; created_at: string; }
+export interface PreparationTask { id: number; planner_session_id: number; application_id: number; title: string; detail: string | null; gap: string | null; source_ids: string[]; scheduled_at: string | null; ends_at: string | null; estimated_minutes: number; priority: number; action_index: number | null; deferred_until: string | null; status: "待处理" | "已完成" | "已跳过"; timeline_node_id: number | null; created_at: string; }
 export interface DailyBriefing { id: number; briefing_date: string; payload: { alerts: { timeline_node_id: number; title: string; scheduled_at: string; alert_types: TimelineAlert[] }[]; today_tasks: { task_id: number; title: string; scheduled_at: string; ends_at: string; application_id: number }[]; new_sources: { application_id: number; title: string; url: string }[]; search_errors: { application_id: number; message: string }[]; }; created_at: string; }
