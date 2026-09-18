@@ -384,6 +384,7 @@ input:focus, select:focus, textarea:focus { border-color: var(--brand); box-shad
 .priority-1 { color: #9a3c32; background: #f8e4df; }
 .dashboard-action-actions { display: flex; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: 6px; }
 .compact-button { min-height: 32px; padding: 6px 10px; font-size: 12px; }
+.defer-picker input { min-height: 32px; padding: 6px 8px; color: var(--ink-soft); background: var(--paper); border: 1px solid var(--rule-strong); border-radius: var(--radius-sm); font: inherit; font-size: 11px; }
 .dashboard-action-link, .dashboard-more-link { display: inline-flex; align-items: center; gap: 4px; color: var(--brand); font-size: 12px; font-weight: 650; text-decoration: none; white-space: nowrap; }
 .dashboard-more-link { margin-top: 14px; }
 .dashboard-attention { display: grid; gap: 18px; margin-top: 14px; }

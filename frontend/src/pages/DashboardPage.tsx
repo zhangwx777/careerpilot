@@ -160,6 +160,17 @@ export function DashboardPage() {
                       <button className="button primary compact-button" type="button" disabled={updatingTaskId === task.task_id} onClick={() => void updateAction(task, "已完成")}>完成</button>
                       <button className="button ghost compact-button" type="button" disabled={updatingTaskId === task.task_id} onClick={() => void updateAction(task, "已跳过")}>跳过</button>
                       <button className="button ghost compact-button" type="button" disabled={updatingTaskId === task.task_id} onClick={() => void updateAction(task, "待处理", tomorrowAtNine())}>明天再做</button>
+                      <label className="defer-picker">
+                        <span className="sr-only">选择延期时间</span>
+                        <input
+                          type="datetime-local"
+                          aria-label={`选择 ${task.title} 的延期时间`}
+                          disabled={updatingTaskId === task.task_id}
+                          onChange={(event) => {
+                            if (event.target.value) void updateAction(task, "待处理", new Date(event.target.value).toISOString());
+                          }}
+                        />
+                      </label>
                       <Link className="dashboard-action-link" to={`/applications/${task.application_id}/edit`}>岗位</Link>
                       <Link className="dashboard-action-link" to={`/planner/${task.planner_session_id ?? ""}`} aria-label={`查看 ${task.title}`}>
                         查看 <ArrowRight size={15} />
