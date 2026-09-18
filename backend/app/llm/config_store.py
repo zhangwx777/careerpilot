@@ -45,6 +45,17 @@ CONFIG_SECRET_FILE = (
     if os.environ.get("CAREERPILOT_DATA_DIR")
     else Path(__file__).resolve().parents[3] / ".llm_config_secret"
 )
+_packaged_app_root = os.environ.get("CAREERPILOT_APP_ROOT")
+LEGACY_CONFIG_SECRET_FILES = tuple(
+    candidate
+    for candidate in (
+        Path(_packaged_app_root).parent / ".llm_config_secret"
+        if _packaged_app_root
+        else None,
+        Path(__file__).resolve().parents[3] / ".llm_config_secret",
+    )
+    if candidate is not None and candidate != CONFIG_SECRET_FILE
+)
 
 
 @dataclass(frozen=True)
@@ -79,12 +90,34 @@ def validate_base_url(value: str | None) -> str | None:
     return candidate.rstrip("/")
 
 
-def _fernet() -> Fernet:
+def _read_fernet(path: Path) -> Fernet | None:
     try:
-        secret = CONFIG_SECRET_FILE.read_text(encoding="ascii").strip()
+        secret = path.read_text(encoding="ascii").strip()
     except FileNotFoundError:
-        secret = Fernet.generate_key().decode("ascii")
-        CONFIG_SECRET_FILE.write_text(secret, encoding="ascii")
+        return None
+    try:
+        return Fernet(secret.encode("ascii"))
+    except (ValueError, UnicodeEncodeError):
+        return None
+
+
+def _fernet() -> Fernet:
+    current = _read_fernet(CONFIG_SECRET_FILE)
+    if current is not None:
+        return current
+    for legacy_path in LEGACY_CONFIG_SECRET_FILES:
+        legacy = _read_fernet(legacy_path)
+        if legacy is None:
+            continue
+        CONFIG_SECRET_FILE.parent.mkdir(parents=True, exist_ok=True)
+        CONFIG_SECRET_FILE.write_text(
+            legacy_path.read_text(encoding="ascii").strip(),
+            encoding="ascii",
+        )
+        return legacy
+    secret = Fernet.generate_key().decode("ascii")
+    CONFIG_SECRET_FILE.parent.mkdir(parents=True, exist_ok=True)
+    CONFIG_SECRET_FILE.write_text(secret, encoding="ascii")
     return Fernet(secret.encode("ascii"))
 
 
@@ -93,10 +126,22 @@ def encrypt_text(value: str) -> str:
 
 
 def decrypt_text(value: str) -> str:
-    try:
-        return _fernet().decrypt(value.encode("ascii")).decode("utf-8")
-    except (InvalidToken, ValueError, UnicodeDecodeError) as exc:
-        raise LlmConfigError("本机模型配置密钥无法解密，请检查 .llm_config_secret") from exc
+    encrypted = value.encode("ascii")
+    candidates = [_fernet()]
+    candidates.extend(
+        legacy
+        for path in LEGACY_CONFIG_SECRET_FILES
+        if (legacy := _read_fernet(path)) is not None
+    )
+    last_error: Exception | None = None
+    for candidate in candidates:
+        try:
+            return candidate.decrypt(encrypted).decode("utf-8")
+        except (InvalidToken, ValueError, UnicodeDecodeError) as exc:
+            last_error = exc
+    raise LlmConfigError(
+        "本机模型配置密钥无法解密，请重新填写 API Key"
+    ) from last_error
 
 
 def get_effective_config(db: Session | None, provider: str) -> dict:
@@ -321,7 +366,13 @@ def list_provider_status(db: Session) -> list[dict]:
             stored_status = row.validation_status if row.validation_status in {"未验证", "已验证", "验证失败"} else "未验证"
             status = "验证失败" if base_url_error else stored_status
             message = base_url_error or row.validation_message
-            masked = mask_key(decrypt_text(row.encrypted_api_key)) if row.encrypted_api_key else None
+            try:
+                masked = mask_key(decrypt_text(row.encrypted_api_key)) if row.encrypted_api_key else None
+            except LlmConfigError:
+                configured = False
+                status = "验证失败"
+                message = "已保存的 API Key 无法解密，请重新填写并保存"
+                masked = None
             tested_at = row.last_tested_at
         else:
             model = ""
@@ -372,6 +423,12 @@ def save_provider(
     if api_key is not None and api_key.strip():
         encrypted = encrypt_text(api_key.strip())
     elif row is not None and row.encrypted_api_key:
+        try:
+            decrypt_text(row.encrypted_api_key)
+        except LlmConfigError:
+            raise LlmConfigError(
+                "已保存的 API Key 无法解密，请重新填写 API Key"
+            ) from None
         encrypted = row.encrypted_api_key
     else:
         raise LlmConfigError("首次保存该模型时必须填写 API key")

@@ -209,6 +209,7 @@ export const api = {
     resume: () => request<ResumeProfile>("/api/resume-profile"),
     uploadResume: (file: File) => { const body = new FormData(); body.append("file", file); return request<ResumeProfile>("/api/resume-profile/upload", { method: "POST", body }); },
     saveResume: (resume_text: string) => request<ResumeProfile>("/api/resume-profile", { method: "PUT", body: JSON.stringify({ resume_text }) }),
+    deleteResume: () => request<void>("/api/resume-profile", { method: "DELETE" }),
     create: (input: { application_id: number; provider?: string }) => request<PlannerSession>("/api/planner-sessions", { method: "POST", body: JSON.stringify(input) }),
     sessions: () => request<PlannerSession[]>("/api/planner-sessions"),
     session: (id: number) => request<PlannerSession>(`/api/planner-sessions/${id}`),

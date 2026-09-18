@@ -2,7 +2,7 @@ from datetime import datetime, timezone
 import logging
 from typing import Annotated
 
-from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, Query, UploadFile, status
+from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, Query, Response, UploadFile, status
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session, joinedload
 
@@ -124,6 +124,15 @@ def upload_resume_profile(db: DbSession, file: UploadFile = File(...)):
     return item
 
 
+@router.delete("/resume-profile", status_code=status.HTTP_204_NO_CONTENT)
+def delete_resume_profile(db: DbSession):
+    item = db.get(ResumeProfile, 1)
+    if item is not None:
+        db.delete(item)
+        db.commit()
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
 @router.post("/planner-sessions", response_model=PlannerSessionRead, status_code=status.HTTP_201_CREATED)
 def create_planner_session(
     payload: PlannerSessionCreate, background_tasks: BackgroundTasks, db: DbSession
@@ -175,13 +184,14 @@ def create_planner_session(
 
 @router.get("/planner-sessions", response_model=list[PlannerSessionRead])
 def list_planner_sessions(db: DbSession, session_status: str | None = Query(default=None, alias="status")):
-    statuses = {session_status} if session_status else {"生成中", "待确认"}
-    items = db.scalars(
+    statement = (
         select(PlannerSession)
         .options(joinedload(PlannerSession.application).joinedload(Application.position).joinedload(Position.company))
-        .where(PlannerSession.status.in_(statuses))
         .order_by(PlannerSession.created_at.desc(), PlannerSession.id.desc())
-    ).all()
+    )
+    if session_status:
+        statement = statement.where(PlannerSession.status == session_status)
+    items = db.scalars(statement).all()
     return [_session_read(item) for item in items]
 
 

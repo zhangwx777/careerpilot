@@ -7,7 +7,7 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
-    "test": "node --test workdays.test.ts drafts.test.ts",
+    "test": "node --test workdays.test.ts drafts.test.ts ui-regressions.test.ts",
     "preview": "vite preview"
   },
   "dependencies": {

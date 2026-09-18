@@ -1,9 +1,11 @@
-import { FileText, Sparkle, UploadSimple } from "@phosphor-icons/react";
+import { ClockCounterClockwise, FileText, Sparkle, Trash, UploadSimple } from "@phosphor-icons/react";
 import { useEffect, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 
 import { api } from "../api";
+import { ConfirmDialog } from "../components/ConfirmDialog";
 import { loadDraft, loadSessionId, saveDraft, saveSessionId, clearDraft } from "../drafts";
+import { formatDateTime } from "../format";
 import { usePolling } from "../hooks/usePolling";
 import type { Application, PlannerReport, PlannerSession, ProviderOption, ResumeProfile } from "../types";
 
@@ -27,31 +29,44 @@ export function PlannerPage() {
   const [profile, setProfile] = useState<ResumeProfile | null>(null);
   const [fileName, setFileName] = useState(draft.fileName);
   const [session, setSession] = useState<PlannerSession | null>(null);
+  const [history, setHistory] = useState<PlannerSession[]>([]);
   const [uploading, setUploading] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [confirmingResumeDelete, setConfirmingResumeDelete] = useState(false);
   const [error, setError] = useState("");
 
   useEffect(() => {
     let cancelled = false;
     api.applications.list({ page_size: 100 }).then((result) => { if (!cancelled) setApplications(result.items); }).catch((reason: Error) => { if (!cancelled) setError(reason.message); });
     api.providers.list().then((result) => { if (!cancelled) { const configured = result.filter((item) => item.configured); setProviders(configured); setProvider((current) => configured.some((item) => item.name === current) ? current : configured.find((item) => item.is_default)?.name ?? configured[0]?.name ?? ""); } }).catch((reason: Error) => { if (!cancelled) setError(reason.message); });
-    api.planner.resume().then((result) => { if (!cancelled) { setProfile(result); setFileName(result.file_name ?? ""); } }).catch(() => undefined);
+    api.planner.resume().then((result) => { if (!cancelled) { setProfile(result); setFileName(result.file_name ?? ""); } }).catch(() => { if (!cancelled) { setProfile(null); setFileName(""); } });
     return () => { cancelled = true; };
   }, []);
   useEffect(() => { saveDraft(window.localStorage, plannerDraftKey, { applicationId, provider, fileName }); }, [applicationId, provider, fileName]);
   useEffect(() => {
     if (!sessionId) {
+      setSession(null);
       const active = loadSessionId(window.localStorage, activePlannerSessionKey);
-      if (active) { navigate(`/planner/${active}`, { replace: true }); return; }
-      api.planner.sessions().then((items) => { if (items[0]) navigate(`/planner/${items[0].id}`, { replace: true }); }).catch(() => undefined);
+      api.planner.sessions().then((items) => {
+        setHistory(items);
+        const isResumable = (item: PlannerSession) => item.status === "生成中" || item.status === "待确认";
+        const resumable = items.find((item) => item.id === active && isResumable(item)) ?? items.find(isResumable);
+        if (resumable) {
+          saveSessionId(window.localStorage, activePlannerSessionKey, resumable.id);
+          navigate(`/planner/${resumable.id}`, { replace: true });
+        } else {
+          clearDraft(window.localStorage, activePlannerSessionKey);
+        }
+      }).catch((reason: Error) => setError(reason.message));
       return;
     }
+    setSession(null);
     let cancelled = false;
     const refresh = () => api.planner.session(sessionId).then((result) => {
       if (cancelled) return;
       setSession(result);
       setApplicationId(result.application_id);
-      if (result.status === "生成中") {
+      if (result.status === "生成中" || result.status === "待确认") {
         saveSessionId(window.localStorage, activePlannerSessionKey, result.id);
       } else clearDraft(window.localStorage, activePlannerSessionKey);
     }).catch((reason: Error) => { if (!cancelled) setError(reason.message); });
@@ -84,6 +99,20 @@ export function PlannerPage() {
     finally { setUploading(false); }
   }
 
+  async function deleteResume() {
+    setLoading(true); setError("");
+    try {
+      await api.planner.deleteResume();
+      setProfile(null);
+      setFileName("");
+      setConfirmingResumeDelete(false);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "简历删除失败");
+    } finally {
+      setLoading(false);
+    }
+  }
+
   async function generate() {
     if (!applicationId) return setError("请选择目标投递");
     if (!profile?.resume_text.trim()) return setError("请先上传可提取文字的 PDF 或 DOCX 简历");
@@ -114,7 +143,7 @@ export function PlannerPage() {
               <span>简历文件</span>
               <strong>
                 <UploadSimple size={19} />
-                {uploading ? "正在提取文字…" : "上传 PDF 或 DOCX"}
+                {uploading ? "正在提取文字…" : profile ? "替换 PDF 或 DOCX 简历" : "上传 PDF 或 DOCX 简历"}
               </strong>
               <input
                 type="file"
@@ -130,6 +159,9 @@ export function PlannerPage() {
                   <strong>{fileName}</strong>
                   <span>{profile ? `${profile.resume_text.length.toLocaleString()} 字，已可用于分析` : "正在读取简历信息"}</span>
                 </div>
+                <button className="button ghost danger-button" type="button" disabled={loading} onClick={() => setConfirmingResumeDelete(true)}>
+                  <Trash size={15} />删除
+                </button>
               </div>
             )}
             <label>
@@ -162,14 +194,39 @@ export function PlannerPage() {
           </aside>
         </div>
       )}
+      {!sessionId && (
+        <section className="panel planner-history">
+          <div className="section-title">
+            <ClockCounterClockwise size={20} />
+            <div>
+              <h2>历史分析</h2>
+              <span>已保存 {history.length} 次岗位备战分析</span>
+            </div>
+          </div>
+          <div className="planner-history-list">
+            {history.length ? history.map((item) => (
+              <Link className="planner-history-item" to={`/planner/${item.id}`} key={item.id}>
+                <div>
+                  <strong>{item.application.position.company.name} · {item.application.position.title}</strong>
+                  <small>{formatDateTime(item.created_at)} · {item.provider}</small>
+                </div>
+                <span>{item.status}</span>
+              </Link>
+            )) : <p className="quiet-empty">还没有历史分析。完成一次分析后会保存在这里。</p>}
+          </div>
+        </section>
+      )}
       {session && (
         <div className="panel planner-report">
-          <div className="section-title">
-            <Sparkle size={21} />
-            <div>
-              <h2>岗位备战结论</h2>
-              <span>{session.application.position.company.name} · {session.application.position.title} · {session.status}</span>
+          <div className="planner-report-heading">
+            <div className="section-title">
+              <Sparkle size={21} />
+              <div>
+                <h2>岗位备战结论</h2>
+                <span>{session.application.position.company.name} · {session.application.position.title} · {session.status}</span>
+              </div>
             </div>
+            <Link className="button ghost" to="/planner">返回并新建分析</Link>
           </div>
           {session.status === "生成中" && <div className="session-progress" role="status">正在后台分析简历、JD 和面经，完成后会自动载入。</div>}
           {session.status === "失败" && <div className="notice error" role="alert">{session.error_message ?? "备战分析失败"}</div>}
@@ -216,6 +273,14 @@ export function PlannerPage() {
           )}
         </div>
       )}
+      <ConfirmDialog
+        open={confirmingResumeDelete}
+        title="删除当前简历？"
+        description="删除后，新建备战分析前需要重新上传简历；历史分析不会被删除。"
+        confirmLabel="删除简历"
+        onCancel={() => setConfirmingResumeDelete(false)}
+        onConfirm={deleteResume}
+      />
     </section>
   );
 }

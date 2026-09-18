@@ -49,6 +49,16 @@ class ResumeApiTestCase(unittest.TestCase):
         self.assertEqual(response.json()["file_name"], "resume.docx")
         self.assertIn("数据分析实习生", response.json()["resume_text"])
 
+    def test_delete_removes_saved_resume(self):
+        self.session.add(ResumeProfile(id=1, resume_text="旧简历", file_name="old.pdf"))
+        self.session.commit()
+
+        response = self.client.delete("/api/resume-profile")
+
+        self.assertEqual(response.status_code, 204, response.text)
+        self.assertIsNone(self.session.get(ResumeProfile, 1))
+        self.assertEqual(self.client.get("/api/resume-profile").status_code, 404)
+
 
 if __name__ == "__main__":
     unittest.main()

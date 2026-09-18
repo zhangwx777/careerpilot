@@ -4,6 +4,7 @@ from tempfile import TemporaryDirectory
 from urllib.error import HTTPError
 from unittest.mock import patch
 
+from cryptography.fernet import Fernet
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
 from sqlalchemy.pool import StaticPool
@@ -73,6 +74,68 @@ class LlmConfigTestCase(unittest.TestCase):
             get_effective_config(self.db, "deepseek"),
             {"api_key": "db-secret-key", "api_base": "https://example.test/v1", "model": "deepseek/deepseek-chat"},
         )
+
+    def test_provider_list_stays_usable_when_stored_key_cannot_be_decrypted(self):
+        save_provider(
+            self.db,
+            "openai",
+            api_key="old-secret-key",
+            model="openai/gpt-4o-mini",
+            base_url=None,
+        )
+        Path(self.secret_dir.name, ".llm_config_secret").write_bytes(Fernet.generate_key())
+
+        def override_db():
+            yield self.db
+
+        app.dependency_overrides[get_db] = override_db
+        try:
+            with TestClient(app) as client:
+                response = client.get("/api/providers")
+            self.assertEqual(response.status_code, 200, response.text)
+            status = next(item for item in response.json() if item["name"] == "openai")
+        finally:
+            app.dependency_overrides.clear()
+
+        self.assertFalse(status["configured"])
+        self.assertIsNone(status["api_key_masked"])
+        self.assertEqual(status["validation_status"], "验证失败")
+        self.assertIn("重新填写", status["validation_message"])
+
+    def test_decrypt_tries_legacy_install_secret_after_data_dir_move(self):
+        legacy_secret = Path(self.secret_dir.name, "legacy.llm_config_secret")
+        legacy_key = Fernet.generate_key()
+        legacy_secret.write_bytes(legacy_key)
+        token = Fernet(legacy_key).encrypt(b"migrated-secret").decode("ascii")
+        Path(self.secret_dir.name, ".llm_config_secret").write_bytes(Fernet.generate_key())
+
+        with patch(
+            "app.llm.config_store.LEGACY_CONFIG_SECRET_FILES",
+            (legacy_secret,),
+            create=True,
+        ):
+            from app.llm.config_store import decrypt_text
+
+            self.assertEqual(decrypt_text(token), "migrated-secret")
+
+    def test_resaving_unreadable_provider_requires_a_replacement_key(self):
+        save_provider(
+            self.db,
+            "openai",
+            api_key="old-secret-key",
+            model="openai/gpt-4o-mini",
+            base_url=None,
+        )
+        Path(self.secret_dir.name, ".llm_config_secret").write_bytes(Fernet.generate_key())
+
+        with self.assertRaisesRegex(LlmConfigError, "重新填写 API Key"):
+            save_provider(
+                self.db,
+                "openai",
+                api_key=None,
+                model="openai/gpt-4o-mini",
+                base_url=None,
+            )
 
     def test_resaving_unchanged_connection_keeps_validation_result(self):
         save_provider(

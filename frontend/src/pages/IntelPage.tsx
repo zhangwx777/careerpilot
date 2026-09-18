@@ -251,7 +251,7 @@ export function IntelPage() {
             <span>由 AI 结合面经和通用知识生成</span>
           </div>
         </div>
-        <div className="intel-chat-history">
+        <div className="intel-chat-history" tabIndex={0} aria-label="面经问答历史，可上下滚动">
           {chatTurns.length ? chatTurns.map((turn) => {
             const answer = turn.assistant;
             const timestamp = turn.user?.created_at ?? answer?.created_at;
@@ -319,7 +319,7 @@ export function IntelPage() {
         </label>
         <label className="intel-toggle">
           <input type="checkbox" checked={supplementWeb} onChange={(event) => setSupplementWeb(event.target.checked)} disabled={isRunning} />
-          联网补充
+          联网补充（需 AnySearch）
         </label>
         {selectedApplication && <span className="intel-context-note">资料会聚合到 {applicationLabel(selectedApplication)}</span>}
       </div>
