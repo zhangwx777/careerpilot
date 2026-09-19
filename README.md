@@ -80,6 +80,7 @@ PATCH /api/preparation-tasks/{id}/status 更新准备行动状态或延期时间
 | 数据库 | PostgreSQL 18（情报用 JSONB 存储） |
 | 多模型 | LiteLLM 统一 Claude / OpenAI / DeepSeek / Qwen，按任务选模型 |
 | Agent 编排 | LangGraph（面经交叉验证、Reflection 自校正、解析人工 interrupt）+ 自研有界 Agent 运行时（岗位问答的只读工具检索，带多维预算护栏） |
+| 后台任务 | Celery + Redis；面经问答、面经聚合、备战分析和洞察重建不占用 API 请求线程 |
 
 ## 目录结构
 
@@ -108,7 +109,7 @@ careerpilot/
 
 也可以运行 `dist\CareerPilotSetup.exe`。这是一个免管理员权限的安装程序，会将应用安装到当前用户目录，并在桌面和开始菜单创建快捷方式。
 
-两种应用包都内置桌面应用、后端、前端和本地 PostgreSQL，使用者无需额外安装 Python、Node.js、pnpm、PostgreSQL 或浏览器。数据仅保存在当前 Windows 用户目录；首次进入后，在“模型设置”页填写 Provider、API Key、Base URL 和默认模型。
+两种应用包都内置桌面应用、后端、前端和本地 PostgreSQL；桌面启动器会复用本机 `127.0.0.1:6379` 的 Redis，并同时启动 CareerPilot Celery worker。使用桌面包前需要安装并启动 Redis（Redis 不可用时会给出明确提示，不会丢失后台任务）。使用者无需额外安装 Python、Node.js、pnpm、PostgreSQL 或浏览器。数据仅保存在当前 Windows 用户目录；首次进入后，在“模型设置”页填写 Provider、API Key、Base URL 和默认模型。
 
 开发者可在已配置 Python 3.12、Node.js、PyInstaller 和 PostgreSQL 18 的构建机执行：
 
@@ -163,10 +164,16 @@ cd C:\careerpilot\backend
 .\.venv\Scripts\python.exe -m scripts.init_db
 .\.venv\Scripts\python.exe -m uvicorn app.main:app --host 127.0.0.1 --port 8000
 
-# 终端二：前端（手动启动时使用 5173；端口被占用时请改用其他端口，并同步设置 VITE_API_TARGET）
+# 终端二：Redis worker（Windows 开发环境使用 solo pool）
+cd C:\careerpilot\backend
+.\.venv\Scripts\python.exe -m celery -A app.task_queue.celery_app worker --loglevel=INFO --pool=solo
+
+# 终端三：前端（手动启动时使用 5173；端口被占用时请改用其他端口，并同步设置 VITE_API_TARGET）
 cd C:\careerpilot\frontend
 corepack pnpm exec vite --open --port 5173 --strictPort
 ```
+
+手动启动前请确认 Redis 正在 `127.0.0.1:6379` 监听。`start.bat` 会检查 Redis、初始化数据库、启动 API、Celery worker 和前端；Redis 不可用时会直接提示，不会静默降级成不可恢复的后台任务。
 
 如果 `start.bat` 提示缺少前端依赖，先关闭占用 `frontend\node_modules` 的 Node.js 进程，再运行 `corepack pnpm install --force`。
 
@@ -179,6 +186,21 @@ cd ..\frontend
 corepack pnpm test
 corepack pnpm build
 ```
+
+## Agent 运行约束
+
+岗位问答 Agent 只拥有只读工具，不允许直接写入面经、投递、时间线或简历。服务端会先根据问题确定性读取必要的 JD、面经、简历或时间线，再允许模型继续调用其余只读工具。最终回答必须返回 `source_ids`、`insufficient_data`、`used_tools`、`answer_mode` 和 `search_status`；非法来源 ID、搜索失败或预算超限都会在运行记录和前端显示。
+
+当前公开检索标准适配器是 AnySearch MCP。它是可选依赖：没有 `ANYSEARCH_API_KEY` 时，本地 JD、简历和已保存面经仍可使用，联网步骤会标记为空/失败，不能被回答声称为“已完成搜索”。本阶段不启用 OpenAI/Anthropic 原生联网工具，也不把第三方中转的模型能力误判为支持原生联网。
+
+模型设置页的“测试连接”会同时记录 JSON、工具调用和流式能力。Provider 的工具能力未验证前，不能进入岗位问答 Agent；请先完成测试连接。若网关只支持普通文本或 JSON，可继续用于固定 Workflow，但不能用于 Agent 模式。
+
+### 后台任务排查
+
+- `GET /health` 同时返回 `db` 和 `queue`；`queue=false` 表示当前 Redis broker 不可用，提交任务前应先检查 Redis 与 worker。
+- API 只创建会话和 `AgentRun`，长任务由 Celery 执行；运行详情会记录 `queue_task_id`、重试次数、心跳、使用工具和安全错误类型。
+- 网络超时、AnySearch 暂时不可用和限流最多重试 2 次；认证失败、模型不存在和参数错误不重试。
+- 测试时可在环境中设置 `CELERY_TASK_ALWAYS_EAGER=true` 做快速任务测试；发布环境仍必须使用 Redis + worker。
 
 未配置 `TEST_DATABASE_URL` 时，数据库集成测试不会执行；这不应视为集成测试通过。
 

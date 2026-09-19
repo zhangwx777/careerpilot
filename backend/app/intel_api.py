@@ -12,26 +12,34 @@ from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session, joinedload
 
 from app.agent_runtime import DEFAULT_BUDGET, run_chat_agent
+from app.agent_routing import required_tools_for_question
+from app.agent_schemas import AgentAnswerInternal
 from app.agent_tools import AgentToolContext, build_chat_toolset
 from app.config import settings
 from app.db import SessionLocal, get_db
 from app.intel_graph import ROUND_FACTS_LIMIT, _merge, resume_intel_graph, start_intel_graph
 from app.intel_insight import rebuild_position_insight
 from app.intel_reminders import cached_intel_payload
-from app.intel_schemas import IntelChatAnswer, IntelInsight, IntelPayload, IntelRoundType, SourceRecord
+from app.intel_schemas import IntelInsight, IntelPayload, IntelRoundType, SourceRecord
 from app.llm.config_store import (
     LlmConfigError,
-    PROMPT_VERSION,
     config_from_snapshot,
     get_effective_config,
     resolve_provider,
     snapshot_for,
 )
-from app.llm.prompts import CHAT_SYSTEM_PROMPT, IMAGE_EXTRACTION_PROMPT
+from app.llm.prompts import CHAT_PROMPT_VERSION, CHAT_SYSTEM_PROMPT, IMAGE_EXTRACTION_PROMPT, INTEL_PROMPT_VERSION
 from app.llm.provider import LlmCallError, chat
 from app.llm.structured import StructuredOutputError, complete_structured, parse_structured
-from app.models import AgentRun, Application, Company, IntelChatMessage, IntelSession, InterviewIntel, Position, TimelineNode
+from app.models import AgentRun, Application, Company, IntelChatMessage, IntelSession, InterviewIntel, LlmProviderConfig, Position, TimelineNode
 from app.schemas import ApplicationRead, PositiveId
+from app.task_queue import (
+    TaskQueueUnavailable,
+    enqueue,
+    rebuild_insight_task,
+    run_intel_chat_task,
+    run_intel_session_task,
+)
 
 router = APIRouter(prefix="/api")
 DbSession = Annotated[Session, Depends(get_db)]
@@ -108,7 +116,9 @@ class IntelSessionRead(BaseModel):
     thread_id: str
     application_id: int
     provider: str
+    round_type: IntelRoundType
     user_paste: str | None
+    image_texts: list[IntelImageText] = Field(default_factory=list)
     draft_payload: dict | None
     conflicts: list | None
     progress_payload: dict | None
@@ -117,6 +127,8 @@ class IntelSessionRead(BaseModel):
     error_message: str | None
     created_at: datetime
     resolved_at: datetime | None
+    queue_task_id: str | None = None
+    supplement_web: bool = False
 
 
 class IntelDossierRead(BaseModel):
@@ -160,6 +172,11 @@ class IntelChatMessageRead(BaseModel):
     status: Literal["生成中", "已完成", "失败"]
     source_ids: list[str]
     agent_stage: str | None = None
+    degraded: bool = False
+    insufficient_data: bool = False
+    used_tools: list[str] = Field(default_factory=list)
+    answer_mode: str | None = None
+    search_status: str | None = None
     sources: list[IntelChatSourceRead] = Field(default_factory=list)
     created_at: datetime
 
@@ -182,6 +199,11 @@ def _chat_message_read(
 ) -> IntelChatMessageRead:
     data = {column.name: getattr(message, column.name) for column in IntelChatMessage.__table__.columns}
     data["agent_stage"] = run.stage if run else None
+    data["degraded"] = bool(run and run.status == "budget_exceeded")
+    data["insufficient_data"] = bool(run and run.insufficient_data)
+    data["used_tools"] = list(run.used_tools or []) if run else []
+    data["answer_mode"] = run.answer_mode if run else None
+    data["search_status"] = run.search_status if run else None
     data["sources"] = [
         IntelChatSourceRead.model_validate({key: value for key, value in source.items() if key != "text"})
         for source in (run.sources if run else [])
@@ -208,6 +230,10 @@ def _run_intel_session(
     image_texts: list[dict],
 ) -> None:
     try:
+        with SessionLocal() as task_db:
+            item = task_db.get(IntelSession, session_id)
+            if item is None or item.status != "聚合中":
+                return
         start_intel_graph(
             session_id,
             thread_id,
@@ -251,26 +277,41 @@ def create_intel(
         application_id=application.id,
         provider=provider,
         llm_snapshot=llm_snapshot,
-        prompt_version=PROMPT_VERSION,
+        prompt_version=INTEL_PROMPT_VERSION,
         round_type=payload.round_type,
         user_paste=payload.user_paste,
         image_texts=[item.model_dump(mode="json") for item in payload.image_texts],
+        supplement_web=payload.supplement_web,
         status="聚合中",
         progress_payload={"stage": "分析任务已创建", "sources": []},
     )
     db.add(item); db.commit(); db.refresh(item)
     query = f"{application.position.company.name} {application.position.title}"
-    background_tasks.add_task(
-        _run_intel_session,
-        item.id,
-        str(item.thread_id),
-        item.provider,
-        query,
-        item.user_paste,
-        payload.supplement_web,
-        item.round_type,
-        item.image_texts,
-    )
+    if isinstance(db, Session):
+        try:
+            task = enqueue(
+                run_intel_session_task,
+                item.id,
+                str(item.thread_id),
+                item.provider,
+                query,
+                item.user_paste,
+                payload.supplement_web,
+                item.round_type,
+                item.image_texts,
+            )
+        except TaskQueueUnavailable as exc:
+            item.status = "失败"
+            item.error_message = str(exc)
+            item.progress_payload = {"stage": "任务队列不可用", "sources": []}
+            item.resolved_at = datetime.now(timezone.utc)
+            db.commit()
+            raise HTTPException(503, str(exc)) from None
+        item.queue_task_id = task.id
+        db.commit()
+    else:
+        # Lightweight fakes used by unit tests do not expose a broker.
+        background_tasks.add_task(_run_intel_session, item.id, str(item.thread_id), item.provider, query, item.user_paste, payload.supplement_web, item.round_type, item.image_texts)
     return _session_read(item)
 
 
@@ -452,7 +493,10 @@ def rebuild_intel_dossier(payload: IntelRebuildCreate, db: DbSession):
         llm_config = get_effective_config(db, provider)
     except LlmConfigError as exc:
         raise HTTPException(503, str(exc)) from None
-    rebuild_position_insight(application.position_id, provider, SessionLocal, llm_config=llm_config)
+    try:
+        enqueue(rebuild_insight_task, application.position_id, provider, llm_config)
+    except TaskQueueUnavailable as exc:
+        raise HTTPException(503, str(exc)) from None
     db.expire_all()
     return get_intel_dossier(payload.application_id, db)
 
@@ -478,13 +522,10 @@ def delete_intel_material(material_id: PositiveId, background_tasks: BackgroundT
     llm_config = get_effective_config(db, rebuild_provider)
     db.delete(material)
     db.commit()
-    background_tasks.add_task(
-        rebuild_position_insight,
-        position_id,
-        rebuild_provider,
-        SessionLocal,
-        llm_config=llm_config,
-    )
+    try:
+        enqueue(rebuild_insight_task, position_id, rebuild_provider, llm_config)
+    except TaskQueueUnavailable as exc:
+        raise HTTPException(503, str(exc)) from None
     return {"deleted": material_id}
 
 
@@ -524,10 +565,18 @@ def _partial_chat_answer(content: str) -> str:
     return ""
 
 
-def _parse_chat_answer(content: str, allowed_source_ids: set[str]) -> IntelChatAnswer:
-    result = IntelChatAnswer.model_validate_json(content)
+def _parse_chat_answer(content: str, allowed_source_ids: set[str]) -> AgentAnswerInternal:
+    # Validate through the shared internal contract first; the public message
+    # schema remains backward-compatible with the same fields.
+    result = AgentAnswerInternal.model_validate_json(content)
     if set(result.source_ids) - allowed_source_ids:
         raise ValueError("回答引用了不存在的来源")
+    if result.answer_mode == "sourced" and not result.source_ids:
+        raise ValueError("资料型回答必须包含来源")
+    if result.search_status == "failed" and not any(
+        token in result.answer for token in ("搜索失败", "检索失败", "未能联网")
+    ):
+        raise ValueError("搜索失败时必须向用户说明")
     return result
 
 
@@ -547,10 +596,18 @@ def _run_intel_chat(message_id: int, application_id: int, provider: str, questio
                 return
             application = _application_with_position(db, application_id)
             run = db.scalar(
-                select(AgentRun).where(AgentRun.assistant_message_id == message_id)
+                select(AgentRun)
+                .where(AgentRun.assistant_message_id == message_id)
+                .with_for_update()
             )
             if run is None:
                 raise RuntimeError("Agent 运行记录不存在")
+            if run.status not in {"queued", "running", "retrying"}:
+                return
+            run.status = "running"
+            run.attempt = (run.attempt or 0) + 1
+            run.heartbeat_at = datetime.now(timezone.utc)
+            db.commit()
             assistant_config = config_from_snapshot(assistant.llm_snapshot, db, provider)
             context = AgentToolContext(
                 application_id=application.id,
@@ -577,12 +634,14 @@ def _run_intel_chat(message_id: int, application_id: int, provider: str, questio
                     ),
                 },
             ]
+            required_tools = required_tools_for_question(question)
 
         def update_stage(stage: str) -> None:
             with SessionLocal() as progress_db:
                 progress_run = progress_db.get(AgentRun, run.id)
                 if progress_run is not None and progress_run.status == "running":
                     progress_run.stage = stage
+                    progress_run.heartbeat_at = datetime.now(timezone.utc)
                     progress_db.commit()
 
         last_preview = ""
@@ -602,6 +661,7 @@ def _run_intel_chat(message_id: int, application_id: int, provider: str, questio
             tool_registry,
             provider,
             assistant_config,
+            required_tools=required_tools,
             on_stage=update_stage,
             on_chunk=update_preview,
         )
@@ -627,6 +687,11 @@ def _run_intel_chat(message_id: int, application_id: int, provider: str, questio
                 run.stage = "已完成"
                 run.steps = [item.model_dump(mode="json") for item in result.steps]
                 run.sources = [item.model_dump(mode="json") for item in result.sources]
+                run.insufficient_data = parsed.insufficient_data or result.insufficient_data
+                run.used_tools = sorted(set(parsed.used_tools) | set(result.used_tools))
+                run.answer_mode = parsed.answer_mode
+                run.search_status = parsed.search_status if parsed.search_status != "not_used" else result.search_status
+                run.heartbeat_at = datetime.now(timezone.utc)
                 run.finished_at = datetime.now(timezone.utc)
                 db.commit()
     except Exception as exc:
@@ -650,13 +715,15 @@ def _run_intel_chat(message_id: int, application_id: int, provider: str, questio
                     run.status = "failed"
                     run.stage = "失败"
                     run.error_kind = (
-                        "unsupported_tool_call"
-                        if isinstance(exc, LlmCallError) and exc.kind == "tool_call_unsupported"
+                        exc.kind
+                        if isinstance(exc, LlmCallError)
                         else "structured_output"
                         if isinstance(exc, StructuredOutputError)
                         else "agent_error"
                     )
                     run.error_message = error_message
+                    run.last_error_kind = run.error_kind
+                    run.last_error_message = error_message
                     run.finished_at = datetime.now(timezone.utc)
                 db.commit()
 
@@ -701,6 +768,9 @@ def create_intel_chat(payload: IntelChatCreate, background_tasks: BackgroundTask
     application, _, _ = _chat_context(db, payload.application_id)
     try:
         provider = resolve_provider(db, payload.provider)
+        capability_row = db.get(LlmProviderConfig, provider)
+        if isinstance(db, Session) and (capability_row is None or capability_row.supports_tools is not True):
+            raise HTTPException(409, "当前模型尚未通过工具调用能力测试，请先在模型设置中测试连接")
         llm_snapshot = snapshot_for(db, provider)
     except LlmConfigError as exc:
         raise HTTPException(503, str(exc)) from None
@@ -712,7 +782,7 @@ def create_intel_chat(payload: IntelChatCreate, background_tasks: BackgroundTask
         status="生成中",
         provider=provider,
         llm_snapshot=llm_snapshot,
-        prompt_version=PROMPT_VERSION,
+        prompt_version=CHAT_PROMPT_VERSION,
         source_ids=[],
     )
     db.add(assistant)
@@ -724,18 +794,40 @@ def create_intel_chat(payload: IntelChatCreate, background_tasks: BackgroundTask
             position_id=application.position_id,
             application_id=application.id,
             provider=provider,
-            prompt_version=f"{PROMPT_VERSION}-agent",
-            status="running",
-            stage="准备中",
+            prompt_version=f"{CHAT_PROMPT_VERSION}-agent",
+            status="queued",
+            stage="排队中",
             budget=asdict(DEFAULT_BUDGET),
         )
         db.add(run)
     db.commit()
     db.refresh(assistant)
-    background_tasks.add_task(_run_intel_chat, assistant.id, payload.application_id, provider, payload.question)
     run = None
     if isinstance(db, Session):
         run = db.scalar(select(AgentRun).where(AgentRun.assistant_message_id == assistant.id))
+    if isinstance(db, Session):
+        try:
+            task = enqueue(run_intel_chat_task, assistant.id, payload.application_id, provider, payload.question)
+        except TaskQueueUnavailable as exc:
+            assistant.status = "失败"
+            assistant.content = str(exc)
+            if run is not None:
+                run.status = "failed"
+                run.stage = "失败"
+                run.error_kind = "queue_unavailable"
+                run.error_message = str(exc)
+                run.last_error_kind = "queue_unavailable"
+                run.last_error_message = str(exc)
+                run.finished_at = datetime.now(timezone.utc)
+            db.commit()
+            raise HTTPException(503, str(exc)) from None
+        if run is not None:
+            run.queue_task_id = task.id
+            run.heartbeat_at = datetime.now(timezone.utc)
+            db.commit()
+            db.refresh(run)
+    else:
+        background_tasks.add_task(_run_intel_chat, assistant.id, payload.application_id, provider, payload.question)
     return IntelChatReply(message=_chat_message_read(assistant, run), source_ids=[])
 
 
@@ -812,6 +904,52 @@ def discard_intel(session_id: int, db: DbSession):
     item.status = "已丢弃"
     item.resolved_at = datetime.now(timezone.utc)
     item.progress_payload = {**(item.progress_payload or {}), "stage": "已丢弃"}
+    db.commit()
+    db.refresh(item)
+    return _session_read(item)
+
+
+@router.post("/intel-sessions/{session_id}/retry", response_model=IntelSessionRead)
+def retry_intel(session_id: int, db: DbSession):
+    item = db.get(IntelSession, session_id)
+    if item is None:
+        raise HTTPException(404, "面经会话不存在")
+    if item.status != "失败":
+        raise HTTPException(409, "只有失败的面经会话可以重试")
+    application = db.scalar(
+        select(Application)
+        .options(joinedload(Application.position).joinedload(Position.company))
+        .where(Application.id == item.application_id)
+    )
+    if application is None:
+        raise HTTPException(404, "投递记录不存在")
+    item.status = "聚合中"
+    item.error_message = None
+    item.resolved_at = None
+    item.draft_payload = None
+    item.conflicts = None
+    item.progress_payload = {**(item.progress_payload or {}), "stage": "等待重试"}
+    db.commit()
+    try:
+        task = enqueue(
+            run_intel_session_task,
+            item.id,
+            str(item.thread_id),
+            item.provider,
+            f"{application.position.company.name} {application.position.title}",
+            item.user_paste,
+            item.supplement_web,
+            item.round_type,
+            item.image_texts,
+        )
+    except TaskQueueUnavailable as exc:
+        item.status = "失败"
+        item.error_message = str(exc)
+        item.progress_payload = {**(item.progress_payload or {}), "stage": "任务队列不可用"}
+        item.resolved_at = datetime.now(timezone.utc)
+        db.commit()
+        raise HTTPException(503, str(exc)) from None
+    item.queue_task_id = task.id
     db.commit()
     db.refresh(item)
     return _session_read(item)

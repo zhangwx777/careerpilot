@@ -31,6 +31,11 @@ class Settings(BaseSettings):
 
     llm_timeout_seconds: int = 45
     llm_retries: int = 0
+    celery_broker_url: str = "redis://127.0.0.1:6379/0"
+    celery_result_backend: str = "redis://127.0.0.1:6379/0"
+    celery_task_timeout: int = 180
+    celery_max_retries: int = 2
+    celery_task_always_eager: bool = False
 
 
 settings = Settings()

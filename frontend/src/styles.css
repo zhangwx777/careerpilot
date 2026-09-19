@@ -567,6 +567,7 @@ input:focus, select:focus, textarea:focus { border-color: var(--brand); box-shad
 .intel-chat-message > span { color: var(--brand); font-size: 10px; font-weight: 700; }
 .intel-chat-message p { margin: 5px 0 0; white-space: pre-wrap; }
 .intel-chat-message small { display: block; margin-top: 6px; color: var(--muted); font-size: 10px; }
+.intel-chat-warning { color: #9a5b15 !important; }
 .intel-chat-compose { display: grid; gap: 8px; }
 .intel-chat-compose .button { justify-self: end; }
 .intel-library { margin-top: 20px; padding: 22px; }

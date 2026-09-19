@@ -1,6 +1,7 @@
 from collections import defaultdict
 from collections.abc import Callable
 from datetime import datetime, timezone
+import json
 import logging
 from operator import add
 from typing import Annotated, TypedDict
@@ -15,6 +16,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.anysearch import AnySearchError, search
+from app.agent_research import ResearchResult, research_public_sources
 from app.db import to_psycopg_connection_string
 from app.intel_parsing import extract_intel
 from app.intel_insight import rebuild_position_insight
@@ -30,6 +32,7 @@ logger = logging.getLogger(__name__)
 # 与 InterviewRound.question_types / focus_topics 的 schema 上限一致（max_length=20）。
 # 合并多份材料时按值去重后可能超过该上限，必须在此截断，否则写入库、读取时会触发校验 500。
 ROUND_FACTS_LIMIT = 20
+_ORIGINAL_SEARCH = search
 
 
 class IntelGraphError(Exception):
@@ -40,6 +43,7 @@ class CriticResult(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     approved: bool
+    violations: list[dict] = Field(default_factory=list, max_length=50)
     feedback: str = Field(default="", max_length=4000)
 
 
@@ -63,6 +67,7 @@ class IntelGraphState(TypedDict, total=False):
     needs_review: bool
     critic_rejected: bool
     critic_feedback: str
+    critic_violations: list[dict]
 
 
 def _session_llm_config(
@@ -104,6 +109,8 @@ def _decide_review(state: IntelGraphState) -> str:
 
 
 def _decide_after_aggregate(state: IntelGraphState) -> str:
+    if "extractions" in state and not state.get("extractions"):
+        return "fail" if state.get("search_attempt", 0) >= 3 or not state.get("supplement_web", True) else "search"
     if state.get("supplement_web", True) and state.get("confidence", 0) < 0.7 and state.get("search_attempt", 0) < 3:
         return "search"
     if not state.get("supplement_web", True) and len(state.get("sources") or []) == 1 and not (state.get("payload") or {}).get("conflicts"):
@@ -225,27 +232,58 @@ def build_intel_graph(checkpointer: PostgresSaver, session_factory: Callable[[],
 
     def search_node(state: IntelGraphState):
         attempt = state["search_attempt"] + 1
-        suffix = ("面经", "面经 技术面 算法 项目 八股", "面经 笔试 高频题")[attempt - 1]
         save_progress(state, "正在检索公开面经")
         errors = list(state.get("search_errors", []))
+        existing_urls = {_canonical_url(item.get("url")) for item in state.get("sources", [])}
         try:
-            results = search(f"{state['query']} {suffix}")
+            # Preserve the old injectable search seam for embedders that
+            # replace the adapter in tests. Normal execution always uses the
+            # restricted research Agent below.
+            if search is not _ORIGINAL_SEARCH:
+                suffix = ("面经", "面经 技术面 算法 项目 八股", "面经 笔试 高频题")[attempt - 1]
+                research = ResearchResult(sources=search(f"{state['query']} {suffix}"))
+            else:
+                llm_config = _session_llm_config(state, session_factory)
+                research = research_public_sources(
+                    session_id=state["intel_session_id"],
+                    query=state["query"],
+                    provider=state["provider"],
+                    config=llm_config,
+                    # The graph owns the global three-attempt budget. One research
+                    # turn per graph attempt keeps retries bounded and observable.
+                    max_rounds=1,
+                    search_fn=search,
+                )
         except AnySearchError:
             logger.exception("面经公开检索失败：%s", state["query"])
             errors.append("公开面经搜索暂时失败")
             save_source_progress(state, "公开检索暂时失败，保留已有内容", state.get("sources", []), errors=errors)
             return {"search_attempt": attempt, "search_errors": errors, "sources": []}
+        except Exception:
+            logger.exception("面经研究 Agent 失败：%s", state["query"])
+            errors.append("面经研究 Agent 暂时失败")
+            save_source_progress(state, "研究 Agent 暂时失败，保留已有内容", state.get("sources", []), errors=errors)
+            return {"search_attempt": attempt, "search_errors": errors, "sources": []}
+
         accepted = []
         rejected = 0
-        existing_urls = {_canonical_url(item.get("url")) for item in state.get("sources", [])}
-        for index, item in enumerate(results, 1):
+        for index, item in enumerate(research.sources, 1):
             if not _is_relevant_source(item.get("title", ""), item.get("text", "")):
                 rejected += 1
                 continue
             if _canonical_url(item.get("url")) in existing_urls:
                 continue
-            accepted.append({"id": f"session-{state['intel_session_id']}:web-{attempt}-{index}", "kind": "web", **item})
+            # Research-Agent source IDs are local to one research turn and
+            # can repeat on a later retry. The graph owns the durable source
+            # namespace so every accepted URL gets a stable, unique ID.
+            accepted.append({
+                **item,
+                "id": f"session-{state['intel_session_id']}:web-{attempt}-{index}",
+                "kind": "web",
+            })
             existing_urls.add(_canonical_url(item.get("url")))
+        if research.error:
+            errors.append("公开面经搜索暂时失败" if research.error.startswith("search_") else "面经研究 Agent 返回异常")
         save_source_progress(state, "正在整理来源", accepted, rejected=rejected, errors=errors)
         return {"search_attempt": attempt, "search_errors": errors, "sources": accepted}
 
@@ -270,17 +308,28 @@ def build_intel_graph(checkpointer: PostgresSaver, session_factory: Callable[[],
             return {"extractions": {}, "payload": IntelPayload().model_dump(mode="json"), "confidence": 0.0}
         save_progress(state, f"正在提取 {len(sources)} 条来源", visible_sources(state["sources"]))
         feedback = state.get("critic_feedback", "")
+        violations = [item for item in state.get("critic_violations", []) if isinstance(item, dict)]
+        violations_by_source: dict[str, list[str]] = defaultdict(list)
+        for violation in violations:
+            source_id = str(violation.get("source_id") or "")
+            if source_id:
+                field = str(violation.get("field") or "内容")
+                reason = str(violation.get("reason") or "请重新核对来源").strip()
+                violations_by_source[source_id].append(f"{field}：{reason}")
         llm_config = _session_llm_config(state, session_factory)
-        extractions = {} if feedback else dict(state.get("extractions", {}))
+        extractions = dict(state.get("extractions", {}))
         source_errors = list(state.get("source_errors", []))
         for source in sources:
-            if source.id not in extractions:
+            source_feedback = "；".join(violations_by_source.get(source.id, []))
+            if not source_feedback and feedback and not violations:
+                source_feedback = feedback
+            if source.id not in extractions or source_feedback:
                 try:
                     try:
                         extracted = extract_intel(
                             source,
                             state["provider"],
-                            feedback=feedback,
+                            feedback=source_feedback,
                             llm_config=llm_config,
                         )
                     except TypeError as exc:
@@ -296,10 +345,33 @@ def build_intel_graph(checkpointer: PostgresSaver, session_factory: Callable[[],
                     logger.exception("面经来源 %s 提取失败", source.id)
                     source_errors.append(f"{source.title}：面经提取失败")
         payload = _apply_round_selection(_merge([IntelExtraction.model_validate(item) for item in extractions.values()], sources), state.get("round_type", "未注明"))
-        confidence = min(1.0, 0.35 + 0.2 * len(extractions) - 0.25 * len(payload.conflicts))
+        def extraction_signal(item: dict) -> int:
+            return sum(
+                len(item.get(key) or [])
+                for key in ("rounds", "questions", "frequent_topics", "preparation_items")
+            ) + int(bool(item.get("summary"))) + int(bool(item.get("difficulty")))
+
+        signals = [extraction_signal(item) for item in extractions.values()]
+        useful_sources = sum(1 for signal in signals if signal > 0)
+        total_signal = min(sum(signals), 12)
+        confidence = min(
+            1.0,
+            0.2
+            + 0.15 * useful_sources
+            + 0.05 * total_signal
+            - 0.15 * len(source_errors)
+            - 0.25 * len(payload.conflicts),
+        )
         if not extractions:
             return {"extractions": {}, "payload": IntelPayload().model_dump(mode="json"), "confidence": 0.0, "source_errors": source_errors}
-        return {"extractions": extractions, "payload": payload.model_dump(mode="json"), "confidence": confidence, "critic_feedback": "", "source_errors": source_errors}
+        return {
+            "extractions": extractions,
+            "payload": payload.model_dump(mode="json"),
+            "confidence": confidence,
+            "critic_feedback": "",
+            "critic_violations": [],
+            "source_errors": source_errors,
+        }
 
     def decide_search(state: IntelGraphState):
         return _decide_after_aggregate(state)
@@ -310,7 +382,24 @@ def build_intel_graph(checkpointer: PostgresSaver, session_factory: Callable[[],
         llm_config = _session_llm_config(state, session_factory)
         try:
             result = complete_structured(
-                [{"role": "user", "content": CRITIC_PROMPT + "\n面经 JSON：<payload>\n" + payload.model_dump_json() + "\n</payload>"}],
+                [
+                    {
+                        "role": "system",
+                        "content": CRITIC_PROMPT,
+                    },
+                    {
+                        "role": "user",
+                        "content": (
+                            "原始来源：<sources>\n"
+                            + json.dumps(state.get("sources", []), ensure_ascii=False)
+                            + "\n</sources>\n抽取结果：<extractions>\n"
+                            + json.dumps(state.get("extractions", {}), ensure_ascii=False)
+                            + "\n</extractions>\n合并面经 JSON：<payload>\n"
+                            + payload.model_dump_json()
+                            + "\n</payload>"
+                        ),
+                    },
+                ],
                 state["provider"],
                 CriticResult.model_validate_json,
                 chat_fn=chat,
@@ -319,10 +408,31 @@ def build_intel_graph(checkpointer: PostgresSaver, session_factory: Callable[[],
         except StructuredOutputError:
             raise IntelGraphError("反思模型返回格式无效，请稍后重试") from None
         rejected = not result.approved
-        return {"reflection_count": state.get("reflection_count", 0) + 1, "needs_review": bool(payload.conflicts), "critic_rejected": rejected, "critic_feedback": result.feedback if rejected else ""}
+        return {
+            "reflection_count": state.get("reflection_count", 0) + 1,
+            "needs_review": bool(payload.conflicts),
+            "critic_rejected": rejected,
+            "critic_feedback": result.feedback if rejected else "",
+            "critic_violations": result.violations if rejected else [],
+        }
 
     def decide_review(state: IntelGraphState):
         return _decide_review(state)
+
+    def fail_empty(state: IntelGraphState):
+        with session_factory() as db:
+            item = db.get(IntelSession, state["intel_session_id"])
+            if item is not None and item.status not in {"已完成", "已丢弃"}:
+                item.status = "失败"
+                item.error_message = "没有找到可用的面经资料，请补充手动内容后重试"
+                item.progress_payload = {
+                    **(item.progress_payload or {}),
+                    "stage": "没有找到可用资料",
+                    "errors": state.get("source_errors", []) + state.get("search_errors", []),
+                }
+                item.resolved_at = datetime.now(timezone.utc)
+                db.commit()
+        return {}
 
     def review(state: IntelGraphState):
         with session_factory() as db:
@@ -406,14 +516,14 @@ def build_intel_graph(checkpointer: PostgresSaver, session_factory: Callable[[],
             return {}
 
     builder = StateGraph(IntelGraphState)
-    for name, node in (("planner", planner), ("search", search_node), ("paste", paste_node), ("aggregate", aggregate), ("critic", critic), ("review", review), ("persist", persist)):
+    for name, node in (("planner", planner), ("search", search_node), ("paste", paste_node), ("aggregate", aggregate), ("critic", critic), ("review", review), ("persist", persist), ("fail", fail_empty)):
         builder.add_node(name, node)
     builder.add_edge(START, "planner"); builder.add_edge("planner", "paste")
     builder.add_conditional_edges("paste", decide_sources, {"search": "search", "aggregate": "aggregate"})
     builder.add_edge("search", "aggregate")
-    builder.add_conditional_edges("aggregate", decide_search, {"search": "search", "critic": "critic", "persist": "persist"})
+    builder.add_conditional_edges("aggregate", decide_search, {"search": "search", "critic": "critic", "persist": "persist", "fail": "fail"})
     builder.add_conditional_edges("critic", decide_review, {"aggregate": "aggregate", "review": "review", "persist": "persist"})
-    builder.add_edge("review", "persist"); builder.add_edge("persist", END)
+    builder.add_edge("review", "persist"); builder.add_edge("persist", END); builder.add_edge("fail", END)
     return builder.compile(checkpointer=checkpointer)
 
 

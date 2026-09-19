@@ -63,6 +63,11 @@ class ProviderRead(BaseModel):
     validation_message: str | None
     last_tested_at: datetime | None
     is_default: bool
+    supports_tools: bool | None = None
+    supports_json: bool | None = None
+    supports_streaming: bool | None = None
+    supports_vision: bool | None = None
+    capability_checked_at: datetime | None = None
 
 
 class DefaultProviderUpdate(BaseModel):

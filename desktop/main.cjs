@@ -19,6 +19,7 @@ const initdb = path.join(pgBin, "initdb.exe");
 const backendExe = path.join(runtimeRoot, "backend", "CareerPilotBackend.exe");
 
 let backend;
+let worker;
 let window;
 let dbPort;
 let backendPort;
@@ -51,6 +52,16 @@ function findFreePort(preferred) {
 
 function isPostgresReady(port) {
   return run(pgIsReady, ["-h", "127.0.0.1", "-p", String(port)]).status === 0;
+}
+
+function isRedisReady() {
+  return new Promise((resolve) => {
+    const socket = net.createConnection({ host: "127.0.0.1", port: 6379 });
+    const finish = (ready) => { socket.destroy(); resolve(ready); };
+    socket.setTimeout(1000, () => finish(false));
+    socket.once("connect", () => finish(true));
+    socket.once("error", () => finish(false));
+  });
 }
 
 function isBackendReady(port) {
@@ -91,6 +102,7 @@ function readState() {
 function stopPreviousRun() {
   const previous = readState();
   if (previous?.backend_pid) run("taskkill.exe", ["/PID", String(previous.backend_pid), "/T", "/F"]);
+  if (previous?.worker_pid) run("taskkill.exe", ["/PID", String(previous.worker_pid), "/T", "/F"]);
   if (fs.existsSync(path.join(dbData, "PG_VERSION"))) run(pgCtl, ["-D", dbData, "stop", "-m", "fast"]);
   fs.rmSync(stateFile, { force: true });
 }
@@ -122,6 +134,25 @@ function startBackend() {
   });
 }
 
+function startWorker() {
+  const output = fs.openSync(path.join(logRoot, "worker.log"), "a");
+  const errors = fs.openSync(path.join(logRoot, "worker-error.log"), "a");
+  worker = spawn(backendExe, [], {
+    cwd: appLayer,
+    env: {
+      ...process.env,
+      DATABASE_URL: `postgresql+psycopg://qiuzhao_app@127.0.0.1:${dbPort}/postgres`,
+      TEST_DATABASE_URL: "",
+      CAREERPILOT_APP_ROOT: appLayer,
+      CAREERPILOT_DATA_DIR: dataRoot,
+      CAREERPILOT_BACKEND_PORT: String(backendPort),
+      CAREERPILOT_WORKER: "1",
+    },
+    stdio: ["ignore", output, errors],
+    windowsHide: true,
+  });
+}
+
 async function stopPostgres() {
   if (fs.existsSync(path.join(dbData, "PG_VERSION"))) run(pgCtl, ["-D", dbData, "stop", "-m", "fast"]);
 }
@@ -131,6 +162,7 @@ async function shutdown(event) {
   shuttingDown = true;
   event?.preventDefault();
   if (backend && !backend.killed) backend.kill();
+  if (worker && !worker.killed) worker.kill();
   await stopPostgres();
   fs.rmSync(stateFile, { force: true });
   app.exit();
@@ -156,10 +188,14 @@ async function launch() {
   dbPort = await findFreePort(55432);
   startPostgres();
   await waitFor(() => isPostgresReady(dbPort));
+  if (!(await isRedisReady())) {
+    throw new Error("Redis 不可用，请先启动 127.0.0.1:6379 的 Redis 服务后再启动 CareerPilot。 ");
+  }
   backendPort = await findFreePort(58080);
+  startWorker();
   startBackend();
   await waitFor(() => isBackendReady(backendPort));
-  fs.writeFileSync(stateFile, JSON.stringify({ desktop_pid: process.pid, backend_pid: backend.pid, backend_port: backendPort, db_port: dbPort, db_data: dbData }, null, 2));
+  fs.writeFileSync(stateFile, JSON.stringify({ desktop_pid: process.pid, backend_pid: backend.pid, worker_pid: worker.pid, backend_port: backendPort, db_port: dbPort, db_data: dbData }, null, 2));
   createWindow();
 }
 

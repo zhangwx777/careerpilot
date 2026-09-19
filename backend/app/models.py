@@ -88,6 +88,11 @@ class LlmProviderConfig(Base):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=_now, onupdate=_now
     )
+    supports_tools: Mapped[bool | None] = mapped_column(Boolean)
+    supports_json: Mapped[bool | None] = mapped_column(Boolean)
+    supports_streaming: Mapped[bool | None] = mapped_column(Boolean)
+    supports_vision: Mapped[bool | None] = mapped_column(Boolean)
+    capability_checked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 
 class LlmSettings(Base):
@@ -269,6 +274,15 @@ class AgentRun(Base):
     steps: Mapped[list] = mapped_column(PortableJSON, default=list)
     sources: Mapped[list] = mapped_column(PortableJSON, default=list)
     error_message: Mapped[str | None] = mapped_column(Text)
+    queue_task_id: Mapped[str | None] = mapped_column(String(200), index=True)
+    attempt: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    heartbeat_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), index=True)
+    insufficient_data: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    used_tools: Mapped[list] = mapped_column(PortableJSON, default=list)
+    answer_mode: Mapped[str | None] = mapped_column(String(30))
+    search_status: Mapped[str | None] = mapped_column(String(30))
+    last_error_kind: Mapped[str | None] = mapped_column(String(50))
+    last_error_message: Mapped[str | None] = mapped_column(Text)
     started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
@@ -285,6 +299,7 @@ class IntelSession(Base):
     round_type: Mapped[str] = mapped_column(String(20), nullable=False, default="未注明")
     user_paste: Mapped[str | None] = mapped_column(Text)
     image_texts: Mapped[list] = mapped_column(PortableJSON, default=list)
+    supplement_web: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     draft_payload: Mapped[dict | None] = mapped_column(PortableJSON)
     conflicts: Mapped[list | None] = mapped_column(PortableJSON)
     progress_payload: Mapped[dict | None] = mapped_column(PortableJSON)
@@ -301,6 +316,7 @@ class IntelSession(Base):
     resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     llm_snapshot: Mapped[str | None] = mapped_column(Text)
     prompt_version: Mapped[str | None] = mapped_column(String(40))
+    queue_task_id: Mapped[str | None] = mapped_column(String(200), index=True)
 
     application: Mapped["Application"] = relationship(back_populates="intel_sessions")
     interview_intel: Mapped["InterviewIntel | None"] = relationship()
@@ -339,6 +355,7 @@ class PlannerSession(Base):
     resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     llm_snapshot: Mapped[str | None] = mapped_column(Text)
     prompt_version: Mapped[str | None] = mapped_column(String(40))
+    queue_task_id: Mapped[str | None] = mapped_column(String(200), index=True)
 
     application: Mapped["Application"] = relationship()
     tasks: Mapped[list["PreparationTask"]] = relationship(
@@ -367,6 +384,7 @@ class PreparationTask(Base):
     detail: Mapped[str | None] = mapped_column(Text)
     gap: Mapped[str | None] = mapped_column(String(200))
     source_ids: Mapped[list] = mapped_column(PortableJSON, default=list)
+    evidence: Mapped[list] = mapped_column(PortableJSON, default=list)
     scheduled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     ends_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     estimated_minutes: Mapped[int] = mapped_column(Integer, nullable=False, default=30)

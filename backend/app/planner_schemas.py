@@ -45,12 +45,22 @@ class Gap(BaseModel):
     evidence: NonEmptyText
 
 
+class PlannerEvidence(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    kind: Literal["resume", "jd", "intel", "timeline"]
+    reference: NonEmptyText
+
+
 class PlannerAction(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     title: NonEmptyText = Field(max_length=200)
     detail: str | None = Field(default=None, max_length=5000)
+    gap: str | None = Field(default=None, max_length=200)
     priority: int = Field(ge=1, le=5)
+    estimated_minutes: int = Field(default=30, ge=15, le=480)
+    evidence: list[PlannerEvidence] = Field(default_factory=list, max_length=20)
     source_ids: list[str] = Field(default_factory=list, max_length=20)
 
 
@@ -62,6 +72,7 @@ class PlannerTaskDraft(BaseModel):
     gap: NonEmptyText = Field(max_length=200)
     source_ids: list[str] = Field(default_factory=list, max_length=20)
     estimated_minutes: int = Field(ge=15, le=480)
+    evidence: list[PlannerEvidence] = Field(default_factory=list, max_length=20)
 
 
 class PlannerDraft(BaseModel):
@@ -80,6 +91,9 @@ class PlannerDraft(BaseModel):
                 PlannerAction(
                     title=task.title,
                     detail=task.detail,
+                    gap=task.gap,
+                    estimated_minutes=task.estimated_minutes,
+                    evidence=task.evidence,
                     priority=index,
                     source_ids=task.source_ids,
                 )
@@ -129,6 +143,7 @@ class PlannerSessionRead(BaseModel):
     error_message: str | None
     created_at: datetime
     resolved_at: datetime | None
+    queue_task_id: str | None = None
 
 
 class PreparationTaskRead(BaseModel):
@@ -141,6 +156,7 @@ class PreparationTaskRead(BaseModel):
     detail: str | None
     gap: str | None
     source_ids: list[str]
+    evidence: list[PlannerEvidence] = Field(default_factory=list)
     scheduled_at: datetime | None
     ends_at: datetime | None
     estimated_minutes: int

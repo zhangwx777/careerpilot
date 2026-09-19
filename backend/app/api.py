@@ -17,10 +17,11 @@ from app.llm.config_store import (
     save_provider,
     set_default_provider,
     touch_validation,
+    touch_capabilities,
     validate_base_url,
     validate_provider,
 )
-from app.llm.provider import LlmCallError, chat
+from app.llm.provider import LlmCallError, chat, chat_stream, chat_with_tools
 from app.llm_schemas import (
     DefaultProviderUpdate,
     ProviderConfigWrite,
@@ -139,6 +140,43 @@ def test_provider(provider: str, payload: ProviderTestWrite, db: DbSession):
             config=config,
             generation="structured",
         )
+        supports_tools: bool | None = None
+        supports_streaming: bool | None = None
+        try:
+            tool_probe = chat_with_tools(
+                [
+                    {"role": "system", "content": "请调用工具 probe_capability。"},
+                    {"role": "user", "content": "执行工具能力检查。"},
+                ],
+                [{"type": "function", "function": {"name": "probe_capability", "description": "能力测试工具", "parameters": {"type": "object", "properties": {}, "additionalProperties": False}}}],
+                provider=provider,
+                config=config,
+            )
+            supports_tools = bool(tool_probe.get("tool_calls"))
+        except LlmCallError as exc:
+            # A successful ordinary JSON call still proves the endpoint is
+            # usable. Tool capability is recorded independently so a gateway
+            # that rejects tools can remain available to fixed Workflows.
+            supports_tools = False if exc.kind == "tool_call_unsupported" else None
+        except Exception:
+            supports_tools = None
+        try:
+            stream = chat_stream(
+                [{"role": "user", "content": "只回复 ok"}],
+                provider=provider,
+                config=config,
+                generation="chat",
+            )
+            supports_streaming = next(iter(stream), None) is not None
+        except Exception:
+            supports_streaming = None
+        touch_capabilities(
+            db,
+            provider,
+            supports_tools=supports_tools,
+            supports_json=True,
+            supports_streaming=supports_streaming,
+        )
     except (LlmConfigError, ValueError) as exc:
         touch_validation(db, provider, "验证失败", str(exc))
         return ProviderTestRead(
@@ -149,6 +187,8 @@ def test_provider(provider: str, payload: ProviderTestWrite, db: DbSession):
         )
     except LlmCallError as exc:
         touch_validation(db, provider, "验证失败", str(exc))
+        if exc.kind == "tool_call_unsupported":
+            touch_capabilities(db, provider, supports_tools=False, supports_json=None, supports_streaming=None)
         return ProviderTestRead(
             provider=provider,
             ok=False,

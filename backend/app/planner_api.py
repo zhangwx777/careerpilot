@@ -12,7 +12,8 @@ from app.models import Application, InterviewIntel, PlannerSession, Position, Pr
 from app.planner_graph import PlannerGraphError, resume_planner_graph, start_planner_graph
 from app.planner_parsing import extract_plan
 from app.resume_extract import ResumeExtractError, extract_resume
-from app.llm.config_store import LlmConfigError, PROMPT_VERSION, config_from_snapshot, resolve_provider, snapshot_for
+from app.llm.config_store import LlmConfigError, config_from_snapshot, resolve_provider, snapshot_for
+from app.llm.prompts import PLANNER_ACTION_PROMPT_VERSION
 from app.planner_schemas import (
     PlannerConfirmation,
     PlannerAction,
@@ -26,6 +27,7 @@ from app.planner_schemas import (
     ResumeProfileRead,
     ResumeProfileUpdate,
 )
+from app.task_queue import TaskQueueUnavailable, enqueue, run_planner_session_task, rebuild_insight_task
 
 router = APIRouter(prefix="/api")
 DbSession = Annotated[Session, Depends(get_db)]
@@ -59,8 +61,10 @@ def materialize_planner_actions(db: Session, item: PlannerSession) -> int:
                 application_id=item.application_id,
                 title=action.title,
                 detail=action.detail,
+                gap=action.gap,
                 source_ids=action.source_ids,
-                estimated_minutes=30,
+                evidence=[item.model_dump(mode="json") for item in action.evidence],
+                estimated_minutes=action.estimated_minutes,
                 priority=action.priority,
                 action_index=action_index,
                 status="待处理",
@@ -93,6 +97,8 @@ def _run_planner_session(session_id: int, thread_id: str) -> None:
             item = task_db.get(PlannerSession, session_id)
             if item is None:
                 raise PlannerGraphError("备战计划会话不存在")
+            if item.status != "生成中":
+                return
             if not item.available_windows:
                 draft = extract_plan(
                     item.resume_snapshot,
@@ -206,7 +212,7 @@ def create_planner_session(
         application_id=application.id,
         provider=provider,
         llm_snapshot=llm_snapshot,
-        prompt_version=PROMPT_VERSION,
+        prompt_version=PLANNER_ACTION_PROMPT_VERSION,
         resume_snapshot=resume.resume_text,
         jd_snapshot=jd_text,
         intel_snapshot=intel_snapshot,
@@ -216,7 +222,16 @@ def create_planner_session(
     db.add(item)
     db.commit()
     db.refresh(item)
-    background_tasks.add_task(_run_planner_session, item.id, str(item.thread_id))
+    try:
+        task = enqueue(run_planner_session_task, item.id, str(item.thread_id))
+    except TaskQueueUnavailable as exc:
+        item.status = "失败"
+        item.error_message = str(exc)
+        item.resolved_at = datetime.now(timezone.utc)
+        db.commit()
+        raise HTTPException(503, str(exc)) from None
+    item.queue_task_id = task.id
+    db.commit()
     return _session_read(item)
 
 
@@ -277,6 +292,29 @@ def discard_planner_session(planner_session_id: int, db: DbSession):
         raise HTTPException(409, "当前备战计划不能丢弃")
     item.status = "已丢弃"
     item.resolved_at = datetime.now(timezone.utc)
+    db.commit()
+    return _session_read(_get_session(db, planner_session_id))
+
+
+@router.post("/planner-sessions/{planner_session_id}/retry", response_model=PlannerSessionRead)
+def retry_planner_session(planner_session_id: int, db: DbSession):
+    item = _get_session(db, planner_session_id)
+    if item.status != "失败":
+        raise HTTPException(409, "只有失败的备战分析可以重试")
+    item.status = "生成中"
+    item.error_message = None
+    item.resolved_at = None
+    item.draft_payload = None
+    db.commit()
+    try:
+        task = enqueue(run_planner_session_task, item.id, str(item.thread_id))
+    except TaskQueueUnavailable as exc:
+        item.status = "失败"
+        item.error_message = str(exc)
+        item.resolved_at = datetime.now(timezone.utc)
+        db.commit()
+        raise HTTPException(503, str(exc)) from None
+    item.queue_task_id = task.id
     db.commit()
     return _session_read(_get_session(db, planner_session_id))
 

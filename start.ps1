@@ -4,8 +4,10 @@ $root = $PSScriptRoot
 $projectRoot = $root
 $python = Join-Path $root 'backend\.venv\Scripts\python.exe'
 $backendProc = $null
+$workerProc = $null
 $frontendProc = $null
 $backendOwned = $false
+$workerOwned = $false
 $frontendOwned = $false
 $exitCode = 0
 
@@ -27,6 +29,14 @@ function Test-Backend([int]$port) {
 function Test-Frontend([int]$port) {
     try {
         return ((Invoke-WebRequest ('http://127.0.0.1:{0}/@vite/client' -f $port) -UseBasicParsing -TimeoutSec 2).StatusCode -eq 200)
+    } catch {
+        return $false
+    }
+}
+
+function Test-Redis {
+    try {
+        return (Test-NetConnection -ComputerName '127.0.0.1' -Port 6379 -InformationLevel Quiet -WarningAction SilentlyContinue)
     } catch {
         return $false
     }
@@ -122,6 +132,9 @@ try {
     if (-not (Test-Path $python)) {
         throw 'Missing backend\.venv. Install the backend environment first.'
     }
+    if (-not (Test-Redis)) {
+        throw 'Redis is unavailable on 127.0.0.1:6379. Start Redis before starting CareerPilot (Agent tasks require Celery + Redis).'
+    }
 
     # Always obtain a fresh project port. This prevents a healthy-but-stale
     # project process from surviving code updates and also avoids killing an
@@ -138,6 +151,15 @@ try {
     $backendOwned = $true
     if (-not (Wait-Ready { Test-Backend $backendPort })) {
         throw ('Backend startup timed out on port {0}.' -f $backendPort)
+    }
+
+    Push-Location (Join-Path $root 'backend')
+    $workerProc = Start-Process -FilePath $python -ArgumentList @('-m','celery','-A','app.task_queue.celery_app','worker','--loglevel=INFO','--pool=solo') -WorkingDirectory (Get-Location) -WindowStyle Hidden -PassThru
+    Pop-Location
+    $workerOwned = $true
+    Start-Sleep -Milliseconds 800
+    if ($workerProc.HasExited) {
+        throw 'Celery worker failed to start. Check Redis and backend dependencies.'
     }
 
     $marker = Join-Path $root 'frontend\node_modules\@phosphor-icons\react\package.json'
@@ -192,6 +214,10 @@ try {
                 Write-Host 'Backend exited; cleaning up frontend.' -ForegroundColor Yellow
                 break
             }
+            if ($workerOwned -and $workerProc.HasExited) {
+                Write-Host 'Celery worker exited; cleaning up services.' -ForegroundColor Yellow
+                break
+            }
             Start-Sleep -Milliseconds 300
         }
     } finally {
@@ -208,6 +234,10 @@ try {
     if ($backendOwned -and $null -ne $backendProc -and -not $backendProc.HasExited) {
         Write-Host 'Stopping backend...'
         Stop-Tree ([int]$backendProc.Id)
+    }
+    if ($workerOwned -and $null -ne $workerProc -and -not $workerProc.HasExited) {
+        Write-Host 'Stopping Celery worker...'
+        Stop-Tree ([int]$workerProc.Id)
     }
     Write-Host 'Services stopped.'
 }

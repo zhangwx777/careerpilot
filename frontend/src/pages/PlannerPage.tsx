@@ -136,6 +136,20 @@ export function PlannerPage() {
     finally { setLoading(false); }
   }
 
+  async function retrySession() {
+    if (!sessionId) return;
+    setLoading(true); setError("");
+    try {
+      const next = await api.planner.retry(sessionId);
+      setSession(next);
+      saveSessionId(window.localStorage, activePlannerSessionKey, next.id);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "重试失败");
+    } finally {
+      setLoading(false);
+    }
+  }
+
   async function updateAction(task: PreparationTask, status: PreparationTask["status"]) {
     try {
       const updated = await api.planner.updateTask(task.id, status);
@@ -261,7 +275,7 @@ export function PlannerPage() {
             <Link className="button ghost" to="/planner">返回并新建分析</Link>
           </div>
           {session.status === "生成中" && <div className="session-progress" role="status">正在后台分析简历、JD 和面经，完成后会自动载入。</div>}
-          {session.status === "失败" && <div className="notice error" role="alert">{session.error_message ?? "备战分析失败"}</div>}
+          {session.status === "失败" && <div className="notice error" role="alert"><span>{session.error_message ?? "备战分析失败"}</span><button className="button ghost compact-button" type="button" disabled={loading} onClick={() => void retrySession()}>重试</button></div>}
           {report && (
             <>
               <section className="planner-summary">

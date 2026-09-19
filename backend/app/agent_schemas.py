@@ -26,6 +26,20 @@ class AgentToolResult(BaseModel):
     data: dict[str, Any] = Field(default_factory=dict)
     sources: list[AgentSource] = Field(default_factory=list, max_length=20)
     error: str | None = None
+    error_kind: str | None = None
+
+
+class AgentAnswerInternal(BaseModel):
+    """Server-side answer contract used before the public chat response."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    answer: str = Field(min_length=1, max_length=20000)
+    source_ids: list[str] = Field(default_factory=list, max_length=20)
+    insufficient_data: bool = False
+    used_tools: list[str] = Field(default_factory=list, max_length=20)
+    answer_mode: Literal["sourced", "mixed", "general"] = "general"
+    search_status: Literal["not_used", "success", "empty", "failed"] = "not_used"
 
 
 class AgentStep(BaseModel):
@@ -35,6 +49,10 @@ class AgentStep(BaseModel):
     tool_calls: list[dict[str, Any]] = Field(default_factory=list, max_length=20)
     source_ids: list[str] = Field(default_factory=list, max_length=50)
     elapsed_ms: int = Field(ge=0)
+    tool_elapsed_ms: int = Field(default=0, ge=0)
+    result_source_count: int = Field(default=0, ge=0)
+    error_kind: str | None = None
+    error_message: str | None = None
 
 
 class AgentRunResult(BaseModel):
@@ -44,3 +62,7 @@ class AgentRunResult(BaseModel):
     steps: list[AgentStep] = Field(default_factory=list, max_length=10)
     sources: list[AgentSource] = Field(default_factory=list, max_length=100)
     status: Literal["completed", "budget_exceeded"] = "completed"
+    insufficient_data: bool = False
+    used_tools: list[str] = Field(default_factory=list, max_length=20)
+    answer_mode: Literal["sourced", "mixed", "general"] = "general"
+    search_status: Literal["not_used", "success", "empty", "failed"] = "not_used"

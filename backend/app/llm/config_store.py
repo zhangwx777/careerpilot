@@ -397,6 +397,11 @@ def list_provider_status(db: Session) -> list[dict]:
                 "validation_message": message,
                 "last_tested_at": tested_at,
                 "is_default": provider == default or (default is None and configured and provider == resolve_provider(db)),
+                "supports_tools": row.supports_tools if row and row.enabled else None,
+                "supports_json": row.supports_json if row and row.enabled else None,
+                "supports_streaming": row.supports_streaming if row and row.enabled else None,
+                "supports_vision": row.supports_vision if row and row.enabled else None,
+                "capability_checked_at": row.capability_checked_at if row and row.enabled else None,
             }
         )
     return result
@@ -450,6 +455,11 @@ def save_provider(
         row.validation_message = validation_message
         # Changing a connection field invalidates the previous test result.
         row.last_tested_at = None
+        row.supports_tools = None
+        row.supports_json = None
+        row.supports_streaming = None
+        row.supports_vision = None
+        row.capability_checked_at = None
     row.enabled = True
     db.commit()
     db.refresh(row)
@@ -479,4 +489,24 @@ def touch_validation(
     row.validation_status = status
     row.validation_message = message
     row.last_tested_at = datetime.now(timezone.utc)
+    db.commit()
+
+
+def touch_capabilities(
+    db: Session,
+    provider: str,
+    *,
+    supports_tools: bool | None,
+    supports_json: bool | None,
+    supports_streaming: bool | None,
+    supports_vision: bool | None = None,
+) -> None:
+    row = db.get(LlmProviderConfig, provider)
+    if row is None:
+        return
+    row.supports_tools = supports_tools
+    row.supports_json = supports_json
+    row.supports_streaming = supports_streaming
+    row.supports_vision = supports_vision
+    row.capability_checked_at = datetime.now(timezone.utc)
     db.commit()

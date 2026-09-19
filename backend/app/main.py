@@ -15,6 +15,7 @@ from app.intel_api import router as intel_router
 from app.planner_api import router as planner_router
 from app.briefing_api import router as briefing_router
 from app.daily_scheduler import daily_loop
+from app.task_queue import queue_available
 
 logger = logging.getLogger(__name__)
 
@@ -47,7 +48,8 @@ def health():
     except Exception:
         logger.exception("健康检查数据库连接失败")
         return {"status": "error", "db": False, "detail": "数据库连接失败"}
-    return {"status": "ok", "db": db_ok}
+    queue_ok = queue_available()
+    return {"status": "ok" if queue_ok else "degraded", "db": db_ok, "queue": queue_ok}
 
 
 _app_root = (

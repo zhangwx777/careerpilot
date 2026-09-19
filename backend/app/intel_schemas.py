@@ -126,3 +126,7 @@ class IntelChatAnswer(BaseModel):
 
     answer: str = Field(min_length=1, max_length=20000)
     source_ids: list[str] = Field(default_factory=list, max_length=20)
+    insufficient_data: bool = False
+    used_tools: list[str] = Field(default_factory=list, max_length=20)
+    answer_mode: Literal["sourced", "mixed", "general"] = "general"
+    search_status: Literal["not_used", "success", "empty", "failed"] = "not_used"

@@ -286,3 +286,15 @@ Provider 的 API key、Base URL 和 model 只从网页“模型设置”保存�
 5. 现有面经图的人工裁决、恢复和幂等行为不回退。
 
 如果第 4 条没有收益，停止在“Workflow + 固定问答”也成立；Agent 不是为了改变架构而改变架构。
+
+## 12. 2026-09 Agent 能力落地状态
+
+已落地的基础能力：
+
+- `AgentAnswerInternal`、`AgentRun` 和 `AgentStep` 已增加资料不足、使用工具、搜索状态、队列 ID、尝试次数、心跳、工具耗时、来源数量及安全错误字段。
+- 面经问答、面经聚合、Planner 分析和岗位洞察重建已接入 Celery + Redis；API 只创建记录并提交任务，桌面启动器也会启动 worker，Redis 不可用时明确阻止启动。
+- 问答根据问题类型强制读取基础岗位资料；Provider 测试记录 JSON/工具/流式/视觉能力，工具能力未验证的模型不能进入岗位问答 Agent。
+- 面经联网补充使用受限研究 Agent，只允许调用 AnySearch `search_public_intel`；服务端继续进行相关性过滤、来源校验和最终写库，空结果不会写成已完成面经。
+- Critic 输入已包含原始来源、逐来源抽取结果和合并 payload；Insight 的固定规则进入 system message，未知来源 ID 显式失败。
+
+当前仍需人工完成的发布前检查：真实 Redis worker 任务认领/重试、Anthropic 与第二家 Provider 的 JSON/stream/tool smoke test，以及连接可用的 PostgreSQL 升级演练。上述检查不放入默认 CI，以免将密钥和外部服务作为提交门槛。

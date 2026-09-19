@@ -31,6 +31,8 @@ import tiktoken_ext  # noqa: F401
 import starlette  # noqa: F401
 import anyio  # noqa: F401
 import httpx  # noqa: F401
+import celery  # noqa: F401
+import redis  # noqa: F401
 
 # --- 2 & 3. 定位应用层源码并运行外部入口 ---
 import os
@@ -47,6 +49,11 @@ def main() -> None:
     if not (backend_src / "packaged_server.py").is_file():
         raise SystemExit(f"未找到后端源码：{backend_src}")
     sys.path.insert(0, str(backend_src))
+    if os.environ.get("CAREERPILOT_WORKER") == "1":
+        from app.task_queue import celery_app
+
+        celery_app.worker_main(["worker", "--loglevel=INFO", "--pool=solo"])
+        return
     runpy.run_module("packaged_server", run_name="__main__")
 
 

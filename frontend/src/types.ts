@@ -10,6 +10,11 @@ export interface ProviderOption {
   validation_status: "未验证" | "已验证" | "验证失败";
   validation_message: string | null;
   last_tested_at: string | null;
+  supports_tools: boolean | null;
+  supports_json: boolean | null;
+  supports_streaming: boolean | null;
+  supports_vision: boolean | null;
+  capability_checked_at: string | null;
   is_default: boolean;
 }
 
@@ -207,21 +212,21 @@ export interface IntelRound { round_type: string; duration_minutes: number | nul
 export interface IntelQuestion { question: string; category: string; round_type: string; answer_outline: string; source_ids: string[]; }
 export interface PreparationItem { title: string; detail: string; priority: number; source_ids: string[]; }
 export interface IntelPayload { summary: IntelFact | null; rounds: IntelRound[]; questions: IntelQuestion[]; frequent_topics: IntelFact[]; difficulty: IntelFact | null; preparation_items: PreparationItem[]; conflicts: { field: string; candidates: IntelFact[] }[]; }
-export interface IntelSession { id: number; thread_id: string; application_id: number; provider: string; round_type: IntelRoundType; user_paste: string | null; image_texts: { name: string; text: string }[]; draft_payload: IntelPayload | null; conflicts: IntelPayload["conflicts"] | null; progress_payload: IntelProgress | null; status: IntelSessionStatus; interview_intel_id: number | null; error_message: string | null; created_at: string; resolved_at: string | null; }
+export interface IntelSession { id: number; thread_id: string; application_id: number; provider: string; round_type: IntelRoundType; user_paste: string | null; image_texts: { name: string; text: string }[]; supplement_web?: boolean; draft_payload: IntelPayload | null; conflicts: IntelPayload["conflicts"] | null; progress_payload: IntelProgress | null; status: IntelSessionStatus; interview_intel_id: number | null; error_message: string | null; queue_task_id?: string | null; created_at: string; resolved_at: string | null; }
 export interface IntelDirection { title: string; source_ids: string[]; round_types: string[]; representative_questions: string[]; }
 export interface IntelCoreQuestion { question: string; category: string; round_type: string; reason: string; source_ids: string[]; }
 export interface IntelInsightPreparation { title: string; detail: string; priority: number; source_ids: string[]; }
 export interface IntelInsight { status: "未生成" | "生成中" | "已生成" | "失败" | "暂无资料"; high_frequency_directions: IntelDirection[]; core_questions: IntelCoreQuestion[]; preparation_items: IntelInsightPreparation[]; error_message: string | null; }
 export interface IntelDossier { application_id: number; position_id: number; company_name: string; position_title: string; payload: IntelPayload; insight: IntelInsight; materials: InterviewIntel[]; sources: SourceRecord[]; reminder: { id: number; scheduled_at: string | null; title: string | null } | null; }
 export interface IntelChatSource { id: string; title: string; url: string | null; kind: string; file_name: string | null; published_at: string | null; }
-export interface IntelChatMessage { id: number; role: "user" | "assistant"; content: string; status: "生成中" | "已完成" | "失败"; source_ids: string[]; agent_stage?: string | null; sources?: IntelChatSource[]; created_at: string; }
+export interface IntelChatMessage { id: number; role: "user" | "assistant"; content: string; status: "生成中" | "已完成" | "失败"; source_ids: string[]; agent_stage?: string | null; degraded?: boolean; insufficient_data?: boolean; used_tools?: string[]; answer_mode?: "sourced" | "mixed" | "general" | null; search_status?: "not_used" | "success" | "empty" | "failed" | null; sources?: IntelChatSource[]; created_at: string; }
 
 export interface AvailabilityWindow { weekday: number; start: string; end: string; }
 export interface ResumeProfile { resume_text: string; file_name: string | null; updated_at: string; }
 export interface PlannerGap { name: string; evidence: string; }
-export interface PlannerAction { title: string; detail: string | null; priority: number; source_ids: string[]; }
+export interface PlannerAction { title: string; detail: string | null; gap?: string | null; priority: number; estimated_minutes?: number; source_ids: string[]; evidence?: { kind: "resume" | "jd" | "intel" | "timeline"; reference: string }[]; }
 export interface PlannerReport { summary: string | null; strengths: PlannerGap[]; gaps: PlannerGap[]; actions: PlannerAction[]; }
 export interface ScheduledTask { title: string; detail: string | null; gap: string; source_ids: string[]; estimated_minutes: number; scheduled_at: string; ends_at: string; }
-export interface PlannerSession { id: number; application_id: number; application: Application; provider: string; available_windows: AvailabilityWindow[]; draft_payload: PlannerReport | { gaps: PlannerGap[]; tasks: ScheduledTask[] } | null; status: "生成中" | "待确认" | "已确认" | "已完成" | "已丢弃" | "失败"; error_message: string | null; created_at: string; resolved_at: string | null; }
-export interface PreparationTask { id: number; planner_session_id: number; application_id: number; title: string; detail: string | null; gap: string | null; source_ids: string[]; scheduled_at: string | null; ends_at: string | null; estimated_minutes: number; priority: number; action_index: number | null; deferred_until: string | null; status: "待处理" | "已完成" | "已跳过"; timeline_node_id: number | null; created_at: string; }
+export interface PlannerSession { id: number; application_id: number; application: Application; provider: string; available_windows: AvailabilityWindow[]; draft_payload: PlannerReport | { gaps: PlannerGap[]; tasks: ScheduledTask[] } | null; status: "生成中" | "待确认" | "已确认" | "已完成" | "已丢弃" | "失败"; error_message: string | null; queue_task_id?: string | null; created_at: string; resolved_at: string | null; }
+export interface PreparationTask { id: number; planner_session_id: number; application_id: number; title: string; detail: string | null; gap: string | null; source_ids: string[]; evidence?: { kind: "resume" | "jd" | "intel" | "timeline"; reference: string }[]; scheduled_at: string | null; ends_at: string | null; estimated_minutes: number; priority: number; action_index: number | null; deferred_until: string | null; status: "待处理" | "已完成" | "已跳过"; timeline_node_id: number | null; created_at: string; }
 export interface DailyBriefing { id: number; briefing_date: string; payload: { alerts: { timeline_node_id: number; title: string; scheduled_at: string; alert_types: TimelineAlert[] }[]; today_tasks: { task_id: number; title: string; scheduled_at: string; ends_at: string; application_id: number }[]; new_sources: { application_id: number; title: string; url: string }[]; search_errors: { application_id: number; message: string }[]; }; created_at: string; }

@@ -113,10 +113,10 @@ def _read_current_jd(context: AgentToolContext, _arguments: dict[str, Any]) -> A
     with context.session_factory() as db:
         position = db.get(Application, context.application_id)
         if position is None:
-            return AgentToolResult(ok=False, error="投递记录不存在")
+            return AgentToolResult(ok=False, error="投递记录不存在", error_kind="not_found")
         text = _text(position.position.jd_text if position.position else "")
         if not text:
-            return AgentToolResult(ok=True, data={"text": "", "available": False})
+            return AgentToolResult(ok=True, data={"text": "", "available": False}, error_kind="empty_result")
         source = _source(
             {
                 "id": f"position-{context.position_id}:jd",
@@ -142,6 +142,7 @@ def _search_current_intel(context: AgentToolContext, arguments: dict[str, Any]) 
         ok=True,
         data={"count": len(sources), "round_type": parsed.round_type, "keyword": parsed.keyword},
         sources=sources[:20],
+        error_kind="empty_result" if not sources else None,
     )
 
 
@@ -151,7 +152,7 @@ def _read_resume(context: AgentToolContext, _arguments: dict[str, Any]) -> Agent
     with context.session_factory() as db:
         resume = db.get(ResumeProfile, 1)
     if resume is None:
-        return AgentToolResult(ok=True, data={"available": False, "text": ""})
+        return AgentToolResult(ok=True, data={"available": False, "text": ""}, error_kind="empty_result")
     source = _source(
         {
             "id": "resume:current",
@@ -194,7 +195,7 @@ def _search_timeline(context: AgentToolContext, _arguments: dict[str, Any]) -> A
         )
         for node in nodes
     ]
-    return AgentToolResult(ok=True, data={"count": len(sources)}, sources=sources)
+    return AgentToolResult(ok=True, data={"count": len(sources)}, sources=sources, error_kind="empty_result" if not sources else None)
 
 
 def _search_related_intel(context: AgentToolContext, arguments: dict[str, Any]) -> AgentToolResult:
@@ -242,7 +243,11 @@ def _read_chat_history(context: AgentToolContext, _arguments: dict[str, Any]) ->
         valid_material_ids = {
             source.id
             # ponytail: 全表扫描面经材料，材料量大时按 position_id/company_id 收窄
-            for material in db.scalars(select(InterviewIntel)).all()
+            for material in db.scalars(
+                select(InterviewIntel)
+                .join(InterviewIntel.application)
+                .where(Application.position_id == context.position_id)
+            ).all()
             for source in _material_sources(material)
         }
         records: list[tuple[dict[str, Any], list[AgentSource]]] = []
@@ -293,15 +298,22 @@ def _read_chat_history(context: AgentToolContext, _arguments: dict[str, Any]) ->
         break
     turns = [item[0] for item in records]
     sources = [source for _, items in records for source in items]
-    return AgentToolResult(ok=True, data={"turns": turns, "count": len(turns)}, sources=sources[:20])
+    return AgentToolResult(ok=True, data={"turns": turns, "count": len(turns)}, sources=sources[:20], error_kind="empty_result" if not turns else None)
 
 
 def _search_public_intel(context: AgentToolContext, arguments: dict[str, Any]) -> AgentToolResult:
     parsed = _PublicSearchArgs.model_validate(arguments)
     try:
         results = search(parsed.query, timeout_seconds=30)
-    except AnySearchError:
-        return AgentToolResult(ok=False, error="公开检索暂时失败")
+    except AnySearchError as exc:
+        error_text = str(exc)
+        if "未配置" in error_text:
+            error_kind = "search_not_configured"
+        elif "超时" in error_text:
+            error_kind = "search_timeout"
+        else:
+            error_kind = "search_failed"
+        return AgentToolResult(ok=False, error="公开检索暂时失败", error_kind=error_kind)
     sources = []
     for item in results[:5]:
         context.public_source_counter[0] += 1
@@ -318,7 +330,12 @@ def _search_public_intel(context: AgentToolContext, arguments: dict[str, Any]) -
                 scope="public",
             )
         )
-    return AgentToolResult(ok=True, data={"query": parsed.query, "count": len(sources)}, sources=sources)
+    return AgentToolResult(
+        ok=True,
+        data={"query": parsed.query, "count": len(sources)},
+        sources=sources,
+        error_kind="empty_result" if not sources else None,
+    )
 
 
 def build_chat_toolset(context: AgentToolContext) -> tuple[list[dict[str, Any]], dict[str, AgentTool]]:

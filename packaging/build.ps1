@@ -67,7 +67,7 @@ try {
     & $python -m PyInstaller --noconfirm --clean --onedir --name CareerPilotBackend `
         --distpath $pyDist --workpath $pyWork --specpath $buildRoot `
         --collect-all litellm --collect-all tiktoken --collect-submodules tiktoken_ext `
-        --collect-submodules langgraph --collect-submodules langchain_mcp_adapters `
+        --collect-submodules langgraph --collect-submodules langchain_mcp_adapters --collect-all celery --collect-all redis `
         --collect-all psycopg $launcher
     if ($LASTEXITCODE -ne 0) { throw '后端启动器打包失败。' }
 } finally {

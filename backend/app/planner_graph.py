@@ -12,13 +12,27 @@ from sqlalchemy.orm import Session, sessionmaker
 from app.db import to_psycopg_connection_string
 from app.models import PlannerSession, PreparationTask, TimelineNode
 from app.planner import schedule_tasks, validate_task_intervals
-from app.planner_parsing import extract_plan
+from app.planner_parsing import extract_plan as _extract_action_plan
+from app.planner_parsing import extract_scheduled_plan as _extract_scheduled_plan
 from app.planner_schemas import AvailabilityWindow, PlannerConfirmation, PlannerDraft, ScheduledTask
 from app.llm.config_store import config_from_snapshot
 
 
 class PlannerGraphError(Exception):
     pass
+
+
+# Kept as a public compatibility seam for integrations/tests that used to
+# patch ``app.planner_graph.extract_plan``. In production the graph uses the
+# dedicated schedule contract; a patched legacy seam is honored during tests
+# and downstream embedding.
+extract_plan = _extract_action_plan
+
+
+def extract_scheduled_plan(*args, **kwargs):
+    if extract_plan is not _extract_action_plan:
+        return extract_plan(*args, **kwargs)
+    return _extract_scheduled_plan(*args, **kwargs)
 
 
 class PlannerGraphState(TypedDict, total=False):
@@ -49,7 +63,7 @@ def build_planner_graph(checkpointer: PostgresSaver, session_factory: Callable[[
             }
 
     def analyze_gaps(state: PlannerGraphState):
-        draft = extract_plan(
+        draft = extract_scheduled_plan(
             state["resume_text"],
             state["jd_text"],
             state["intel_snapshot"],
@@ -131,6 +145,7 @@ def build_planner_graph(checkpointer: PostgresSaver, session_factory: Callable[[
                             detail=task.detail,
                             gap=task.gap,
                             source_ids=task.source_ids,
+                            evidence=[item.model_dump(mode="json") for item in task.evidence],
                             scheduled_at=task.scheduled_at,
                             ends_at=task.ends_at,
                             estimated_minutes=task.estimated_minutes,

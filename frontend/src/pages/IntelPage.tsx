@@ -204,6 +204,7 @@ export function IntelPage() {
   }
   async function resolve() { if (!session || (session.conflicts ?? []).some((item) => !choices[item.field])) { setError("请为每项冲突选择一个候选结论"); return; } setLoading(true); setError(""); try { const done = await api.intel.resolve(session.id, choices); clearDraft(window.localStorage, activeIntelSessionKey); setSession(done); } catch (reason) { setError(reason instanceof Error ? reason.message : "裁决失败"); } finally { setLoading(false); } }
   async function discard() { if (!session) return; setLoading(true); setError(""); try { await api.intel.discard(session.id); clearDraft(window.localStorage, activeIntelSessionKey); setSession(null); navigate("/intel?tab=input", { replace: true }); } catch (reason) { setError(reason instanceof Error ? reason.message : "舍弃失败"); } finally { setLoading(false); } }
+  async function retrySession() { if (!session) return; setLoading(true); setError(""); try { const next = await api.intel.retry(session.id); setSession(next); saveSessionId(window.localStorage, activeIntelSessionKey, next.id); } catch (reason) { setError(reason instanceof Error ? reason.message : "重试失败"); } finally { setLoading(false); } }
   async function rebuildInsight() { if (!applicationId) return; setLoading(true); setError(""); try { setDossier(await api.intel.rebuildDossier({ application_id: applicationId, provider })); } catch (reason) { setError(reason instanceof Error ? reason.message : "洞察生成失败"); } finally { setLoading(false); } }
   async function deleteMaterial(item: InterviewIntel) { setLoading(true); setError(""); try { await api.intel.deleteMaterial(item.id); setInsightVersion((current) => current + 1); } catch (reason) { setError(reason instanceof Error ? reason.message : "删除失败"); } finally { setLoading(false); } }
   function askDiscard() { setConfirmation({ title: "舍弃此次面经分析？", description: "舍弃后不会写入岗位资料库。", confirmLabel: "舍弃此次分析", onConfirm: () => { setConfirmation(null); void discard(); } }); }
@@ -273,6 +274,10 @@ export function IntelPage() {
                       <span>{answer.status === "生成中" ? (answer.agent_stage || "AI 正在生成") : "AI"}</span>
                       <p>{answer.content || (answer.status === "生成中" ? "正在生成回答…" : "暂无回答")}</p>
                       {answer.status === "失败" && <small>本次回答生成失败，可重新提问。</small>}
+                      {answer.degraded && <small className="intel-chat-warning">本次资料读取未完成，回答可能不完整。</small>}
+                      {answer.insufficient_data && <small className="intel-chat-warning">当前岗位资料不足，以上内容包含不确定性。</small>}
+                      {answer.search_status === "failed" && <small className="intel-chat-warning">公开检索失败，回答未将搜索结果视为已完成。</small>}
+                      {(answer.used_tools?.length ?? 0) > 0 && <small>已读取：{answer.used_tools?.join("、")}</small>}
                       {answer.source_ids.length > 0 && <small>引用：{answer.source_ids.map((sourceId) => sourceTitle(sourceId, answer)).join("、")}</small>}
                     </article>
                   )}
@@ -303,6 +308,7 @@ export function IntelPage() {
         </div>
       </div>
       {error && <div className="notice error" role="alert">{error}</div>}
+      {session?.status === "失败" && <div className="notice error"><span>{session.error_message ?? "面经分析失败"}</span><button className="button ghost compact-button" type="button" disabled={loading} onClick={() => void retrySession()}>重试</button></div>}
       <div className="intel-context panel">
         <label>
           当前投递

@@ -36,6 +36,21 @@ class IntelGraphRoutingTestCase(unittest.TestCase):
             "critic",
         )
 
+    def test_empty_extraction_is_never_persisted(self):
+        self.assertEqual(
+            _decide_after_aggregate(
+                {
+                    "supplement_web": False,
+                    "sources": [{"id": "manual"}],
+                    "extractions": {},
+                    "confidence": 0.0,
+                    "search_attempt": 0,
+                    "payload": {"conflicts": []},
+                }
+            ),
+            "fail",
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

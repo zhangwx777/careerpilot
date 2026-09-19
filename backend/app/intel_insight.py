@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from app.intel_schemas import IntelInsight
 from app.llm.provider import chat
-from app.llm.prompts import insight_prompt
+from app.llm.prompts import insight_prompt, insight_system_prompt
 from app.llm.structured import StructuredOutputError, clean_json, complete_structured
 from app.models import Application, InterviewIntel, Position
 
@@ -94,21 +94,31 @@ def _build_input(position: Position, materials: list[InterviewIntel]) -> tuple[s
 
 def _parse(content: str, allowed: set[str]) -> IntelInsight:
     result = IntelInsight.model_validate_json(clean_json(content))
+    referenced = {
+        source_id
+        for item in result.high_frequency_directions
+        for source_id in item.source_ids
+    }
+    referenced.update(source_id for item in result.core_questions for source_id in item.source_ids)
+    referenced.update(source_id for item in result.preparation_items for source_id in item.source_ids)
+    unknown = referenced - allowed
+    if unknown:
+        raise ValueError(f"洞察引用了不存在的来源：{sorted(unknown)}")
     directions = []
     for item in result.high_frequency_directions:
-        ids = sorted(set(item.source_ids) & allowed)
+        ids = sorted(set(item.source_ids))
         if len(ids) < 2:
             continue
         directions.append(item.model_copy(update={"source_ids": ids}))
     core = [
-        item.model_copy(update={"source_ids": sorted(set(item.source_ids) & allowed)})
+        item.model_copy(update={"source_ids": sorted(set(item.source_ids))})
         for item in result.core_questions
-        if set(item.source_ids) & allowed
+        if item.source_ids
     ]
     preparation = [
-        item.model_copy(update={"source_ids": sorted(set(item.source_ids) & allowed)})
+        item.model_copy(update={"source_ids": sorted(set(item.source_ids))})
         for item in result.preparation_items
-        if set(item.source_ids) & allowed
+        if item.source_ids
     ]
     return result.model_copy(
         update={
@@ -124,7 +134,10 @@ def _parse(content: str, allowed: set[str]) -> IntelInsight:
 def _generate(prompt: str, provider: str, allowed: set[str], llm_config: dict | None = None) -> IntelInsight:
     try:
         return complete_structured(
-            [{"role": "user", "content": prompt}],
+            [
+                {"role": "system", "content": insight_system_prompt("见用户资料中的 schema")},
+                {"role": "user", "content": prompt},
+            ],
             provider,
             lambda content: _parse(content, allowed),
             chat_fn=chat,

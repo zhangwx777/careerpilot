@@ -193,6 +193,28 @@ def initialize_database(database_url: str) -> None:
                     "ADD COLUMN IF NOT EXISTS error_kind VARCHAR(50)"
                 )
             )
+            connection.execute(text("ALTER TABLE agent_run ADD COLUMN IF NOT EXISTS queue_task_id VARCHAR(200)"))
+            connection.execute(text("ALTER TABLE agent_run ADD COLUMN IF NOT EXISTS attempt INTEGER NOT NULL DEFAULT 0"))
+            connection.execute(text("ALTER TABLE agent_run ADD COLUMN IF NOT EXISTS heartbeat_at TIMESTAMPTZ"))
+            connection.execute(text("ALTER TABLE agent_run ADD COLUMN IF NOT EXISTS insufficient_data BOOLEAN NOT NULL DEFAULT FALSE"))
+            connection.execute(text("ALTER TABLE agent_run ADD COLUMN IF NOT EXISTS used_tools JSONB NOT NULL DEFAULT '[]'::jsonb"))
+            connection.execute(text("ALTER TABLE agent_run ADD COLUMN IF NOT EXISTS answer_mode VARCHAR(30)"))
+            connection.execute(text("ALTER TABLE agent_run ADD COLUMN IF NOT EXISTS search_status VARCHAR(30)"))
+            connection.execute(text("ALTER TABLE agent_run ADD COLUMN IF NOT EXISTS last_error_kind VARCHAR(50)"))
+            connection.execute(text("ALTER TABLE agent_run ADD COLUMN IF NOT EXISTS last_error_message TEXT"))
+            connection.execute(text("CREATE INDEX IF NOT EXISTS ix_agent_run_queue_task_id ON agent_run (queue_task_id)"))
+            connection.execute(text("CREATE INDEX IF NOT EXISTS ix_agent_run_heartbeat_at ON agent_run (heartbeat_at)"))
+            connection.execute(text("ALTER TABLE preparation_task ADD COLUMN IF NOT EXISTS evidence JSONB NOT NULL DEFAULT '[]'::jsonb"))
+            connection.execute(text("ALTER TABLE llm_provider_config ADD COLUMN IF NOT EXISTS supports_tools BOOLEAN"))
+            connection.execute(text("ALTER TABLE llm_provider_config ADD COLUMN IF NOT EXISTS supports_json BOOLEAN"))
+            connection.execute(text("ALTER TABLE llm_provider_config ADD COLUMN IF NOT EXISTS supports_streaming BOOLEAN"))
+            connection.execute(text("ALTER TABLE llm_provider_config ADD COLUMN IF NOT EXISTS supports_vision BOOLEAN"))
+            connection.execute(text("ALTER TABLE llm_provider_config ADD COLUMN IF NOT EXISTS capability_checked_at TIMESTAMPTZ"))
+            connection.execute(text("ALTER TABLE intel_session ADD COLUMN IF NOT EXISTS queue_task_id VARCHAR(200)"))
+            connection.execute(text("ALTER TABLE intel_session ADD COLUMN IF NOT EXISTS supplement_web BOOLEAN NOT NULL DEFAULT FALSE"))
+            connection.execute(text("ALTER TABLE planner_session ADD COLUMN IF NOT EXISTS queue_task_id VARCHAR(200)"))
+            connection.execute(text("CREATE INDEX IF NOT EXISTS ix_intel_session_queue_task_id ON intel_session (queue_task_id)"))
+            connection.execute(text("CREATE INDEX IF NOT EXISTS ix_planner_session_queue_task_id ON planner_session (queue_task_id)"))
             connection.execute(
                 text(
                     "ALTER TABLE preparation_task "

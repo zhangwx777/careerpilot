@@ -19,7 +19,8 @@ from app.models import (
     TimelineNode,
 )
 from app.intel_reminders import INTERVIEW_NODE_TYPES, sync_intel_reminder_for_application
-from app.llm.config_store import LlmConfigError, PROMPT_VERSION, resolve_provider, snapshot_for
+from app.llm.config_store import LlmConfigError, resolve_provider, snapshot_for
+from app.llm.prompts import NOTICE_PROMPT_VERSION
 from app.parse_graph import ParseGraphStateError, resume_parse_graph, start_parse_graph
 from app.parsing import NoticeParseError
 from app.schemas import ApplicationRead
@@ -147,7 +148,7 @@ def create_parse_session(
         raw_text=payload.raw_text,
         provider=provider,
         llm_snapshot=llm_snapshot,
-        prompt_version=PROMPT_VERSION,
+        prompt_version=NOTICE_PROMPT_VERSION,
         status="解析中",
     )
     db.add(parse_session)
