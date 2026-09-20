@@ -14,7 +14,12 @@ $pyWork = Join-Path $buildRoot 'pyinstaller-work'
 $electronRoot = Join-Path $buildRoot 'electron'
 $artifact = Join-Path $root 'dist\CareerPilotSetup.exe'
 $portableArtifact = Join-Path $root 'dist\CareerPilot-portable.zip'
-$payloadArchive = Join-Path $buildRoot 'payload.zip'
+$garnetVersion = '1.1.10'
+$dotnetRuntimeVersion = '10.0.8'
+$garnetArchive = Join-Path $buildRoot "garnet-win-x64-$garnetVersion.zip"
+$dotnetArchive = Join-Path $buildRoot "dotnet-runtime-$dotnetRuntimeVersion-win-x64.zip"
+$garnetUrl = "https://github.com/microsoft/garnet/releases/download/v$garnetVersion/win-x64-based-readytorun.zip"
+$dotnetUrl = "https://builds.dotnet.microsoft.com/dotnet/Runtime/$dotnetRuntimeVersion/dotnet-runtime-$dotnetRuntimeVersion-win-x64.zip"
 $pgHome = 'C:\Program Files\PostgreSQL\18'
 $python = Join-Path $root 'backend\.venv\Scripts\python.exe'
 
@@ -29,6 +34,13 @@ if (-not $AppOnly) {
 } else {
     if (Test-Path -LiteralPath $appLayer) { Remove-Item -LiteralPath $appLayer -Recurse -Force }
     New-Item -ItemType Directory -Force -Path $appLayer | Out-Null
+}
+
+function Ensure-Download([string]$url, [string]$destination) {
+    if (-not (Test-Path -LiteralPath $destination)) {
+        Write-Host "下载 $url"
+        Invoke-WebRequest -Uri $url -OutFile $destination -UseBasicParsing
+    }
 }
 
 # --- 应用层：前端 dist ---
@@ -60,6 +72,15 @@ if ($AppOnly) {
 
 # ===== 以下仅完整构建执行：运行时层 + Electron 壳 + 打包 =====
 
+# --- 运行时层：内置 Garnet + .NET Runtime，终端用户无需安装 Redis 或 .NET ---
+Ensure-Download $garnetUrl $garnetArchive
+Ensure-Download $dotnetUrl $dotnetArchive
+$garnetExtract = Join-Path $buildRoot 'garnet-extract'
+Expand-Archive -LiteralPath $garnetArchive -DestinationPath $garnetExtract -Force
+New-Item -ItemType Directory -Force -Path (Join-Path $runtimeRoot 'garnet') | Out-Null
+Copy-Item -Path (Join-Path $garnetExtract 'net10.0\*') -Destination (Join-Path $runtimeRoot 'garnet') -Recurse -Force
+Expand-Archive -LiteralPath $dotnetArchive -DestinationPath (Join-Path $runtimeRoot 'dotnet') -Force
+
 # --- 运行时层：PyInstaller onedir 冻结瘦启动器（业务源码不冻结） ---
 $launcher = Join-Path $PSScriptRoot 'runtime\launcher_entry.py'
 Push-Location $root
@@ -90,8 +111,6 @@ Copy-Item -Path (Join-Path $pgHome 'share\*') -Destination (Join-Path $runtimeRo
 
 # --- 生命周期脚本 ---
 Copy-Item -Path (Join-Path $PSScriptRoot 'installed\stop.ps1') -Destination $payloadRoot -Force
-Copy-Item -Path (Join-Path $PSScriptRoot 'installer\install.ps1') -Destination (Join-Path $payloadRoot 'install.ps1') -Force
-Copy-Item -Path (Join-Path $PSScriptRoot 'installer\uninstall.ps1') -Destination (Join-Path $payloadRoot 'uninstall.ps1') -Force
 
 # --- 图标（PNG 压缩的 ICO 容器） ---
 $iconSource = Join-Path $root 'frontend\public\brand-mark.png'
@@ -130,19 +149,19 @@ Copy-Item -Path (Join-Path $electronRoot 'CareerPilot-win32-x64\*') -Destination
 Copy-Item -LiteralPath $iconPath -Destination (Join-Path $payloadRoot 'brand-mark.ico') -Force
 Copy-Item -LiteralPath $iconSource -Destination (Join-Path $payloadRoot 'brand-mark.png') -Force
 
-# --- 打包产物：绿色版 zip + 自解压安装器 ---
+# --- 打包产物：绿色版 zip + 标准 Setup.exe 安装器 ---
 if (Test-Path -LiteralPath $portableArtifact) { Remove-Item -LiteralPath $portableArtifact -Force }
 Compress-Archive -Path (Join-Path $payloadRoot '*') -DestinationPath $portableArtifact -CompressionLevel Fastest -Force
-Compress-Archive -Path (Join-Path $payloadRoot '*') -DestinationPath $payloadArchive -CompressionLevel Fastest -Force
 
 if (Test-Path -LiteralPath $artifact) { Remove-Item -LiteralPath $artifact -Force }
-Push-Location $root
-try {
-    & $python -m PyInstaller --noconfirm --clean --onefile --name CareerPilotSetup --icon $iconPath --distpath (Split-Path $artifact) --workpath (Join-Path $buildRoot 'setup-work') --specpath $buildRoot --add-data "$payloadArchive;." (Join-Path $PSScriptRoot 'installer\launcher.py')
-    if ($LASTEXITCODE -ne 0) { throw '安装器打包失败。' }
-} finally {
-    Pop-Location
-}
+$inno = @(
+    (Join-Path ${env:ProgramFiles(x86)} 'Inno Setup 6\ISCC.exe'),
+    (Join-Path $env:ProgramFiles 'Inno Setup 6\ISCC.exe')
+) | Where-Object { Test-Path -LiteralPath $_ } | Select-Object -First 1
+if (-not $inno) { throw '未找到 Inno Setup 6 的 ISCC.exe。' }
+$iss = Join-Path $PSScriptRoot 'installer\CareerPilot.iss'
+& $inno "/DAppVersion=0.1.0" "/DPayloadRoot=$payloadRoot" "/DOutputDir=$(Split-Path $artifact)" "/DIconPath=$iconPath" $iss
+if ($LASTEXITCODE -ne 0) { throw '标准安装器生成失败。' }
 if (-not (Test-Path -LiteralPath $artifact)) { throw '安装器生成失败。' }
 
 [pscustomobject]@{

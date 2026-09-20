@@ -5,7 +5,7 @@ $stateFile = Join-Path $dataRoot 'runtime.json'
 if (-not (Test-Path -LiteralPath $stateFile)) { exit 0 }
 
 $state = Get-Content -Raw -LiteralPath $stateFile | ConvertFrom-Json
-foreach ($pid in @($state.desktop_pid, $state.backend_pid, $state.worker_pid)) {
+foreach ($pid in @($state.desktop_pid, $state.backend_pid, $state.worker_pid, $state.queue_pid)) {
     if ($null -ne $pid) { Stop-Process -Id ([int]$pid) -Force -ErrorAction SilentlyContinue }
 }
 

@@ -41,6 +41,16 @@ corepack pnpm install
 
 根目录 `start.bat` 是推荐的联调入口。手动运行时，需要分别启动 API、Celery worker 和 Vite，并确认 PostgreSQL、Redis 已监听；端口和配置细节见 [`operations.md`](operations.md)。
 
+## 桌面包构建
+
+构建机需要项目后端虚拟环境、PostgreSQL 18 和 Inno Setup 6。运行：
+
+```powershell
+.\packaging\build.ps1
+```
+
+脚本会下载固定版本的 Garnet 和 .NET Runtime 并内置到桌面包，输出 `dist\CareerPilotSetup.exe` 和 `dist\CareerPilot-portable.zip`。终端用户不需要安装这些构建依赖。
+
 ## 配置
 
 `.env.example` 是运行配置的来源，当前包括：

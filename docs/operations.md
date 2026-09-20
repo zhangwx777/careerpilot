@@ -4,10 +4,10 @@
 
 ## Windows 桌面包
 
-- `CareerPilot-portable.zip`：解压到有写入权限的目录后运行 `CareerPilot.exe`。
-- `CareerPilotSetup.exe`：免管理员安装到当前用户目录，并创建快捷方式。
+- `CareerPilotSetup.exe`：标准向导式安装器，免管理员安装到当前用户目录，创建桌面/开始菜单快捷方式并提供卸载入口。
+- `CareerPilot-portable.zip`：绿色版，解压到有写入权限的目录后运行 `CareerPilot.exe`。
 
-桌面包包含前端、后端、数据库运行时和 Electron 启动器；用户不需要另装 Python、Node.js、pnpm 或 PostgreSQL。桌面启动器仍会使用本机 `127.0.0.1:6379` 的 Redis，并启动 CareerPilot worker。
+桌面包包含前端、后端、PostgreSQL、Garnet 任务队列、.NET Runtime 和 Electron 启动器；用户不需要另装 Python、Node.js、pnpm、PostgreSQL、Redis 或 .NET。桌面启动器会自动选择本机回环地址上的可用端口并管理 PostgreSQL、Garnet、API 和 worker 的生命周期。
 
 ## 源码部署
 

@@ -19,7 +19,9 @@ CareerPilot 不自动投递，也不代替用户做求职决策；它优先使�
 
 ### Windows 桌面包
 
-普通使用者优先从 [Releases 页面](https://github.com/zhangwx777/careerpilot/releases/latest) 下载 `CareerPilot-portable.zip`：解压后双击 `CareerPilot.exe`。也可以运行 `CareerPilotSetup.exe` 安装到当前用户目录。桌面包内置前端、后端、数据库运行时和启动器；使用前仍需在本机启动 Redis（`127.0.0.1:6379`）。首次进入后，在“模型设置”页填写 API Key、Base URL 和默认模型。
+普通使用者从 [Releases 页面](https://github.com/zhangwx777/careerpilot/releases/latest) 下载 `CareerPilotSetup.exe`，按向导安装即可；安装器会创建桌面和开始菜单快捷方式，也可以在安装完成页直接启动。桌面包内置前端、后端、PostgreSQL、任务队列和所需运行时，不需要另外安装 Python、Node.js、pnpm、PostgreSQL、Redis 或 .NET。首次进入后，在“模型设置”页填写 API Key、Base URL 和默认模型。
+
+如果不想安装，可下载 `CareerPilot-portable.zip`，解压后双击 `CareerPilot.exe`。模型调用和公开检索仍需要网络以及用户自己的 API Key。
 
 桌面包数据保存在当前 Windows 用户目录。不要把用户数据目录或 `.env` 提交到 Git。
 
