@@ -25,51 +25,27 @@ CareerPilot 不自动投递，也不代替用户做求职决策；它优先使�
 
 桌面包数据保存在当前 Windows 用户目录。不要把用户数据目录或 `.env` 提交到 Git。
 
-### 从源码运行
+### Docker 开发/服务器环境
 
-开发机需要：
-
-- Windows、Git
-- Python 3.12
-- Node.js（含 Corepack）和 pnpm
-- PostgreSQL 18
-- Redis（默认 `127.0.0.1:6379`）
+开发和服务器运行统一由 Docker Compose 管理，不再要求宿主机安装 Python、Node.js、PostgreSQL 或 Redis：
 
 ```powershell
 git clone https://github.com/zhangwx777/careerpilot.git
 cd careerpilot
-
 Copy-Item .env.example .env
-# 编辑 .env，填写 PostgreSQL 连接和可选 ANYSEARCH_API_KEY
-
-cd backend
-py -3.12 -m venv .venv
-.\.venv\Scripts\python.exe -m pip install -e .
-
-cd ..\frontend
-corepack pnpm install
-```
-
-在项目根目录运行一键启动脚本：
-
-```powershell
-cd C:\careerpilot
+# 编辑 .env，填写可选的 ANYSEARCH_API_KEY
 .\start.bat
 ```
 
-脚本会检查 Redis、初始化数据库、启动 API、Celery worker 和 Vite，并在端口被占用时选择相邻可用端口。终端会打印实际访问地址；按 `Ctrl+C` 停止本次启动的服务。
-
-需要分别启动服务时，参见 [开发文档](docs/development.md)。部署、数据迁移和故障排查参见 [运维文档](docs/operations.md)。
+启动后访问 `http://127.0.0.1:5173`。Compose 会固定管理 frontend、backend、worker、PostgreSQL 和 Redis；按 `Ctrl+C` 停止前台服务，使用 `docker compose down` 关闭服务。完整说明见 [开发文档](docs/development.md) 和 [运维文档](docs/operations.md)。
 
 ## 验证
 
 ```powershell
-cd backend
-.\.venv\Scripts\python.exe -m pytest -p no:cacheprovider
+docker compose run --rm backend pytest -p no:cacheprovider
 
-cd ..\frontend
-corepack pnpm test
-corepack pnpm build
+docker compose run --rm frontend pnpm test
+docker compose run --rm frontend pnpm build
 ```
 
 连接 PostgreSQL 的集成测试需要设置独立的 `TEST_DATABASE_URL`；未设置时相关测试会跳过，跳过不代表通过。

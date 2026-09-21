@@ -72,7 +72,7 @@ if ($AppOnly) {
 
 # ===== 以下仅完整构建执行：运行时层 + Electron 壳 + 打包 =====
 
-# --- 运行时层：内置 Garnet + .NET Runtime，终端用户无需安装 Redis 或 .NET ---
+# --- 运行时层：桌面包自带固定任务队列运行时 + .NET Runtime，不依赖宿主机服务 ---
 Ensure-Download $garnetUrl $garnetArchive
 Ensure-Download $dotnetUrl $dotnetArchive
 $garnetExtract = Join-Path $buildRoot 'garnet-extract'

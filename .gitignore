@@ -24,3 +24,11 @@ dist/
 build/
 .pnpm-store/
 .codegraph/
+
+# 本地 agent skill 缓存
+.agents/
+.claude/
+skills-lock.json
+
+# 宣传物料
+promo/

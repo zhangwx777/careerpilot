@@ -1,0 +1,16 @@
+.git
+.venv
+node_modules
+frontend/node_modules
+frontend/dist
+build
+dist
+.pnpm-store
+__pycache__
+*.pyc
+.pytest_cache
+backend/.pytest_cache
+**/.pytest_cache
+.mypy_cache
+.env
+.llm_config_secret

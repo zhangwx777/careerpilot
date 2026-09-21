@@ -15,27 +15,28 @@ CareerPilot 是个人本地求职决策工作台，聚合投递、时间线、�
 
 ## 常用命令
 
-后端（在 `backend/` 下）：
+开发和服务器环境统一由 Docker Compose 管理，宿主机只需 Docker Desktop 和 `.env`。
+
+启动全栈（frontend、backend、worker、PostgreSQL、Redis）：
 
 ```powershell
-.\.venv\Scripts\python.exe -m pip install -e .
-.\.venv\Scripts\python.exe -m scripts.init_db
-.\.venv\Scripts\python.exe -m scripts.init_db --test
-.\.venv\Scripts\python.exe -m scripts.smoke_llm
-.\.venv\Scripts\python.exe -m uvicorn app.main:app --port 8000
-.\.venv\Scripts\python.exe -m pytest -p no:cacheprovider
+.\start.bat
 ```
 
-前端（在 `frontend/` 下）：
+`start.bat` 只执行 `docker compose up --build`。停止用 `docker compose down`（数据卷默认保留）。
+
+单独执行后端/前端命令：
 
 ```powershell
-corepack pnpm install
-corepack pnpm dev
-corepack pnpm test
-corepack pnpm build
+docker compose run --rm --workdir /workspace/backend backend python -m scripts.init_db
+docker compose run --rm --workdir /workspace/backend backend python -m scripts.init_db --test
+docker compose run --rm --workdir /workspace/backend backend python -m scripts.smoke_llm
+docker compose run --rm --workdir /workspace/backend backend pytest -p no:cacheprovider
+docker compose run --rm frontend pnpm test
+docker compose run --rm frontend pnpm build
 ```
 
-日常开发优先运行根目录的 `start.bat`；它会初始化数据库并同时启动 API、worker 和前端。
+桌面包由 `packaging/build.ps1` 构建，运行时不调用 `start.bat`。
 
 ## 测试硬约束
 

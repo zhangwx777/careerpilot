@@ -42,6 +42,8 @@ class InstallerContractTests(unittest.TestCase):
     def test_stop_script_stops_the_embedded_queue(self):
         script = Path(__file__).parents[1].joinpath("installed", "stop.ps1").read_text(encoding="utf-8")
         self.assertIn("$state.queue_pid", script)
+        self.assertIn("foreach ($processId in", script)
+        self.assertNotIn("foreach ($pid in", script)
 
     def test_build_pins_the_electron_runtime_version(self):
         script = Path(__file__).parents[1].joinpath("build.ps1").read_text(encoding="utf-8")

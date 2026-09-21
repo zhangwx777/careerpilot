@@ -1,0 +1,97 @@
+services:
+  postgres:
+    image: postgres:18-alpine
+    environment:
+      POSTGRES_DB: qiuzhao
+      POSTGRES_USER: qiuzhao_app
+      POSTGRES_PASSWORD: qiuzhao_dev
+    ports:
+      - "5432:5432"
+    volumes:
+      - careerpilot-postgres:/var/lib/postgresql
+      - ./docker/postgres-init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U qiuzhao_app -d qiuzhao"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - careerpilot-redis:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: postgresql+psycopg://qiuzhao_app:qiuzhao_dev@postgres:5432/qiuzhao
+      TEST_DATABASE_URL: postgresql+psycopg://qiuzhao_app:qiuzhao_dev@postgres:5432/qiuzhao_test
+      CELERY_BROKER_URL: redis://redis:6379/0
+      CELERY_RESULT_BACKEND: redis://redis:6379/0
+      CAREERPILOT_APP_ROOT: /workspace
+      CAREERPILOT_BACKEND_HOST: 0.0.0.0
+      CAREERPILOT_BACKEND_PORT: 8000
+    command: ["python", "/workspace/backend/packaged_server.py"]
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./backend:/workspace/backend
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  worker:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: postgresql+psycopg://qiuzhao_app:qiuzhao_dev@postgres:5432/qiuzhao
+      TEST_DATABASE_URL: postgresql+psycopg://qiuzhao_app:qiuzhao_dev@postgres:5432/qiuzhao_test
+      CELERY_BROKER_URL: redis://redis:6379/0
+      CELERY_RESULT_BACKEND: redis://redis:6379/0
+      CAREERPILOT_APP_ROOT: /workspace
+    command: ["celery", "-A", "app.task_queue.celery_app", "worker", "--loglevel=INFO", "--pool=solo"]
+    working_dir: /workspace/backend
+    volumes:
+      - ./backend:/workspace/backend
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    environment:
+      VITE_API_TARGET: http://backend:8000
+    command: ["pnpm", "dev", "--host", "0.0.0.0", "--port", "5173", "--strictPort"]
+    ports:
+      - "5173:5173"
+    volumes:
+      - ./frontend:/workspace
+      - careerpilot-frontend-node-modules:/workspace/node_modules
+    depends_on:
+      backend:
+        condition: service_started
+
+volumes:
+  careerpilot-postgres:
+  careerpilot-redis:
+  careerpilot-frontend-node-modules:

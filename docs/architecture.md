@@ -4,17 +4,19 @@
 
 ## 系统边界
 
-CareerPilot 是 Windows 优先的本地单用户应用：React/Vite 前端通过 FastAPI 后端访问 PostgreSQL；Redis/Celery 执行耗时任务；LangGraph 管理需要恢复和人工确认的固定流程；LiteLLM 统一模型调用；Electron 和打包脚本提供桌面分发。
+CareerPilot 是本地单用户应用，分为两条明确的运行链路：Docker Compose 负责开发/服务器环境，Electron 安装包负责 Windows 桌面环境。两条链路共享应用代码和数据契约，但不共享启动脚本。React/Vite 前端通过 FastAPI 后端访问 PostgreSQL；Celery 执行耗时任务；LangGraph 管理需要恢复和人工确认的固定流程；LiteLLM 统一模型调用。
 
 ```text
-Browser / Electron
-        │ HTTP
-        ▼
-FastAPI ── SQLAlchemy ── PostgreSQL
-   │
-   ├── LiteLLM / provider layer ── configured model gateway
-   ├── LangGraph + Postgres checkpoint
-   └── Celery ── Redis ── worker
+Docker Compose（开发/服务器）
+  frontend ── HTTP ── backend ── SQLAlchemy ── postgres
+                           │
+                           ├── LiteLLM / provider layer
+                           ├── LangGraph + Postgres checkpoint
+                           └── worker ── Redis
+
+Electron 安装包（Windows 桌面）
+  Electron ── HTTP ── backend ── PostgreSQL（随包）
+                       └── worker ── 随包任务队列运行时
 ```
 
 AnySearch 是可选的公开面经检索适配器，不是模型本身的联网能力。
@@ -60,7 +62,15 @@ LangGraph 负责固定控制流、循环和人工中断；有界 Agent 负责动
 
 ## 后台任务与恢复
 
-API 负责创建会话/运行记录并提交 Celery；worker 执行长任务。Redis 不可用时应明确报告队列不可用，不静默降级。
+API 负责创建会话/运行记录并提交 Celery；worker 执行长任务。Docker 环境的 Redis 由 Compose 管理，桌面环境的任务队列运行时由安装包管理。两种环境都不允许静默降级或切换到未声明的服务。
+
+## 启动与发行边界
+
+- `start.bat` 只属于开发/服务器入口，唯一职责是执行 `docker compose up --build`。
+- `desktop/main.cjs` 只属于已安装桌面应用，负责启动随包 PostgreSQL、任务队列、API 和 worker。
+- Inno Setup 只负责安装桌面运行时和创建快捷方式，不调用开发启动脚本。
+- 桌面包不依赖宿主机的 Python、Node.js、pnpm、PostgreSQL、Redis 或 Docker。
+- Docker Compose 不参与桌面安装包运行，也不会被打进安装包。
 
 需要人工确认或进程重启恢复的图使用 PostgreSQL checkpoint 和业务 session 的 `thread_id`。持久化节点必须使用事务、必要的行锁和幂等检查，重复恢复不能重复写库。
 

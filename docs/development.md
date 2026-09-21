@@ -25,21 +25,17 @@
 - `frontend/src/`：页面、组件、API 客户端和前端类型。
 - `packaging/`、`desktop/`：桌面打包和安装器。
 
-## 安装与本地开发
+## Docker 开发环境
+
+开发机只需要 Git、Docker Desktop 和项目配置文件：
 
 ```powershell
 Copy-Item .env.example .env
-
-cd backend
-py -3.12 -m venv .venv
-.\.venv\Scripts\python.exe -m pip install -e .
-.\.venv\Scripts\python.exe -m scripts.init_db
-
-cd ..\frontend
-corepack pnpm install
+# 按需填写 ANYSEARCH_API_KEY
+.\start.bat
 ```
 
-根目录 `start.bat` 是推荐的联调入口。手动运行时，需要分别启动 API、Celery worker 和 Vite，并确认 PostgreSQL、Redis 已监听；端口和配置细节见 [`operations.md`](operations.md)。
+根目录 `start.bat` 只负责调用 Docker Compose；Compose 统一启动 frontend、backend、worker、PostgreSQL 和 Redis。源码目录挂载到容器内，前端支持热更新，后端代码修改后重新执行 `docker compose up --build`。停止服务使用 `docker compose down`，数据卷默认保留。脚本在启动 Compose 前后台轮询前端就绪，`http://127.0.0.1:5173` 可访问后自动打开浏览器。
 
 ## 桌面包构建
 
@@ -49,7 +45,7 @@ corepack pnpm install
 .\packaging\build.ps1
 ```
 
-脚本会下载固定版本的 Garnet 和 .NET Runtime 并内置到桌面包，输出 `dist\CareerPilotSetup.exe` 和 `dist\CareerPilot-portable.zip`。终端用户不需要安装这些构建依赖。
+脚本会下载固定版本的任务队列运行时和 .NET Runtime 并内置到桌面包，输出 `dist\CareerPilotSetup.exe` 和 `dist\CareerPilot-portable.zip`。这些运行时只属于桌面包，开发环境不使用它们；终端用户不需要安装 Python、Node.js、pnpm、PostgreSQL、Redis、Docker 或 .NET。
 
 ## 配置
 
@@ -65,13 +61,10 @@ corepack pnpm install
 ## 测试与构建
 
 ```powershell
-cd backend
-.\.venv\Scripts\python.exe -m scripts.init_db --test
-.\.venv\Scripts\python.exe -m pytest -p no:cacheprovider
-
-cd ..\frontend
-corepack pnpm test
-corepack pnpm build
+docker compose run --rm backend python -m scripts.init_db --test
+docker compose run --rm backend pytest -p no:cacheprovider
+docker compose run --rm frontend pnpm test
+docker compose run --rm frontend pnpm build
 ```
 
 没有 `TEST_DATABASE_URL` 时，依赖 PostgreSQL/LangGraph 的测试会跳过。跳过不等于通过；需要在独立测试库上运行并确认 0 skipped。默认测试应 mock LLM、MCP 和外网调用。

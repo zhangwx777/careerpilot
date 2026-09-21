@@ -38,20 +38,18 @@ function sleep(milliseconds) {
   return new Promise((resolve) => setTimeout(resolve, milliseconds));
 }
 
-function findFreePort(preferred) {
+function findFreePort() {
   return new Promise((resolve, reject) => {
-    let port = preferred;
-    const tryPort = () => {
-      const listener = net.createServer();
-      listener.once("error", () => {
-        listener.close();
-        port += 1;
-        if (port >= preferred + 100) reject(new Error("没有找到可用端口。"));
-        else tryPort();
-      });
-      listener.listen(port, "127.0.0.1", () => listener.close(() => resolve(port)));
-    };
-    tryPort();
+    const listener = net.createServer();
+    listener.once("error", reject);
+    listener.listen(0, "127.0.0.1", () => {
+      const address = listener.address();
+      if (!address || typeof address === "string") {
+        listener.close(() => reject(new Error("无法读取系统分配的端口。")));
+        return;
+      }
+      listener.close(() => resolve(address.port));
+    });
   });
 }
 
@@ -153,6 +151,7 @@ function startQueue() {
     "--port", String(queuePort),
     "--memory", "256m",
     "--index", "16m",
+    "--lua",
   ], {
     cwd: queueData,
     env: { ...process.env, DOTNET_ROOT_X64: dotnetRoot, DOTNET_ROOT: dotnetRoot },

@@ -7,19 +7,26 @@
 - `CareerPilotSetup.exe`：标准向导式安装器，免管理员安装到当前用户目录，创建桌面/开始菜单快捷方式并提供卸载入口。
 - `CareerPilot-portable.zip`：绿色版，解压到有写入权限的目录后运行 `CareerPilot.exe`。
 
-桌面包包含前端、后端、PostgreSQL、Garnet 任务队列、.NET Runtime 和 Electron 启动器；用户不需要另装 Python、Node.js、pnpm、PostgreSQL、Redis 或 .NET。桌面启动器会自动选择本机回环地址上的可用端口并管理 PostgreSQL、Garnet、API 和 worker 的生命周期。
+桌面包包含前端、后端、PostgreSQL、随包任务队列运行时、.NET Runtime 和 Electron 启动器；用户不需要另装 Python、Node.js、pnpm、PostgreSQL、Redis、Docker 或 .NET。桌面启动器只管理安装包自己的 PostgreSQL、任务队列、API 和 worker，不读取开发机服务，也不调用 `start.bat`。
 
-## 源码部署
+## Docker 源码部署
 
-源码运行需要 Python 3.12、Node.js/Corepack、PostgreSQL 18 和 Redis。复制 `.env.example` 为 `.env`，填写 `DATABASE_URL`，然后安装后端和前端依赖。根目录 `start.bat` 会：
+开发和服务器部署需要 Docker Desktop 或 Docker Engine。复制 `.env.example` 为 `.env` 后运行：
 
-1. 检查 Redis；
-2. 初始化数据库；
-3. 选择可用后端和前端端口；
-4. 启动 API、Celery worker 和 Vite；
-5. 打印实际 URL 并尝试打开浏览器。
+```powershell
+Copy-Item .env.example .env
+docker compose up --build
+```
 
-端口被占用时脚本会顺延，不要手动结束同端口上的其他应用。按 `Ctrl+C` 停止本次启动的服务。
+Compose 固定提供以下服务：
+
+1. `postgres`：持久化业务数据库；
+2. `redis`：Celery broker 和 result backend；
+3. `backend`：FastAPI API；
+4. `worker`：Celery worker；
+5. `frontend`：Vite 开发服务器。
+
+前端地址为 `http://127.0.0.1:5173`，API 地址为 `http://127.0.0.1:8000`。使用 `docker compose down` 停止容器；不带 `-v` 时保留 PostgreSQL 和 Redis 数据卷。
 
 ## 健康检查与队列
 
@@ -54,9 +61,9 @@ pg_restore --host 127.0.0.1 --port 5432 --username qiuzhao_app --dbname qiuzhao 
 ## 常见故障
 
 - **PostgreSQL 连接失败**：检查服务、数据库名、账号和 `.env`；先运行 `python -m scripts.init_db`。
-- **Redis 不可用**：确认 `127.0.0.1:6379` 监听，并重新启动 worker；`start.bat` 会直接提示而不会静默降级。
-- **前端依赖不完整**：关闭占用 `frontend/node_modules` 的 Node 进程后运行 `corepack pnpm install --force`。
-- **端口冲突**：使用脚本打印的实际端口；手动 Vite 端口变化时同步 `VITE_API_TARGET`。
+- **Redis 不可用**：执行 `docker compose ps` 和 `docker compose logs redis worker`；不要在宿主机另起一套 Redis。
+- **容器构建失败**：执行 `docker compose build --no-cache`，确认 Docker Desktop 有足够磁盘空间。
+- **端口冲突**：释放宿主机的 5173、8000、5432 或 6379 后重新启动；Compose 不再顺延端口。
 - **模型目录或 Agent 能力验证失败**：检查 Base URL 是否为 API 根路径；普通文本/JSON 模型可用于固定 Workflow，但未验证工具能力的模型不能用于岗位问答 Agent。
 - **集成测试被跳过**：设置独立 `TEST_DATABASE_URL` 并初始化测试库；skip 不算通过。
 

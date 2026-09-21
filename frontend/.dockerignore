@@ -1,0 +1,8 @@
+node_modules
+dist
+.vite
+.pnpm-store
+*.log
+.pytest_cache
+__pycache__
+
