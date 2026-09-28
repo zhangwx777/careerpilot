@@ -338,12 +338,135 @@ def resolve_provider(db: Session | None, requested: str | None = None) -> str:
     raise LlmConfigError("暂无可用分析模型，请先在设置页完成配置")
 
 
+ROLE_FIELDS = {
+    "interview": "interview_provider",
+    "planner": "planner_provider",
+    "briefing": "briefing_provider",
+    "vision": "vision_provider",
+}
+
+DEFAULT_SEARCH_TOOL = "search"
+
+
+def resolve_role_provider(db: Session | None, role: str, requested: str | None = None) -> str:
+    if role not in ROLE_FIELDS:
+        raise LlmConfigError("未知模型业务角色")
+    if requested:
+        return resolve_provider(db, requested)
+    settings_row = db.get(LlmSettings, 1) if db is not None else None
+    configured = getattr(settings_row, ROLE_FIELDS[role], None) if settings_row else None
+    return resolve_provider(db, configured) if configured else resolve_provider(db)
+
+
+def save_role_providers(db: Session, roles: dict[str, str | None]) -> dict[str, str | None]:
+    row = db.get(LlmSettings, 1)
+    if row is None:
+        row = LlmSettings(id=1)
+        db.add(row)
+    saved: dict[str, str | None] = {}
+    for role, field in ROLE_FIELDS.items():
+        provider = roles.get(role)
+        if provider:
+            provider = validate_provider(provider)
+            get_effective_config(db, provider)
+        setattr(row, field, provider)
+        saved[role] = provider
+    db.commit()
+    return saved
+
+
+def get_role_status(db: Session) -> dict[str, dict]:
+    row = db.get(LlmSettings, 1)
+    result = {}
+    for role, field in ROLE_FIELDS.items():
+        assigned = getattr(row, field, None) if row else None
+        try:
+            effective = resolve_role_provider(db, role)
+            config = get_effective_config(db, effective)
+            result[role] = {
+                "provider": assigned,
+                "effective_provider": effective,
+                "effective_model": config["model"],
+                "uses_default": not bool(assigned),
+            }
+        except LlmConfigError:
+            result[role] = {
+                "provider": assigned,
+                "effective_provider": None,
+                "effective_model": None,
+                "uses_default": not bool(assigned),
+            }
+    return result
+
+
 def mask_key(api_key: str | None) -> str | None:
     if not api_key:
         return None
     if len(api_key) <= 8:
         return "••••••••"
     return f"{api_key[:4]}{'•' * 8}{api_key[-4:]}"
+
+
+def get_search_api_key(db: Session | None) -> str | None:
+    config = get_search_config(db)
+    return config["api_key"] if config["endpoint"] else None
+
+
+def get_search_config(db: Session | None) -> dict[str, str | None]:
+    if db is None:
+        return {"api_key": None, "endpoint": None, "tool_name": DEFAULT_SEARCH_TOOL}
+    row = db.get(LlmSettings, 1)
+    if row is None or not row.encrypted_search_api_key:
+        return {"api_key": None, "endpoint": row.search_endpoint if row else None, "tool_name": row.search_tool_name if row and row.search_tool_name else DEFAULT_SEARCH_TOOL}
+    return {
+        "api_key": decrypt_text(row.encrypted_search_api_key),
+        "endpoint": row.search_endpoint,
+        "tool_name": row.search_tool_name or DEFAULT_SEARCH_TOOL,
+    }
+
+
+def search_status(db: Session) -> dict:
+    row = db.get(LlmSettings, 1)
+    encrypted = row.encrypted_search_api_key if row else None
+    try:
+        api_key = decrypt_text(encrypted) if encrypted else None
+        error = None
+    except LlmConfigError:
+        api_key = None
+        error = "已保存的公开检索 Key 无法解密，请重新填写"
+    return {
+        "configured": bool(api_key and row and row.search_endpoint),
+        "api_key_masked": mask_key(api_key),
+        "endpoint": row.search_endpoint if row else None,
+        "tool_name": row.search_tool_name or DEFAULT_SEARCH_TOOL if row else DEFAULT_SEARCH_TOOL,
+        "validation_message": error,
+    }
+
+
+def save_search_api_key(db: Session, api_key: str | None) -> dict:
+    return save_search_config(db, api_key=api_key, endpoint=None, tool_name=None)
+
+
+def save_search_config(
+    db: Session,
+    *,
+    api_key: str | None,
+    endpoint: str | None,
+    tool_name: str | None,
+) -> dict:
+    value = api_key.strip() if api_key else ""
+    row = db.get(LlmSettings, 1)
+    if row is None:
+        row = LlmSettings(id=1)
+        db.add(row)
+    row.encrypted_search_api_key = encrypt_text(value) if value else None
+    if endpoint is not None:
+        row.search_endpoint = endpoint.strip() or None
+    if tool_name is not None:
+        row.search_tool_name = tool_name.strip() or DEFAULT_SEARCH_TOOL
+    db.commit()
+    db.refresh(row)
+    return search_status(db)
 
 
 def list_provider_status(db: Session) -> list[dict]:

@@ -100,6 +100,13 @@ class LlmSettings(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, default=1)
     default_provider: Mapped[str | None] = mapped_column(String(50))
+    encrypted_search_api_key: Mapped[str | None] = mapped_column(Text)
+    search_endpoint: Mapped[str | None] = mapped_column(Text)
+    search_tool_name: Mapped[str | None] = mapped_column(String(100))
+    interview_provider: Mapped[str | None] = mapped_column(String(50))
+    planner_provider: Mapped[str | None] = mapped_column(String(50))
+    briefing_provider: Mapped[str | None] = mapped_column(String(50))
+    vision_provider: Mapped[str | None] = mapped_column(String(50))
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=_now, onupdate=_now
     )
@@ -383,14 +390,19 @@ class PreparationTask(Base):
     title: Mapped[str] = mapped_column(String(200), nullable=False)
     detail: Mapped[str | None] = mapped_column(Text)
     gap: Mapped[str | None] = mapped_column(String(200))
+    category: Mapped[str] = mapped_column(String(30), nullable=False, default="八股")
     source_ids: Mapped[list] = mapped_column(PortableJSON, default=list)
     evidence: Mapped[list] = mapped_column(PortableJSON, default=list)
     scheduled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     ends_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
-    estimated_minutes: Mapped[int] = mapped_column(Integer, nullable=False, default=30)
+    estimated_minutes: Mapped[int | None] = mapped_column(Integer)
     priority: Mapped[int] = mapped_column(Integer, nullable=False, default=3)
     action_index: Mapped[int | None] = mapped_column(Integer)
     deferred_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    planned_date: Mapped[date | None] = mapped_column(Date)
+    answer_payload: Mapped[dict | None] = mapped_column(PortableJSON)
+    user_answer: Mapped[str | None] = mapped_column(Text)
+    feedback_payload: Mapped[dict | None] = mapped_column(PortableJSON)
     status: Mapped[str] = mapped_column(
         Enum(*PREPARATION_TASK_STATUS, name="preparation_task_status"),
         nullable=False,

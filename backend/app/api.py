@@ -11,9 +11,13 @@ from app.application_records import materialize_position
 from app.llm.config_store import (
     LlmConfigError,
     get_effective_config,
+    get_role_status,
+    save_search_config,
+    search_status,
     list_available_models,
     list_provider_status,
     resolve_provider,
+    save_role_providers,
     save_provider,
     set_default_provider,
     touch_validation,
@@ -29,8 +33,12 @@ from app.llm_schemas import (
     ProviderTestWrite,
     ProviderTestRead,
     ProviderModelsRead,
+    SearchConfigRead,
+    SearchConfigWrite,
+    LlmRolesRead,
+    LlmRolesWrite,
 )
-from app.models import APPLICATION_STATUS, Application, Company, Position
+from app.models import Application, Company, Position
 from app.schemas import (
     ApplicationCreate,
     ApplicationPage,
@@ -52,13 +60,6 @@ router = APIRouter(prefix="/api")
 DbSession = Annotated[Session, Depends(get_db)]
 Page = Annotated[int, Query(ge=1)]
 PageSize = Annotated[int, Query(ge=1, le=100)]
-STATUS_ORDER = {
-    application_status: index
-    for index, application_status in enumerate(APPLICATION_STATUS)
-    if application_status != "挂"
-}
-
-
 @router.get("/providers", response_model=list[ProviderRead])
 @router.get("/llm/providers", response_model=list[ProviderRead], include_in_schema=False)
 def list_providers(db: DbSession):
@@ -99,8 +100,12 @@ def delete_provider(provider: str, db: DbSession):
     if row is not None:
         db.delete(row)
         settings_row = db.get(LlmSettings, 1)
-        if settings_row and settings_row.default_provider == provider:
-            settings_row.default_provider = None
+        if settings_row:
+            if settings_row.default_provider == provider:
+                settings_row.default_provider = None
+            for field in ("interview_provider", "planner_provider", "briefing_provider", "vision_provider"):
+                if getattr(settings_row, field, None) == provider:
+                    setattr(settings_row, field, None)
         db.commit()
     try:
         return list_provider_status(db)
@@ -245,6 +250,35 @@ def update_default_provider(payload: DefaultProviderUpdate, db: DbSession):
         return list_provider_status(db)
     except LlmConfigError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from None
+
+
+@router.get("/llm/roles", response_model=LlmRolesRead)
+def get_llm_roles(db: DbSession):
+    return {"roles": get_role_status(db), "providers": list_provider_status(db)}
+
+
+@router.put("/llm/roles", response_model=LlmRolesRead)
+def update_llm_roles(payload: LlmRolesWrite, db: DbSession):
+    try:
+        save_role_providers(db, payload.model_dump())
+        return {"roles": get_role_status(db), "providers": list_provider_status(db)}
+    except LlmConfigError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from None
+
+
+@router.get("/llm/search", response_model=SearchConfigRead)
+def get_search_config(db: DbSession):
+    return search_status(db)
+
+
+@router.put("/llm/search", response_model=SearchConfigRead)
+def update_search_config(payload: SearchConfigWrite, db: DbSession):
+    return save_search_config(db, api_key=payload.api_key, endpoint=payload.endpoint, tool_name=payload.tool_name)
+
+
+@router.delete("/llm/search", response_model=SearchConfigRead)
+def delete_search_config(db: DbSession):
+    return save_search_config(db, api_key=None, endpoint=None, tool_name=None)
 
 
 def _get_company(db: Session, company_id: int) -> Company:
@@ -526,10 +560,6 @@ def transition_application_status(
 
     if current_status == next_status:
         return application
-    if current_status in {"offer", "挂"}:
-        raise HTTPException(status_code=409, detail="已结束的投递不能继续流转")
-    if next_status != "挂" and STATUS_ORDER[next_status] <= STATUS_ORDER[current_status]:
-        raise HTTPException(status_code=409, detail="投递状态只能向后续阶段流转")
 
     application.status = next_status
     db.commit()

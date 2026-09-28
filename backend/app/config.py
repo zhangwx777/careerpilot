@@ -27,8 +27,6 @@ class Settings(BaseSettings):
 
     database_url: str
     test_database_url: str | None = None
-    anysearch_api_key: str = ""
-
     llm_timeout_seconds: int = 45
     llm_retries: int = 0
     celery_broker_url: str = "redis://127.0.0.1:6379/0"

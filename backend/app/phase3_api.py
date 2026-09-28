@@ -25,8 +25,7 @@ from app.parse_graph import ParseGraphStateError, resume_parse_graph, start_pars
 from app.parsing import NoticeParseError
 from app.schemas import ApplicationRead
 from app.phase3_schemas import (
-    DashboardActionRead,
-    DashboardActionsRead,
+    DashboardFeedItem,
     DashboardRead,
     ParseConfirmation,
     NoticeApplicationCreate,
@@ -462,7 +461,6 @@ def get_dashboard(db: DbSession):
     conflicts = conflict_map(nodes, _conflict_candidates(db, nodes))
     now = datetime.now(timezone.utc)
     reads = [_timeline_read(node, conflicts, now) for node in nodes]
-    attention = [read for read in reads if read.alert_types]
     visible_tasks = list(
         db.scalars(
             select(PreparationTask)
@@ -473,8 +471,7 @@ def get_dashboard(db: DbSession):
             )
             .where(
                 PreparationTask.status == "待处理",
-                (PreparationTask.deferred_until.is_(None))
-                | (PreparationTask.deferred_until <= now),
+                PreparationTask.deferred_until.is_(None),
             )
             .order_by(
                 PreparationTask.priority.asc(),
@@ -484,32 +481,47 @@ def get_dashboard(db: DbSession):
             )
         ).all()
     )
-    today_actions = DashboardActionsRead(
-        items=[
-            DashboardActionRead(
-                task_id=task.id,
-                planner_session_id=task.planner_session_id,
-                application_id=task.application_id,
-                company_name=task.application.position.company.name,
-                position_title=task.application.position.title,
-                title=task.title,
-                detail=task.detail,
-                priority=task.priority,
-                status=task.status,
-                estimated_minutes=task.estimated_minutes,
-                scheduled_at=task.scheduled_at,
-                deferred_until=task.deferred_until,
-                source_ids=task.source_ids or [],
-            )
-            for task in visible_tasks[:5]
-        ],
-        total=len(visible_tasks),
-        pending_count=len(visible_tasks),
-    )
+    preparation_feed = [
+        DashboardFeedItem(
+            kind="preparation",
+            id=task.id,
+            task_id=task.id,
+            planner_session_id=task.planner_session_id,
+            title=task.title,
+            detail=task.detail,
+            company_name=task.application.position.company.name,
+            position_title=task.application.position.title,
+            category=task.category,
+            priority=min(max(task.priority, 1), 3),
+            status=task.status,
+        )
+        for task in visible_tasks
+    ]
+    timeline_feed = [
+        DashboardFeedItem(
+            kind="timeline",
+            id=read.id,
+            timeline_node_id=read.id,
+            title=read.title or read.node_type,
+            company_name=read.application.position.company.name,
+            position_title=read.application.position.title,
+            node_type=read.node_type,
+            status=read.status,
+            scheduled_at=read.scheduled_at,
+            alert_types=read.alert_types,
+        )
+        for read in sorted(
+            reads,
+            key=lambda item: (
+                0 if "逾期" in item.alert_types else 1,
+                item.scheduled_at or datetime.max.replace(tzinfo=timezone.utc),
+                item.id,
+            ),
+        )
+    ]
     return DashboardRead(
         pipeline=pipeline,
-        attention=attention,
-        today_actions=today_actions,
+        feed=preparation_feed + timeline_feed,
     )
 
 

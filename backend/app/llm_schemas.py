@@ -1,5 +1,6 @@
 from datetime import datetime
 from typing import Literal
+from urllib.parse import urlsplit
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
@@ -72,3 +73,45 @@ class ProviderRead(BaseModel):
 
 class DefaultProviderUpdate(BaseModel):
     provider: str | None = None
+
+
+class LlmRolesWrite(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    interview: str | None = None
+    planner: str | None = None
+    briefing: str | None = None
+    vision: str | None = None
+
+
+class LlmRolesRead(BaseModel):
+    roles: dict[str, dict]
+    providers: list[ProviderRead]
+
+
+class SearchConfigWrite(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    api_key: str | None = Field(default=None, max_length=500)
+    endpoint: str | None = Field(default=None, max_length=1000)
+    tool_name: str | None = Field(default=None, max_length=100)
+
+    @field_validator("api_key", "endpoint", "tool_name")
+    @classmethod
+    def trim_api_key(cls, value):
+        return value.strip() if isinstance(value, str) else value
+
+    @field_validator("endpoint")
+    @classmethod
+    def validate_endpoint(cls, value):
+        if value and urlsplit(value).scheme not in {"http", "https"}:
+            raise ValueError("联网工具地址必须使用 http 或 https")
+        return value
+
+
+class SearchConfigRead(BaseModel):
+    configured: bool
+    api_key_masked: str | None
+    endpoint: str | None
+    tool_name: str
+    validation_message: str | None = None

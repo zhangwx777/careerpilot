@@ -108,6 +108,8 @@ def initialize_database(database_url: str) -> None:
                     "ADD COLUMN IF NOT EXISTS image_texts JSONB NOT NULL DEFAULT '[]'::jsonb"
                 )
             )
+            for field in ("interview_provider", "planner_provider", "briefing_provider", "vision_provider"):
+                connection.execute(text(f"ALTER TABLE llm_settings ADD COLUMN IF NOT EXISTS {field} VARCHAR(50)"))
             connection.execute(
                 text(
                     "ALTER TABLE interview_intel "
@@ -205,6 +207,13 @@ def initialize_database(database_url: str) -> None:
             connection.execute(text("CREATE INDEX IF NOT EXISTS ix_agent_run_queue_task_id ON agent_run (queue_task_id)"))
             connection.execute(text("CREATE INDEX IF NOT EXISTS ix_agent_run_heartbeat_at ON agent_run (heartbeat_at)"))
             connection.execute(text("ALTER TABLE preparation_task ADD COLUMN IF NOT EXISTS evidence JSONB NOT NULL DEFAULT '[]'::jsonb"))
+            connection.execute(text("ALTER TABLE preparation_task ADD COLUMN IF NOT EXISTS category VARCHAR(30) NOT NULL DEFAULT '八股'"))
+            connection.execute(text("UPDATE preparation_task SET category = CASE WHEN category IN ('简历提问', '简历内容') THEN '简历内容' ELSE '八股' END"))
+            connection.execute(text("ALTER TABLE preparation_task ADD COLUMN IF NOT EXISTS planned_date DATE"))
+            connection.execute(text("ALTER TABLE preparation_task ADD COLUMN IF NOT EXISTS answer_payload JSONB"))
+            connection.execute(text("ALTER TABLE preparation_task ADD COLUMN IF NOT EXISTS user_answer TEXT"))
+            connection.execute(text("ALTER TABLE preparation_task ADD COLUMN IF NOT EXISTS feedback_payload JSONB"))
+            connection.execute(text("ALTER TABLE preparation_task ALTER COLUMN estimated_minutes DROP NOT NULL"))
             connection.execute(text("ALTER TABLE llm_provider_config ADD COLUMN IF NOT EXISTS supports_tools BOOLEAN"))
             connection.execute(text("ALTER TABLE llm_provider_config ADD COLUMN IF NOT EXISTS supports_json BOOLEAN"))
             connection.execute(text("ALTER TABLE llm_provider_config ADD COLUMN IF NOT EXISTS supports_streaming BOOLEAN"))
@@ -212,6 +221,9 @@ def initialize_database(database_url: str) -> None:
             connection.execute(text("ALTER TABLE llm_provider_config ADD COLUMN IF NOT EXISTS capability_checked_at TIMESTAMPTZ"))
             connection.execute(text("ALTER TABLE intel_session ADD COLUMN IF NOT EXISTS queue_task_id VARCHAR(200)"))
             connection.execute(text("ALTER TABLE intel_session ADD COLUMN IF NOT EXISTS supplement_web BOOLEAN NOT NULL DEFAULT FALSE"))
+            connection.execute(text("ALTER TABLE llm_settings ADD COLUMN IF NOT EXISTS encrypted_search_api_key TEXT"))
+            connection.execute(text("ALTER TABLE llm_settings ADD COLUMN IF NOT EXISTS search_endpoint TEXT"))
+            connection.execute(text("ALTER TABLE llm_settings ADD COLUMN IF NOT EXISTS search_tool_name VARCHAR(100)"))
             connection.execute(text("ALTER TABLE planner_session ADD COLUMN IF NOT EXISTS queue_task_id VARCHAR(200)"))
             connection.execute(text("CREATE INDEX IF NOT EXISTS ix_intel_session_queue_task_id ON intel_session (queue_task_id)"))
             connection.execute(text("CREATE INDEX IF NOT EXISTS ix_planner_session_queue_task_id ON planner_session (queue_task_id)"))
