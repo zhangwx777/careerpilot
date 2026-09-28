@@ -25,7 +25,9 @@ from app.llm.config_store import (
     LlmConfigError,
     config_from_snapshot,
     get_effective_config,
+    get_search_api_key,
     resolve_provider,
+    resolve_role_provider,
     snapshot_for,
 )
 from app.llm.prompts import CHAT_PROMPT_VERSION, CHAT_SYSTEM_PROMPT, IMAGE_EXTRACTION_PROMPT, INTEL_PROMPT_VERSION
@@ -66,7 +68,6 @@ class IntelCreate(BaseModel):
     round_type: IntelRoundType = "未注明"
     user_paste: str | None = Field(default=None, max_length=20000)
     image_texts: list[IntelImageText] = Field(default_factory=list, max_length=6)
-    supplement_web: bool = False
 
 
 class IntelImage(BaseModel):
@@ -263,13 +264,14 @@ def create_intel(
     payload: IntelCreate, background_tasks: BackgroundTasks, db: DbSession
 ):
     has_manual_content = bool((payload.user_paste or "").strip()) or any(item.text.strip() for item in payload.image_texts)
-    if not payload.supplement_web and not has_manual_content:
-        raise HTTPException(422, "关闭联网补充时必须提供手动面经内容")
+    search_enabled = bool(get_search_api_key(db))
+    if not search_enabled and not has_manual_content:
+        raise HTTPException(422, "请粘贴面经或识别截图，或先在模型设置中配置公开检索 Key")
     application = db.scalar(select(Application).options(joinedload(Application.position).joinedload(Position.company)).where(Application.id == payload.application_id))
     if application is None:
         raise HTTPException(404, "投递记录不存在")
     try:
-        provider = resolve_provider(db, payload.provider)
+        provider = resolve_provider(db, payload.provider) if payload.provider else resolve_role_provider(db, "interview")
         llm_snapshot = snapshot_for(db, provider)
     except LlmConfigError as exc:
         raise HTTPException(503, str(exc)) from None
@@ -281,7 +283,7 @@ def create_intel(
         round_type=payload.round_type,
         user_paste=payload.user_paste,
         image_texts=[item.model_dump(mode="json") for item in payload.image_texts],
-        supplement_web=payload.supplement_web,
+        supplement_web=search_enabled,
         status="聚合中",
         progress_payload={"stage": "分析任务已创建", "sources": []},
     )
@@ -296,7 +298,7 @@ def create_intel(
                 item.provider,
                 query,
                 item.user_paste,
-                payload.supplement_web,
+                search_enabled,
                 item.round_type,
                 item.image_texts,
             )
@@ -311,7 +313,7 @@ def create_intel(
         db.commit()
     else:
         # Lightweight fakes used by unit tests do not expose a broker.
-        background_tasks.add_task(_run_intel_session, item.id, str(item.thread_id), item.provider, query, item.user_paste, payload.supplement_web, item.round_type, item.image_texts)
+        background_tasks.add_task(_run_intel_session, item.id, str(item.thread_id), item.provider, query, item.user_paste, search_enabled, item.round_type, item.image_texts)
     return _session_read(item)
 
 
@@ -408,7 +410,7 @@ def extract_intel_images(payload: IntelImageExtractCreate, db: Session | None = 
             provider = payload.provider
             llm_config = None
         else:
-            provider = resolve_provider(db, payload.provider)
+            provider = resolve_provider(db, payload.provider) if payload.provider else resolve_role_provider(db, "vision")
             llm_config = get_effective_config(db, provider)
     except LlmConfigError as exc:
         raise HTTPException(503, str(exc)) from None
@@ -489,7 +491,7 @@ def get_intel_dossier(application_id: PositiveId, db: DbSession):
 def rebuild_intel_dossier(payload: IntelRebuildCreate, db: DbSession):
     application = _application_with_position(db, payload.application_id)
     try:
-        provider = resolve_provider(db, payload.provider)
+        provider = resolve_provider(db, payload.provider) if payload.provider else resolve_role_provider(db, "interview")
         llm_config = get_effective_config(db, provider)
     except LlmConfigError as exc:
         raise HTTPException(503, str(exc)) from None
@@ -767,7 +769,7 @@ def list_intel_chat(application_id: PositiveId, db: DbSession):
 def create_intel_chat(payload: IntelChatCreate, background_tasks: BackgroundTasks, db: DbSession):
     application, _, _ = _chat_context(db, payload.application_id)
     try:
-        provider = resolve_provider(db, payload.provider)
+        provider = resolve_provider(db, payload.provider) if payload.provider else resolve_role_provider(db, "interview")
         capability_row = db.get(LlmProviderConfig, provider)
         if isinstance(db, Session) and (capability_row is None or capability_row.supports_tools is not True):
             raise HTTPException(409, "当前模型尚未通过工具调用能力测试，请先在模型设置中测试连接")

@@ -9,7 +9,8 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session, joinedload
 
 from app.agent_schemas import AgentSource, AgentToolResult
-from app.anysearch import AnySearchError, search
+from app.anysearch import PublicSearchError, search
+from app.llm.config_store import get_search_config
 from app.models import AgentRun, Application, IntelChatMessage, InterviewIntel, TimelineNode
 
 
@@ -304,8 +305,10 @@ def _read_chat_history(context: AgentToolContext, _arguments: dict[str, Any]) ->
 def _search_public_intel(context: AgentToolContext, arguments: dict[str, Any]) -> AgentToolResult:
     parsed = _PublicSearchArgs.model_validate(arguments)
     try:
-        results = search(parsed.query, timeout_seconds=30)
-    except AnySearchError as exc:
+        with context.session_factory() as db:
+            search_config = get_search_config(db)
+        results = search(parsed.query, **search_config, timeout_seconds=30)
+    except PublicSearchError as exc:
         error_text = str(exc)
         if "未配置" in error_text:
             error_kind = "search_not_configured"

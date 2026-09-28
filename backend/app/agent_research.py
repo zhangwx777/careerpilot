@@ -9,7 +9,7 @@ from typing import Any
 from pydantic import BaseModel, Field, ValidationError
 
 from app.agent_schemas import AgentSource, AgentToolResult
-from app.anysearch import AnySearchError, search
+from app.anysearch import PublicSearchError, search
 from app.llm.provider import LlmCallError, chat_with_tools
 
 
@@ -31,7 +31,7 @@ def research_public_sources(
     provider: str,
     config: dict,
     max_rounds: int = 3,
-    search_fn=search,
+    search_fn=None,
 ) -> ResearchResult:
     """Let the model choose up to three public-search queries.
 
@@ -41,6 +41,8 @@ def research_public_sources(
     """
 
     result = ResearchResult()
+    if search_fn is None:
+        search_fn = lambda query, timeout_seconds=30: search(query, api_key=None, endpoint=None, timeout_seconds=timeout_seconds)
     counter = 0
 
     def search_public(arguments: dict[str, Any]) -> AgentToolResult:
@@ -53,7 +55,7 @@ def research_public_sources(
         result.queries.append(parsed.query)
         try:
             items = search_fn(parsed.query, timeout_seconds=30)
-        except AnySearchError as exc:
+        except PublicSearchError as exc:
             result.error = "公开检索暂时失败"
             return AgentToolResult(ok=False, error=result.error, error_kind="search_failed")
         sources = []

@@ -15,13 +15,13 @@ from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session, sessionmaker
 
-from app.anysearch import AnySearchError, search
+from app.anysearch import PublicSearchError, search
 from app.agent_research import ResearchResult, research_public_sources
 from app.db import to_psycopg_connection_string
 from app.intel_parsing import extract_intel
 from app.intel_insight import rebuild_position_insight
 from app.intel_schemas import Fact, IntelExtraction, IntelPayload, IntelQuestion, InterviewRound, PreparationItem, SourceRecord
-from app.llm.config_store import config_from_snapshot
+from app.llm.config_store import config_from_snapshot, get_search_config
 from app.llm.prompts import CRITIC_PROMPT
 from app.llm.provider import chat
 from app.llm.structured import StructuredOutputError, complete_structured
@@ -244,6 +244,8 @@ def build_intel_graph(checkpointer: PostgresSaver, session_factory: Callable[[],
                 research = ResearchResult(sources=search(f"{state['query']} {suffix}"))
             else:
                 llm_config = _session_llm_config(state, session_factory)
+                with session_factory() as db:
+                    search_config = get_search_config(db)
                 research = research_public_sources(
                     session_id=state["intel_session_id"],
                     query=state["query"],
@@ -252,9 +254,9 @@ def build_intel_graph(checkpointer: PostgresSaver, session_factory: Callable[[],
                     # The graph owns the global three-attempt budget. One research
                     # turn per graph attempt keeps retries bounded and observable.
                     max_rounds=1,
-                    search_fn=search,
+                    search_fn=lambda query: search(query, **search_config),
                 )
-        except AnySearchError:
+        except PublicSearchError:
             logger.exception("面经公开检索失败：%s", state["query"])
             errors.append("公开面经搜索暂时失败")
             save_source_progress(state, "公开检索暂时失败，保留已有内容", state.get("sources", []), errors=errors)

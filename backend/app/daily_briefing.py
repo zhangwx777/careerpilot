@@ -6,7 +6,9 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, joinedload
 
-from app.anysearch import AnySearchError, search
+from app.anysearch import PublicSearchError, search
+from app.briefing_ai import analyze_briefing
+from app.llm.config_store import get_search_config
 from app.models import Application, DailyBriefing, Position, PreparationTask, ReportedSource, TimelineNode
 from app.timeline import alert_types, conflict_map
 
@@ -15,7 +17,20 @@ MAX_SEARCH_APPLICATIONS = 10
 logger = logging.getLogger(__name__)
 
 
-def run_daily_briefing(db: Session, now: datetime, search_fn=search) -> DailyBriefing:
+def retry_briefing_analysis(db: Session, briefing: DailyBriefing) -> DailyBriefing:
+    briefing.payload = {**briefing.payload, "analysis_status": "生成中"}
+    db.commit()
+    try:
+        briefing.payload = {**briefing.payload, **analyze_briefing(db, briefing.payload)}
+    except Exception:
+        logger.exception("每日简报 AI 分析失败")
+        briefing.payload = {**briefing.payload, "analysis_status": "失败"}
+    db.commit()
+    db.refresh(briefing)
+    return briefing
+
+
+def run_daily_briefing(db: Session, now: datetime, search_fn=None) -> DailyBriefing:
     local_now = now.astimezone(SHANGHAI)
     briefing_date = local_now.date()
     existing = db.scalar(select(DailyBriefing).where(DailyBriefing.briefing_date == briefing_date))
@@ -70,8 +85,12 @@ def run_daily_briefing(db: Session, now: datetime, search_fn=search) -> DailyBri
     known_urls = set(db.scalars(select(ReportedSource.url)).all())
     new_sources = []
     search_errors = []
+    search_config = get_search_config(db)
+    searcher = search_fn or (lambda query: search(query, **search_config))
     searched_position_ids = set()
     for application in applications:
+        if search_fn is None and not search_config["api_key"]:
+            break
         if application.position_id in searched_position_ids:
             continue
         if len(searched_position_ids) >= MAX_SEARCH_APPLICATIONS:
@@ -79,8 +98,8 @@ def run_daily_briefing(db: Session, now: datetime, search_fn=search) -> DailyBri
         searched_position_ids.add(application.position_id)
         query = f"{application.position.company.name} {application.position.title} 面经"
         try:
-            results = search_fn(query)
-        except AnySearchError:
+            results = searcher(query)
+        except PublicSearchError:
             logger.exception("每日简报搜索岗位 %s 失败", application.position_id)
             search_errors.append({"application_id": application.id, "message": "公开面经搜索暂时失败"})
             continue
@@ -94,11 +113,14 @@ def run_daily_briefing(db: Session, now: datetime, search_fn=search) -> DailyBri
                     "application_id": application.id,
                     "title": result.get("title") or url,
                     "url": url,
+                    "snippet": (result.get("text") or "")[:1600],
+                    "company_name": application.position.company.name,
+                    "position_title": application.position.title,
                 }
             )
     briefing = DailyBriefing(
         briefing_date=briefing_date,
-        payload={"alerts": alerts, "today_tasks": tasks, "new_sources": new_sources, "search_errors": search_errors},
+        payload={"alerts": alerts, "today_tasks": tasks, "new_sources": new_sources, "search_errors": search_errors, "analysis_status": "生成中"},
     )
     db.add(briefing)
     db.flush()
@@ -117,4 +139,12 @@ def run_daily_briefing(db: Session, now: datetime, search_fn=search) -> DailyBri
         db.rollback()
         return db.scalar(select(DailyBriefing).where(DailyBriefing.briefing_date == briefing_date))
     db.refresh(briefing)
+    try:
+        briefing.payload = {**briefing.payload, **analyze_briefing(db, briefing.payload)}
+        db.commit()
+        db.refresh(briefing)
+    except Exception:
+        logger.exception("每日简报 AI 分析失败")
+        briefing.payload = {**briefing.payload, "analysis_status": "失败"}
+        db.commit()
     return briefing

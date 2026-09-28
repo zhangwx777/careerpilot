@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 from app.models import TimelineNode
 
@@ -59,6 +59,10 @@ def alert_types(
     )
     if node.status != "待处理" or due_at is None:
         return alerts
+    if due_at.tzinfo is None:
+        due_at = due_at.replace(tzinfo=timezone.utc)
+    if now.tzinfo is None:
+        now = now.replace(tzinfo=timezone.utc)
     if due_at < now:
         alerts.append("逾期")
     elif due_at <= now + timedelta(hours=24):
