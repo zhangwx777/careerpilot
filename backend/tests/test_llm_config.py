@@ -18,9 +18,13 @@ from app.llm.config_store import (
     _model_endpoint_candidates,
     config_from_snapshot,
     get_effective_config,
+    get_search_api_key,
     list_provider_status,
     resolve_provider,
     save_provider,
+    save_search_config,
+    save_search_api_key,
+    search_status,
     set_default_provider,
     snapshot_for,
     touch_validation,
@@ -74,6 +78,47 @@ class LlmConfigTestCase(unittest.TestCase):
             get_effective_config(self.db, "deepseek"),
             {"api_key": "db-secret-key", "api_base": "https://example.test/v1", "model": "deepseek/deepseek-chat"},
         )
+
+    def test_saved_deepseek_config_survives_a_new_database_session(self):
+        save_provider(
+            self.db,
+            "deepseek",
+            api_key="persistent-key",
+            model="deepseek-chat",
+            base_url="https://api.deepseek.com",
+        )
+
+        fresh_session = Session(self.engine)
+        try:
+            self.assertEqual(
+                get_effective_config(fresh_session, "deepseek"),
+                {
+                    "api_key": "persistent-key",
+                    "api_base": "https://api.deepseek.com",
+                    "model": "deepseek-chat",
+                },
+            )
+            status = next(item for item in list_provider_status(fresh_session) if item["name"] == "deepseek")
+            self.assertTrue(status["configured"])
+        finally:
+            fresh_session.close()
+
+    def test_search_key_is_encrypted_masked_and_deletable(self):
+        status = save_search_config(
+            self.db,
+            api_key="search-secret-key",
+            endpoint="https://search.example.test/mcp",
+            tool_name="web_search",
+        )
+        self.assertTrue(status["configured"])
+        self.assertNotIn("search-secret-key", status["api_key_masked"])
+        self.assertEqual(get_search_api_key(self.db), "search-secret-key")
+        self.assertEqual(status["endpoint"], "https://search.example.test/mcp")
+        self.assertEqual(status["tool_name"], "web_search")
+        self.assertEqual(search_status(self.db)["api_key_masked"], status["api_key_masked"])
+        deleted = save_search_api_key(self.db, None)
+        self.assertFalse(deleted["configured"])
+        self.assertIsNone(get_search_api_key(self.db))
 
     def test_provider_list_stays_usable_when_stored_key_cannot_be_decrypted(self):
         save_provider(
@@ -192,6 +237,23 @@ class LlmConfigTestCase(unittest.TestCase):
     def test_web_configuration_is_implicit_default(self):
         save_provider(self.db, "deepseek", api_key="key", model="deepseek/chat", base_url=None)
         self.assertEqual(resolve_provider(self.db), "deepseek")
+
+    def test_role_mapping_round_trips_and_falls_back_to_default(self):
+        from app.llm.config_store import get_role_status, save_role_providers
+
+        save_provider(self.db, "deepseek", api_key="key", model="deepseek/chat", base_url=None)
+        save_provider(self.db, "anthropic", api_key="key", model="anthropic/claude", base_url=None)
+        set_default_provider(self.db, "deepseek")
+        saved = save_role_providers(self.db, {"interview": "anthropic", "planner": None, "briefing": None, "vision": None})
+        self.assertEqual(saved["interview"], "anthropic")
+        self.assertEqual(get_role_status(self.db)["interview"]["effective_provider"], "anthropic")
+        self.assertTrue(get_role_status(self.db)["planner"]["uses_default"])
+
+    def test_role_mapping_rejects_unconfigured_provider(self):
+        from app.llm.config_store import save_role_providers
+
+        with self.assertRaises(LlmConfigError):
+            save_role_providers(self.db, {"interview": "deepseek", "planner": None, "briefing": None, "vision": None})
 
     def test_base_url_rejects_credentials_and_non_http_schemes(self):
         with self.assertRaises(LlmConfigError):

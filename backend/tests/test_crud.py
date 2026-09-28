@@ -162,7 +162,7 @@ class CrudApiTestCase(unittest.TestCase):
         backward = self.client.patch(
             f"/api/applications/{application['id']}/status", json={"status": "二面"}
         )
-        self.assertEqual(backward.status_code, 409)
+        self.assertEqual(backward.status_code, 200)
 
         offered = self.client.patch(
             f"/api/applications/{application['id']}/status", json={"status": "offer"}
@@ -171,7 +171,12 @@ class CrudApiTestCase(unittest.TestCase):
         terminal = self.client.patch(
             f"/api/applications/{application['id']}/status", json={"status": "挂"}
         )
-        self.assertEqual(terminal.status_code, 409)
+        self.assertEqual(terminal.status_code, 200)
+
+        restored = self.client.patch(
+            f"/api/applications/{application['id']}/status", json={"status": "AI面"}
+        )
+        self.assertEqual(restored.status_code, 200)
 
         deleted = self.client.delete(f"/api/applications/{application['id']}")
         self.assertEqual(deleted.status_code, 204)
@@ -183,11 +188,12 @@ class CrudApiTestCase(unittest.TestCase):
         )
         application = self.create_application(status="三面")
 
-        # 台账的 /status 端点只能向后：退回应被拒绝
+        # 台账的 /status 端点允许按实际流程调整到任意阶段
         backward = self.client.patch(
             f"/api/applications/{application['id']}/status", json={"status": "一面"}
         )
-        self.assertEqual(backward.status_code, 409)
+        self.assertEqual(backward.status_code, 200)
+        self.assertEqual(backward.json()["status"], "一面")
 
         # 编辑接口允许把点错的阶段直接修正为更早的阶段
         corrected = self.client.patch(

@@ -100,3 +100,16 @@ class PlannerTestCase(unittest.TestCase):
             self.assertEqual(len(tasks), 1)
             self.assertIsNotNone(tasks[0].timeline_node_id)
             self.assertEqual(db.get(TimelineNode, tasks[0].timeline_node_id).title, "补数据库")
+
+    def test_completed_session_delete_cascades_draft_tasks(self):
+        session_id, _ = self._planner_session()
+        with self.sessions.begin() as db:
+            item = db.get(PlannerSession, session_id)
+            item.status = "已完成"
+            db.add(PreparationTask(application_id=self.application_id, planner_session_id=session_id, title="补数据库", detail="复习索引", priority=1, estimated_minutes=30, status="待处理"))
+        with self.sessions.begin() as db:
+            item = db.get(PlannerSession, session_id)
+            db.delete(item)
+        with self.sessions() as db:
+            self.assertIsNone(db.get(PlannerSession, session_id))
+            self.assertEqual(db.query(PreparationTask).filter(PreparationTask.planner_session_id == session_id).count(), 0)

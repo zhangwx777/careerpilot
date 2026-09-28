@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { clearDraft, loadDraft, loadSessionId, saveDraft, saveSessionId } from "./src/drafts.ts";
+import { clearDraft, clearTransientInputDrafts, loadDraft, loadSessionId, saveDraft, saveSessionId } from "./src/drafts.ts";
 
 class MemoryStorage {
   private values = new Map<string, string>();
@@ -48,4 +48,15 @@ test("restores only a valid active session id", () => {
   assert.equal(loadSessionId(storage, "intel-session"), 42);
   saveDraft(storage, "invalid-session", { id: 0 });
   assert.equal(loadSessionId(storage, "invalid-session"), null);
+});
+
+test("clears only paste drafts when the workspace starts", () => {
+  const storage = new MemoryStorage();
+  saveDraft(storage, "qiuzhao-agent:notice-raw", { rawText: "旧通知" });
+  saveDraft(storage, "qiuzhao-agent:intel-draft", { paste: "旧面经" });
+  saveDraft(storage, "qiuzhao-agent:planner-draft", { fileName: "resume.pdf" });
+  clearTransientInputDrafts(storage);
+  assert.equal(storage.getItem("qiuzhao-agent:notice-raw"), null);
+  assert.equal(storage.getItem("qiuzhao-agent:intel-draft"), null);
+  assert.notEqual(storage.getItem("qiuzhao-agent:planner-draft"), null);
 });
