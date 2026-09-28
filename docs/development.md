@@ -10,7 +10,7 @@
 | 前端 | React、Vite、TypeScript、Radix Themes |
 | 数据库 | PostgreSQL 18 |
 | 异步任务 | Celery + Redis |
-| LLM/流程 | LiteLLM、LangGraph、AnySearch（可选） |
+| LLM/流程 | LiteLLM、LangGraph、可配置联网工具（可选） |
 | 桌面 | Electron/Windows 打包脚本 |
 
 ## 目录职责
@@ -31,11 +31,10 @@
 
 ```powershell
 Copy-Item .env.example .env
-# 按需填写 ANYSEARCH_API_KEY
-.\start.bat
+docker compose up --build
 ```
 
-根目录 `start.bat` 只负责调用 Docker Compose；Compose 统一启动 frontend、backend、worker、PostgreSQL 和 Redis。源码目录挂载到容器内，前端支持热更新，后端代码修改后重新执行 `docker compose up --build`。停止服务使用 `docker compose down`，数据卷默认保留。脚本在启动 Compose 前后台轮询前端就绪，`http://127.0.0.1:5173` 可访问后自动打开浏览器。
+Compose 统一启动 frontend、backend、worker、PostgreSQL 和 Redis。需要更新镜像时执行 `docker compose up --build`，停止使用 `docker compose down`，数据卷默认保留。启动完成后访问 `http://127.0.0.1:5173`。backend 和 worker 共同挂载根目录 `.llm_config_secret`，确保数据库中的模型配置可以被后台任务解密。桌面版关闭窗口时会自动清理随包启动的 backend、worker、队列和 PostgreSQL；普通浏览器关闭不会停止开发服务，以避免误停其他标签页或用户正在使用的服务。
 
 ## 桌面包构建
 
@@ -53,7 +52,7 @@ Copy-Item .env.example .env
 
 - `DATABASE_URL`：开发数据库；
 - `TEST_DATABASE_URL`：独立测试数据库；
-- `ANYSEARCH_API_KEY`：可选公开检索；
+- 联网工具地址、工具名和 Key：通过“模型设置 → 公开检索”保存，不写入 `.env`；
 - `CELERY_BROKER_URL`、`CELERY_RESULT_BACKEND`、任务超时和重试参数。
 
 模型 Provider、API Key、Base URL 和默认模型只通过网页设置保存到数据库，不写入 `.env`。
@@ -76,6 +75,7 @@ docker compose run --rm frontend pnpm build
 - 长任务由 API 创建会话后提交 Celery；接口应返回可轮询的状态，而不是阻塞请求线程。
 - API 错误使用安全、稳定的错误信息；不返回密钥、原始 Provider 异常或内部堆栈。
 - 涉及人工确认的流程必须保持原 `thread_id` 恢复、互斥终态和幂等写入。
+- 投递状态接口允许按实际招聘流程在任意 `ApplicationStatus` 之间调整；“offer”和“挂”不再作为不可恢复的终态，前端阶段轨道只做流程参考，当前状态由推进控件负责展示。
 
 ## 数据模型变更
 
@@ -84,5 +84,7 @@ docker compose run --rm frontend pnpm build
 ## 前端开发
 
 页面位于 `frontend/src/pages/`，共享布局和组件位于 `components/`。异步轮询必须支持取消和过期响应保护；加载、错误、空状态、键盘焦点和窄屏布局需与功能一起验证。
+
+求职总览采用紧凑 Dashboard：顶部为半栏投递分布和关注指标，下方为统一的“接下来”时间流。学习行动与时间线节点使用不同标记，完整日程仍由求职地图负责；首页不展示学习行动的长文本详情。
 
 新增功能完成标准：受影响后端测试通过，前端 `pnpm test` 和 `pnpm build` 通过，运行时 OpenAPI 与 README/开发文档没有冲突。

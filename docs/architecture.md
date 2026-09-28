@@ -19,7 +19,7 @@ Electron 安装包（Windows 桌面）
                        └── worker ── 随包任务队列运行时
 ```
 
-AnySearch 是可选的公开面经检索适配器，不是模型本身的联网能力。
+公开检索是独立配置的联网工具适配器，不是模型本身的联网能力。
 
 ## 领域关系
 
@@ -37,7 +37,7 @@ AnySearch 是可选的公开面经检索适配器，不是模型本身的联网�
 
 ### 面经聚合
 
-用户文字或截图抽取 → 可选 AnySearch 补充 → 相关性过滤 → 汇聚 → critic 反思与有限重抽取 → 仍有冲突时人工裁决 → 写入材料 → 生成岗位级洞察。
+用户文字或截图抽取 → 可选联网工具补充 → 相关性过滤 → 汇聚 → critic 反思与有限重抽取 → 仍有冲突时人工裁决 → 写入材料 → 生成岗位级洞察。
 
 ### 岗位问答
 
@@ -66,7 +66,7 @@ API 负责创建会话/运行记录并提交 Celery；worker 执行长任务。D
 
 ## 启动与发行边界
 
-- `start.bat` 只属于开发/服务器入口，唯一职责是执行 `docker compose up --build`。
+- Docker Compose 只属于开发/服务器入口，负责启动 frontend、backend、worker、PostgreSQL 和 Redis。
 - `desktop/main.cjs` 只属于已安装桌面应用，负责启动随包 PostgreSQL、任务队列、API 和 worker。
 - Inno Setup 只负责安装桌面运行时和创建快捷方式，不调用开发启动脚本。
 - 桌面包不依赖宿主机的 Python、Node.js、pnpm、PostgreSQL、Redis 或 Docker。

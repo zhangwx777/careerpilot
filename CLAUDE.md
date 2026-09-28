@@ -20,10 +20,10 @@ CareerPilot 是个人本地求职决策工作台，聚合投递、时间线、�
 启动全栈（frontend、backend、worker、PostgreSQL、Redis）：
 
 ```powershell
-.\start.bat
+docker compose up --build
 ```
 
-`start.bat` 只执行 `docker compose up --build`。停止用 `docker compose down`（数据卷默认保留）。
+开发环境只通过 Docker Compose 管理。需要更新镜像时使用 `docker compose up --build`，停止用 `docker compose down`（数据卷默认保留）。
 
 单独执行后端/前端命令：
 
@@ -36,7 +36,7 @@ docker compose run --rm frontend pnpm test
 docker compose run --rm frontend pnpm build
 ```
 
-桌面包由 `packaging/build.ps1` 构建，运行时不调用 `start.bat`。
+桌面包由 `packaging/build.ps1` 构建，运行时不调用 Docker Compose。
 
 ## 测试硬约束
 

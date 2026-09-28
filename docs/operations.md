@@ -7,7 +7,7 @@
 - `CareerPilotSetup.exe`：标准向导式安装器，免管理员安装到当前用户目录，创建桌面/开始菜单快捷方式并提供卸载入口。
 - `CareerPilot-portable.zip`：绿色版，解压到有写入权限的目录后运行 `CareerPilot.exe`。
 
-桌面包包含前端、后端、PostgreSQL、随包任务队列运行时、.NET Runtime 和 Electron 启动器；用户不需要另装 Python、Node.js、pnpm、PostgreSQL、Redis、Docker 或 .NET。桌面启动器只管理安装包自己的 PostgreSQL、任务队列、API 和 worker，不读取开发机服务，也不调用 `start.bat`。
+桌面包包含前端、后端、PostgreSQL、随包任务队列运行时、.NET Runtime 和 Electron 启动器；用户不需要另装 Python、Node.js、pnpm、PostgreSQL、Redis、Docker 或 .NET。桌面启动器只管理安装包自己的 PostgreSQL、任务队列、API 和 worker，不读取开发机服务，也不调用开发环境的 Docker Compose。
 
 ## Docker 源码部署
 
@@ -41,9 +41,9 @@ Provider、API Key、Base URL 和默认模型只在“模型设置”页配置�
 - 密钥丢失时设置页仍可打开，但已保存的 Provider 需要重新填写 API Key。
 - Base URL 只允许 `http/https`，不要填写账号、密码、query、fragment 或完整 `/chat/completions` 路径。
 
-## AnySearch
+## 公开检索联网工具
 
-`ANYSEARCH_API_KEY` 是可选配置。没有 Key 时，本地 JD、简历、面经和历史问答仍可用；联网补充、岗位问答公开检索和每日简报公开来源会跳过或记录搜索失败，回答不能声称已完成公开搜索。
+联网工具地址、工具名和 Key 需要在“模型设置 → 公开检索”中配置，Key 使用 Fernet 密文保存并只返回掩码。配置后面经分析和每日简报自动补充公开资料；未配置时进入明确的本地资料模式。当前适配器调用配置地址提供的 MCP 工具，并要求工具返回可解析的搜索结果。
 
 ## 数据备份与迁移
 

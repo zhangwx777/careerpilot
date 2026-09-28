@@ -160,7 +160,7 @@ $inno = @(
 ) | Where-Object { Test-Path -LiteralPath $_ } | Select-Object -First 1
 if (-not $inno) { throw '未找到 Inno Setup 6 的 ISCC.exe。' }
 $iss = Join-Path $PSScriptRoot 'installer\CareerPilot.iss'
-& $inno "/DAppVersion=0.1.0" "/DPayloadRoot=$payloadRoot" "/DOutputDir=$(Split-Path $artifact)" "/DIconPath=$iconPath" $iss
+& $inno "/DAppVersion=0.1.1" "/DPayloadRoot=$payloadRoot" "/DOutputDir=$(Split-Path $artifact)" "/DIconPath=$iconPath" $iss
 if ($LASTEXITCODE -ne 0) { throw '标准安装器生成失败。' }
 if (-not (Test-Path -LiteralPath $artifact)) { throw '安装器生成失败。' }
 

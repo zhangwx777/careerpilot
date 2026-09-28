@@ -47,6 +47,7 @@ services:
       - "8000:8000"
     volumes:
       - ./backend:/workspace/backend
+      - ./.llm_config_secret:/workspace/.llm_config_secret:ro
     depends_on:
       postgres:
         condition: service_healthy
@@ -69,6 +70,7 @@ services:
     working_dir: /workspace/backend
     volumes:
       - ./backend:/workspace/backend
+      - ./.llm_config_secret:/workspace/.llm_config_secret:ro
     depends_on:
       postgres:
         condition: service_healthy
