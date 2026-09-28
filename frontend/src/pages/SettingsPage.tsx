@@ -13,10 +13,12 @@ import {
 import { useEffect, useMemo, useState } from "react";
 
 import { api } from "../api";
-import type { ProviderConfigInput, ProviderOption } from "../types";
+import { StatusBadge } from "../components/DesignPrimitives";
+import type { LlmRoleName, LlmRoles, ProviderConfigInput, ProviderOption, SearchConfig } from "../types";
 
 type FormState = { api_key: string; model: string; base_url: string };
 const EMPTY_FORM: FormState = { api_key: "", model: "", base_url: "" };
+const ROLE_LABELS: Record<LlmRoleName, string> = { interview: "面经分析", planner: "备战分析", briefing: "每日简报", vision: "图片识别" };
 
 function formFromProvider(item: ProviderOption): FormState {
   return { api_key: "", model: item.model, base_url: item.base_url ?? "" };
@@ -30,7 +32,7 @@ function statusLabel(item: ProviderOption) {
 }
 
 function sourceLabel(item: ProviderOption) {
-  return item.source === "database" ? "网页" : "—";
+  return item.source === "database" ? "已保存" : "默认";
 }
 
 export function SettingsPage() {
@@ -45,6 +47,13 @@ export function SettingsPage() {
   const [loadingModels, setLoadingModels] = useState(false);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
+  const [searchConfig, setSearchConfig] = useState<SearchConfig | null>(null);
+  const [searchKey, setSearchKey] = useState("");
+  const [searchEndpoint, setSearchEndpoint] = useState("");
+  const [searchToolName, setSearchToolName] = useState("search");
+  const [searchSaving, setSearchSaving] = useState(false);
+  const [roles, setRoles] = useState<LlmRoles | null>(null);
+  const [roleSaving, setRoleSaving] = useState(false);
 
   const selectedProvider = useMemo(
     () => providers.find((item) => item.name === selected) ?? providers[0],
@@ -65,6 +74,8 @@ export function SettingsPage() {
       .then(applyProviders)
       .catch((reason: Error) => setError(reason.message))
       .finally(() => setLoading(false));
+    api.search.get().then((config) => { setSearchConfig(config); setSearchEndpoint(config.endpoint ?? ""); setSearchToolName(config.tool_name); }).catch((reason: Error) => setError(reason.message));
+    api.roles.get().then(setRoles).catch((reason: Error) => setError(reason.message));
   }, []);
 
   function chooseProvider(name: string) {
@@ -110,10 +121,10 @@ export function SettingsPage() {
     if (!selectedProvider) return;
     setSaving(true); setError(""); setMessage("");
     try {
-      const saved = await api.providers.save(selectedProvider.name, payload());
-      setProviders((current) => current.map((item) => item.name === saved.name ? saved : item));
+      await api.providers.save(selectedProvider.name, payload());
+      applyProviders(await api.providers.list());
       setForm((current) => ({ ...current, api_key: "" }));
-      setMessage("配置已保存。密钥只保存在本机服务端密文中。");
+      setMessage("配置已保存，重新打开页面后仍会保留。");
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "配置保存失败");
     } finally { setSaving(false); }
@@ -150,6 +161,29 @@ export function SettingsPage() {
     } catch (reason) { setError(reason instanceof Error ? reason.message : "配置删除失败"); }
   }
 
+  async function saveSearch() {
+    if (!searchKey.trim() || !searchEndpoint.trim() || !searchToolName.trim()) return;
+    setSearchSaving(true); setError(""); setMessage("");
+    try { setSearchConfig(await api.search.save({ api_key: searchKey.trim(), endpoint: searchEndpoint.trim(), tool_name: searchToolName.trim() })); setSearchKey(""); setMessage("联网工具配置已保存。"); }
+    catch (reason) { setError(reason instanceof Error ? reason.message : "公开检索配置保存失败"); }
+    finally { setSearchSaving(false); }
+  }
+
+  async function removeSearch() {
+    setSearchSaving(true); setError(""); setMessage("");
+    try { setSearchConfig(await api.search.remove()); setSearchKey(""); setMessage("联网工具配置已删除，业务将只使用本地资料。"); }
+    catch (reason) { setError(reason instanceof Error ? reason.message : "公开检索配置删除失败"); }
+    finally { setSearchSaving(false); }
+  }
+
+  async function saveRoles() {
+    if (!roles) return;
+    setRoleSaving(true); setError(""); setMessage("");
+    try { setRoles(await api.roles.save(Object.fromEntries(Object.entries(roles.roles).map(([role, item]) => [role, item.provider])) as Record<LlmRoleName, string | null>)); setMessage("模型分工已保存。"); }
+    catch (reason) { setError(reason instanceof Error ? reason.message : "角色分工保存失败"); }
+    finally { setRoleSaving(false); }
+  }
+
   if (loading) {
     return <section><div className="page-heading"><div><span className="eyebrow">工作区设置</span><h1>模型设置</h1></div></div><div className="panel loading-state" aria-label="正在读取模型配置"><span className="skeleton" /><span className="skeleton" /><span className="skeleton" /></div></section>;
   }
@@ -158,9 +192,9 @@ export function SettingsPage() {
     <section>
       <div className="page-heading settings-heading">
         <div>
-          <span className="eyebrow">工作区设置 · 本机单用户</span>
+          <span className="eyebrow">工作区设置</span>
           <h1>模型设置</h1>
-          <p>在同一处管理多个模型连接；任务创建时会固定当时的配置。</p>
+          <p>在这里管理模型连接和各项功能使用的模型。</p>
         </div>
         <div className="settings-security-note"><LockKey size={18} /><span>密钥只回传掩码，不写入浏览器存储。</span></div>
       </div>
@@ -169,6 +203,19 @@ export function SettingsPage() {
       {message && <div className="notice success" role="status">{message}</div>}
 
       <div className="settings-layout">
+        {roles && <details className="panel settings-disclosure" aria-label="使用场景设置">
+          <summary><span><span className="eyebrow">使用场景</span><strong>模型分工</strong></span><span className="settings-disclosure-hint">点击展开</span></summary>
+          <section className="role-assignment">
+            <div className="settings-toolbar"><div><span className="eyebrow">使用场景</span><h2>模型分工</h2></div><button className="button primary compact-button" type="button" onClick={() => void saveRoles()} disabled={roleSaving}>{roleSaving ? "保存中…" : "保存分工"}</button></div>
+            <p className="section-help">可以为不同功能指定模型；留空时使用默认模型。</p>
+            <div className="role-grid">
+              {(Object.keys(ROLE_LABELS) as LlmRoleName[]).map((role) => {
+                const item = roles.roles[role];
+                return <label className="role-card" key={role}><span>{ROLE_LABELS[role]}</span><select value={item.provider ?? ""} onChange={(event) => setRoles((current) => current ? { ...current, roles: { ...current.roles, [role]: { ...item, provider: event.target.value || null } } } : current)}><option value="">使用全局默认</option>{providers.filter((provider) => provider.configured).map((provider) => <option value={provider.name} key={provider.name}>{provider.label} · {provider.model}</option>)}</select><small>{item.effective_provider ? `当前生效：${item.effective_provider} · ${item.effective_model}` : "未找到可用模型"}</small></label>;
+              })}
+            </div>
+          </section>
+        </details>}
         <div className="panel provider-index" aria-label="模型连接配置">
           <div className="settings-toolbar">
             <div><span className="eyebrow">连接清单</span><h2>选择要编辑的模型</h2></div>
@@ -191,15 +238,18 @@ export function SettingsPage() {
           <div className="panel provider-editor">
             <div className="provider-editor-heading">
               <div><span className="eyebrow">{selectedProvider.label}</span><h2>连接参数</h2></div>
-              <span className={`status-badge ${selectedProvider.configured ? "ready" : ""}`}>
+              <StatusBadge tone={selectedProvider.configured ? "ready" : "warning"}>
                 {selectedProvider.validation_status === "已验证" ? <CheckCircle size={15} weight="fill" /> : <WarningCircle size={15} weight="fill" />}
                 {statusLabel(selectedProvider)}
-              </span>
+              </StatusBadge>
             </div>
 
             <div className="provider-meta-strip">
               <span>来源：{sourceLabel(selectedProvider)}</span>
               <span>{selectedProvider.api_key_masked ? `密钥 ${selectedProvider.api_key_masked}` : "未保存密钥"}</span>
+              <span>文本：{selectedProvider.configured ? "可用" : "未配置"}</span>
+              <span>工具：{selectedProvider.supports_tools === true ? "可用" : selectedProvider.supports_tools === false ? "不支持" : "未检测"}</span>
+              <span>图片：{selectedProvider.supports_vision === true ? "可用" : selectedProvider.supports_vision === false ? "不支持" : "未检测"}</span>
               {selectedProvider.last_tested_at && <span>测试于 {new Date(selectedProvider.last_tested_at).toLocaleString("zh-CN")}</span>}
               {selectedProvider.validation_message && <span>{selectedProvider.validation_message}</span>}
             </div>
@@ -216,13 +266,27 @@ export function SettingsPage() {
             </div>
             <div className="provider-secondary-actions">
               <button className="button ghost" type="button" onClick={() => void setDefault()} disabled={!selectedProvider.configured || selectedProvider.is_default}><Star size={16} />{selectedProvider.is_default ? "当前默认模型" : "设为默认"}</button>
-              {selectedProvider.source === "database" && <button className="button ghost danger-button" type="button" onClick={() => void remove()}><Trash size={16} />删除网页配置</button>}
+              {selectedProvider.source === "database" && <button className="button ghost danger-button" type="button" onClick={() => void remove()}><Trash size={16} />删除已保存配置</button>}
             </div>
           </div>
         )}
       </div>
 
-      <div className="panel settings-callout"><LockKey size={20} /><div><strong>本机安全边界</strong><p>当前版本按单用户本地工作区设计。请勿把服务端口直接暴露到公网；多人使用前应先加入登录和按用户隔离。</p></div></div>
+      <details className="panel settings-disclosure search-settings-disclosure">
+        <summary><span><span className="eyebrow">公开资料补充</span><strong>公开检索</strong></span><StatusBadge tone={searchConfig?.configured ? "ready" : "neutral"}>{searchConfig?.configured ? "已配置" : "未配置"}</StatusBadge></summary>
+        <div className="search-settings-card">
+          <p className="settings-help">这里单独配置联网工具。配置后，面经分析和每日简报会自动补充公开资料；未配置时仍可正常使用本地粘贴文字和截图。</p>
+          {searchConfig?.api_key_masked && <div className="provider-meta-strip"><span>当前密钥：{searchConfig.api_key_masked}</span></div>}
+          <div className="settings-form-grid">
+            <label className="field-block"><span>联网工具 API 地址</span><input type="url" value={searchEndpoint} onChange={(event) => setSearchEndpoint(event.target.value)} placeholder="https://example.com/mcp" /></label>
+            <label className="field-block"><span>搜索工具名称</span><input value={searchToolName} onChange={(event) => setSearchToolName(event.target.value)} placeholder="search" /></label>
+          </div>
+          <label className="field-block"><span>联网工具 API Key</span><input type="password" value={searchKey} onChange={(event) => setSearchKey(event.target.value)} placeholder="粘贴联网工具 Key" autoComplete="new-password" /></label>
+          <div className="provider-actions"><button className="button primary" type="button" onClick={() => void saveSearch()} disabled={searchSaving || !searchKey.trim() || !searchEndpoint.trim() || !searchToolName.trim()}><FloppyDisk size={17} />{searchSaving ? "保存中…" : "保存联网工具"}</button>{searchConfig?.configured && <button className="button ghost danger-button" type="button" onClick={() => void removeSearch()} disabled={searchSaving}><Trash size={16} />删除配置</button>}</div>
+        </div>
+      </details>
+
+      <div className="settings-local-note"><LockKey size={16} /><span>配置仅保存在本机，不会写入浏览器存储。</span></div>
     </section>
   );
 }

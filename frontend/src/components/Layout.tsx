@@ -25,7 +25,7 @@ const links = [
 export function Layout() {
   return (
     <div className="app-shell">
-      <aside className="sidebar">
+      <aside className="sidebar glass-surface">
         <div className="brand">
           <span className="brand-mark" aria-hidden="true"><img src="/brand-mark.png" alt="" /></span>
           <div>
@@ -53,7 +53,7 @@ export function Layout() {
         </div>
       </aside>
       <div className="workspace">
-        <header className="mobile-header">
+        <header className="mobile-header glass-surface">
           <div className="brand compact">
             <span className="brand-mark" aria-hidden="true"><img src="/brand-mark.png" alt="" /></span>
             <strong>职航</strong>

@@ -7,11 +7,21 @@ import { ConfirmDialog } from "../components/ConfirmDialog";
 import { loadDraft, loadSessionId, saveDraft, saveSessionId, clearDraft } from "../drafts";
 import { formatDateTime } from "../format";
 import { usePolling } from "../hooks/usePolling";
-import type { Application, PlannerReport, PlannerSession, PreparationTask, ProviderOption, ResumeProfile } from "../types";
+import type { Application, PlannerReport, PlannerSession, PreparationCategory, PreparationTask, ResumeProfile } from "../types";
 
 const plannerDraftKey = "qiuzhao-agent:planner-draft";
 const activePlannerSessionKey = "qiuzhao-agent:planner-active-session";
-type PlannerDraft = { applicationId: number; provider: string; fileName: string };
+type PlannerDraft = { applicationId: number; fileName: string };
+
+const priorityLabels = ["", "高", "中", "低"];
+function priorityLabel(priority: number) { return priorityLabels[Math.min(Math.max(priority, 1), 3)] ?? "中"; }
+const categories: PreparationCategory[] = ["八股", "简历内容"];
+const resumeCategoryHints = ["简历", "项目", "经历", "负责", "贡献", "复盘", "落地", "挑战", "团队", "离职", "自我介绍"];
+
+function normalizeCategory(title: string, detail: string | null | undefined, category?: string): PreparationCategory {
+  const text = `${title} ${detail ?? ""}`;
+  return category === "简历内容" || resumeCategoryHints.some((hint) => text.includes(hint)) ? "简历内容" : "八股";
+}
 
 function isReport(value: PlannerSession["draft_payload"]): value is PlannerReport {
   return Boolean(value && "actions" in value);
@@ -21,11 +31,9 @@ export function PlannerPage() {
   const { id } = useParams();
   const navigate = useNavigate();
   const sessionId = id ? Number(id) : null;
-  const draft = loadDraft<PlannerDraft>(window.localStorage, plannerDraftKey, { applicationId: 0, provider: "", fileName: "" });
+  const draft = loadDraft<PlannerDraft>(window.localStorage, plannerDraftKey, { applicationId: 0, fileName: "" });
   const [applications, setApplications] = useState<Application[]>([]);
-  const [providers, setProviders] = useState<ProviderOption[]>([]);
   const [applicationId, setApplicationId] = useState(draft.applicationId);
-  const [provider, setProvider] = useState(draft.provider);
   const [profile, setProfile] = useState<ResumeProfile | null>(null);
   const [fileName, setFileName] = useState(draft.fileName);
   const [session, setSession] = useState<PlannerSession | null>(null);
@@ -34,16 +42,17 @@ export function PlannerPage() {
   const [uploading, setUploading] = useState(false);
   const [loading, setLoading] = useState(false);
   const [confirmingResumeDelete, setConfirmingResumeDelete] = useState(false);
+  const [deletingSession, setDeletingSession] = useState<PlannerSession | null>(null);
   const [error, setError] = useState("");
+  const [selectedActionIndexes, setSelectedActionIndexes] = useState<number[]>([]);
 
   useEffect(() => {
     let cancelled = false;
     api.applications.list({ page_size: 100 }).then((result) => { if (!cancelled) setApplications(result.items); }).catch((reason: Error) => { if (!cancelled) setError(reason.message); });
-    api.providers.list().then((result) => { if (!cancelled) { const configured = result.filter((item) => item.configured); setProviders(configured); setProvider((current) => configured.some((item) => item.name === current) ? current : configured.find((item) => item.is_default)?.name ?? configured[0]?.name ?? ""); } }).catch((reason: Error) => { if (!cancelled) setError(reason.message); });
     api.planner.resume().then((result) => { if (!cancelled) { setProfile(result); setFileName(result.file_name ?? ""); } }).catch(() => { if (!cancelled) { setProfile(null); setFileName(""); } });
     return () => { cancelled = true; };
   }, []);
-  useEffect(() => { saveDraft(window.localStorage, plannerDraftKey, { applicationId, provider, fileName }); }, [applicationId, provider, fileName]);
+  useEffect(() => { saveDraft(window.localStorage, plannerDraftKey, { applicationId, fileName }); }, [applicationId, fileName]);
   useEffect(() => {
     if (!sessionId) {
       setSession(null);
@@ -80,10 +89,25 @@ export function PlannerPage() {
       setSessionTasks([]);
       return;
     }
-    api.planner.tasks({ application_id: session.application_id, page_size: 100, include_deferred: true })
-      .then((result) => setSessionTasks(result.items.filter((task) => task.planner_session_id === sessionId)))
-      .catch((reason: Error) => setError(reason.message));
+    let cancelled = false;
+    const refreshTasks = () => api.planner.tasks({ application_id: session.application_id, page_size: 100, include_deferred: true })
+      .then((result) => {
+        if (cancelled) return;
+        const tasks = result.items.filter((task) => task.planner_session_id === sessionId);
+        setSessionTasks(tasks);
+        setSelectedActionIndexes([]);
+      })
+      .catch((reason: Error) => { if (!cancelled) setError(reason.message); });
+    refreshTasks();
+    window.addEventListener("preparation-task-updated", refreshTasks);
+    window.addEventListener("preparation-plan-updated", refreshTasks);
+    return () => { cancelled = true; window.removeEventListener("preparation-task-updated", refreshTasks); window.removeEventListener("preparation-plan-updated", refreshTasks); };
   }, [session?.application_id, session?.status, sessionId]);
+
+  useEffect(() => {
+    const target = window.location.hash ? document.getElementById(window.location.hash.slice(1)) : null;
+    if (target) window.requestAnimationFrame(() => target.scrollIntoView({ behavior: "smooth", block: "center" }));
+  }, [sessionTasks.length]);
 
   usePolling({
     enabled: Boolean(sessionId && session?.status === "生成中"),
@@ -131,7 +155,7 @@ export function PlannerPage() {
     if (!application) return setError("投递记录不存在");
     if (!application.position.jd_text?.trim()) return setError("目标投递缺少 JD，请先在投递台账补充");
     setLoading(true); setError("");
-    try { const created = await api.planner.create({ application_id: applicationId, provider }); setSession(created); saveSessionId(window.localStorage, activePlannerSessionKey, created.id); navigate(`/planner/${created.id}`, { replace: true }); }
+    try { const created = await api.planner.create({ application_id: applicationId }); setSession(created); saveSessionId(window.localStorage, activePlannerSessionKey, created.id); navigate(`/planner/${created.id}`, { replace: true }); }
     catch (reason) { setError(reason instanceof Error ? reason.message : "备战分析失败"); }
     finally { setLoading(false); }
   }
@@ -150,10 +174,11 @@ export function PlannerPage() {
     }
   }
 
-  async function updateAction(task: PreparationTask, status: PreparationTask["status"]) {
+  async function updateAction(task: PreparationTask, input: { status?: PreparationTask["status"]; category?: PreparationCategory }) {
     try {
-      const updated = await api.planner.updateTask(task.id, status);
+      const updated = await api.planner.updateTask(task.id, input);
       setSessionTasks((current) => current.map((item) => item.id === updated.id ? updated : item));
+      window.dispatchEvent(new Event("preparation-task-updated"));
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "行动状态更新失败");
     }
@@ -161,13 +186,43 @@ export function PlannerPage() {
 
   async function materializeActions() {
     if (!sessionId) return;
+    if (!selectedActionIndexes.length) return setError("请至少选择一项准备行动");
     try {
-      const updated = await api.planner.materializeActions(sessionId);
+      const updated = await api.planner.materializeActions(sessionId, selectedActionIndexes);
       setSession(updated);
       const result = await api.planner.tasks({ application_id: updated.application_id, page_size: 100, include_deferred: true });
       setSessionTasks(result.items.filter((task) => task.planner_session_id === sessionId));
+      setSelectedActionIndexes([]);
+      window.dispatchEvent(new Event("preparation-plan-updated"));
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "准备行动生成失败");
+    }
+  }
+
+  async function removeAction(task: PreparationTask) {
+    try {
+      await api.planner.removeTask(task.id);
+      setSessionTasks((current) => current.filter((item) => item.id !== task.id));
+      window.dispatchEvent(new Event("preparation-plan-updated"));
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "移出学习计划失败");
+    }
+  }
+
+  async function deleteSession() {
+    if (!deletingSession) return;
+    const target = deletingSession;
+    setError("");
+    try {
+      await api.planner.remove(target.id);
+      setHistory((current) => current.filter((item) => item.id !== target.id));
+      if (sessionId === target.id) {
+        clearDraft(window.localStorage, activePlannerSessionKey);
+        navigate("/planner", { replace: true });
+      }
+      setDeletingSession(null);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "历史分析删除失败");
     }
   }
 
@@ -221,23 +276,12 @@ export function PlannerPage() {
                 ))}
               </select>
             </label>
-            <label>
-              分析模型
-              <select value={provider} onChange={(event) => setProvider(event.target.value)}>
-                {providers.map((item) => <option key={item.name} value={item.name}>{item.label} · {item.model}</option>)}
-              </select>
-            </label>
+            <p className="field-help">已按当前设置自动选择分析模型。</p>
             <button className="button primary" type="button" disabled={loading || uploading} onClick={generate}>
               <Sparkle size={18} />
               {loading ? "正在分析…" : "开始备战分析"}
             </button>
           </div>
-          <aside className="panel planner-aside">
-            <strong>分析范围</strong>
-            <p>系统会读取上传简历、目标投递的 JD，以及该公司和岗位下已保存的面经。</p>
-            <p>本模块只生成分析和准备清单，不自动占用时间线。</p>
-            <Link to="/applications">查看投递台账</Link>
-          </aside>
         </div>
       )}
       {!sessionId && (
@@ -251,13 +295,16 @@ export function PlannerPage() {
           </div>
           <div className="planner-history-list">
             {history.length ? history.map((item) => (
-              <Link className="planner-history-item" to={`/planner/${item.id}`} key={item.id}>
+              <div className="planner-history-item" key={item.id}>
+                <Link to={`/planner/${item.id}`}>
                 <div>
                   <strong>{item.application.position.company.name} · {item.application.position.title}</strong>
                   <small>{formatDateTime(item.created_at)} · {item.provider}</small>
                 </div>
                 <span>{item.status}</span>
-              </Link>
+                </Link>
+                <button className="button ghost compact-button danger-button" type="button" onClick={() => setDeletingSession(item)} aria-label={`删除 ${item.application.position.company.name} ${item.application.position.title} 的历史分析`}><Trash size={15} />删除</button>
+              </div>
             )) : <p className="quiet-empty">还没有历史分析。完成一次分析后会保存在这里。</p>}
           </div>
         </section>
@@ -279,52 +326,67 @@ export function PlannerPage() {
           {report && (
             <>
               <section className="planner-summary">
-                <span className="eyebrow">匹配总结</span>
+                <span className="eyebrow">岗位结论</span>
                 <p>{report.summary ?? "暂无总结"}</p>
+                <div className="planner-summary-stats">
+                  <span><strong>{report.strengths.length}</strong> 项已有优势</span>
+                  <span><strong>{report.gaps.length}</strong> 项待补强</span>
+                  <span><strong>{sessionTasks.length}</strong> 项已加入计划</span>
+                </div>
               </section>
               <div className="planner-report-grid">
                 <section>
                   <h3>已有优势</h3>
                   {report.strengths.length ? report.strengths.map((item) => (
-                    <article key={item.name}>
-                      <strong>{item.name}</strong>
+                    <details className="planner-insight-item" key={item.name}>
+                      <summary><strong>{item.name}</strong><span>查看依据</span></summary>
                       <p>{item.evidence}</p>
-                    </article>
+                    </details>
                   )) : <p className="quiet-empty">暂无明确优势。</p>}
                 </section>
                 <section>
                   <h3>需要补强</h3>
                   {report.gaps.length ? report.gaps.map((item) => (
-                    <article key={item.name}>
-                      <strong>{item.name}</strong>
+                    <details className="planner-insight-item" key={item.name}>
+                      <summary><strong>{item.name}</strong><span>查看依据</span></summary>
                       <p>{item.evidence}</p>
-                    </article>
+                    </details>
                   )) : <p className="quiet-empty">暂无明确差距。</p>}
                 </section>
               </div>
               <section className="planner-actions">
                 <div className="planner-actions-heading">
-                  <h3>准备行动</h3>
-                  {session.status === "已完成" && sessionTasks.length < report.actions.length && (
-                    <button className="button ghost compact-button" type="button" onClick={() => void materializeActions()}>生成行动</button>
-                  )}
+                  <div><h3>候选准备行动</h3><p className="section-help">先选你这轮真正要准备的内容，再加入学习计划。</p></div>
+                  {session.status === "已完成" && <button className="button primary compact-button" type="button" disabled={!selectedActionIndexes.length} onClick={() => void materializeActions()}>加入学习计划（{selectedActionIndexes.length}）</button>}
                 </div>
                 {report.actions.map((item, index) => {
                   const task = sessionTasks.find((candidate) => candidate.action_index === index);
+                  const actionCategory = normalizeCategory(item.title, item.detail, item.category);
+                  const selected = selectedActionIndexes.includes(index);
                   return (
-                  <article key={item.title}>
-                    <span>{item.priority}</span>
-                    <div>
-                      <strong>{item.title}</strong>
-                      <p>{item.detail ?? ""}</p>
-                      {item.source_ids.length > 0 && <small>引用面经：{item.source_ids.join("、")}</small>}
-                      {task && <div className="planner-action-status">
+                  <article id={task ? `planner-task-${task.id}` : undefined} className={`planner-action-card${selected || task ? " is-selected" : ""}`} key={`${item.title}-${index}`}>
+                    <div className="planner-action-select">
+                      {task ? <span className="planner-in-plan">已加入</span> : <label className="planner-action-check" title="选择此行动">
+                        <input aria-label="选择此行动" type="checkbox" checked={selected} onChange={() => setSelectedActionIndexes((current) => current.includes(index) ? current.filter((value) => value !== index) : [...current, index])} />
+                      </label>}
+                    </div>
+                    <div className="planner-action-body">
+                      <div className="planner-action-title-row">
+                        <div className="planner-action-title"><strong>{item.title}</strong></div>
+                        <div className="planner-action-side-meta">
+                          {task ? <label className="planner-category-control"><span>分类</span><select value={normalizeCategory(task.title, task.detail, task.category)} onChange={(event) => void updateAction(task, { category: event.target.value as PreparationCategory })}>{categories.map((category) => <option key={category} value={category}>{category}</option>)}</select></label> : <span className="planner-category">{actionCategory}</span>}
+                          <span className={`planner-priority planner-priority-${Math.min(Math.max(item.priority, 1), 3)}`}>{priorityLabel(item.priority)}</span>
+                        </div>
+                      </div>
+                      <p className="planner-action-detail">{item.detail ?? ""}</p>
+                      <div className="planner-action-meta">{item.gap && <span>关联差距：{item.gap}</span>}</div>
+                      {item.evidence?.length ? <details className="planner-evidence"><summary>查看依据</summary><ul>{item.evidence.map((evidence, evidenceIndex) => <li key={`${evidence.kind}-${evidenceIndex}`}>{evidence.kind}：{evidence.reference}</li>)}</ul></details> : null}
+                      {task && <div className="planner-action-controls">
                         <span className={`task-status task-status-${task.status}`}>{task.status}</span>
-                        {task.status === "待处理" && <>
-                          <button className="button ghost compact-button" type="button" onClick={() => void updateAction(task, "已完成")}>完成</button>
-                          <button className="button ghost compact-button" type="button" onClick={() => void updateAction(task, "已跳过")}>跳过</button>
-                        </>}
-                        {task.status !== "待处理" && <button className="button ghost compact-button" type="button" onClick={() => void updateAction(task, "待处理")}>重新打开</button>}
+                        <Link className="button primary compact-button" to={`/practice/${task.id}`}>进入练习</Link>
+                        {task.status === "待处理" && <button className="button ghost compact-button danger-button" type="button" onClick={() => void removeAction(task)}>移出计划</button>}
+                        {task.status === "待处理" && <button className="button ghost compact-button" type="button" onClick={() => void updateAction(task, { status: "已跳过" })}>跳过</button>}
+                        {task.status === "已跳过" && <button className="button ghost compact-button" type="button" onClick={() => void updateAction(task, { status: "待处理" })}>恢复练习</button>}
                       </div>}
                     </div>
                   </article>
@@ -342,6 +404,14 @@ export function PlannerPage() {
         confirmLabel="删除简历"
         onCancel={() => setConfirmingResumeDelete(false)}
         onConfirm={deleteResume}
+      />
+      <ConfirmDialog
+        open={Boolean(deletingSession)}
+        title="删除历史分析？"
+        description={deletingSession ? `将删除 ${deletingSession.application.position.company.name} · ${deletingSession.application.position.title} 的分析和准备行动，原岗位与简历资料不会删除。` : ""}
+        confirmLabel="删除分析"
+        onCancel={() => setDeletingSession(null)}
+        onConfirm={deleteSession}
       />
     </section>
   );

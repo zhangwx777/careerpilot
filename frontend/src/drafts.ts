@@ -1,5 +1,10 @@
 type DraftStorage = Pick<Storage, "getItem" | "setItem" | "removeItem">;
 
+const transientInputDraftKeys = [
+  "qiuzhao-agent:notice-raw",
+  "qiuzhao-agent:intel-draft",
+] as const;
+
 export function loadDraft<T>(storage: DraftStorage, key: string, fallback: T): T {
   const raw = storage.getItem(key);
   if (!raw) return fallback;
@@ -27,6 +32,10 @@ export function saveDraft(storage: DraftStorage, key: string, value: unknown) {
 
 export function clearDraft(storage: DraftStorage, key: string) {
   storage.removeItem(key);
+}
+
+export function clearTransientInputDrafts(storage: DraftStorage) {
+  transientInputDraftKeys.forEach((key) => storage.removeItem(key));
 }
 
 export function loadSessionId(storage: DraftStorage, key: string): number | null {

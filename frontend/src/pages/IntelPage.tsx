@@ -4,20 +4,21 @@ import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 
 import { api } from "../api";
 import { ConfirmDialog } from "../components/ConfirmDialog";
+import { ContextBar, StatusBadge } from "../components/DesignPrimitives";
 import { clearDraft, loadDraft, loadSessionId, saveDraft, saveSessionId } from "../drafts";
 import { formatDateTime } from "../format";
 import { usePolling } from "../hooks/usePolling";
-import type { Application, IntelChatMessage, IntelDossier, IntelInsight, IntelPayload, IntelProgress, IntelRoundType, IntelSession, InterviewIntel, ProviderOption, SourceRecord } from "../types";
+import type { Application, IntelChatMessage, IntelDossier, IntelInsight, IntelPayload, IntelProgress, IntelRoundType, IntelSession, InterviewIntel, SourceRecord } from "../types";
 
 const rounds: IntelRoundType[] = ["测评", "笔试", "AI面", "一面", "二面", "三面", "HR面", "多轮综合", "未注明"];
 const intelDraftKey = "qiuzhao-agent:intel-draft";
 const activeIntelSessionKey = "qiuzhao-agent:intel-active-session";
 type IntelTab = "input" | "summary" | "library";
-type IntelDraft = { applicationId: number; provider: string; roundType: IntelRoundType | ""; paste: string; imageTexts: { name: string; text: string }[]; supplementWeb: boolean };
+type IntelDraft = { applicationId: number; roundType: IntelRoundType | ""; paste: string; imageTexts: { name: string; text: string }[] };
 type Confirmation = { title: string; description: string; confirmLabel: string; onConfirm: () => void };
 
 function loadIntelDraft(): IntelDraft {
-  return loadDraft<IntelDraft>(window.localStorage, intelDraftKey, { applicationId: 0, provider: "", roundType: "", paste: "", imageTexts: [], supplementWeb: false });
+  return loadDraft<IntelDraft>(window.localStorage, intelDraftKey, { applicationId: 0, roundType: "", paste: "", imageTexts: [] });
 }
 
 function applicationLabel(application: Application) {
@@ -73,13 +74,11 @@ export function IntelPage() {
   const sessionId = id ? Number(id) : null;
   const draft = useMemo(loadIntelDraft, []);
   const [applications, setApplications] = useState<Application[]>([]);
-  const [providers, setProviders] = useState<ProviderOption[]>([]);
   const [applicationId, setApplicationId] = useState(draft.applicationId);
-  const [provider, setProvider] = useState(draft.provider);
   const [roundType, setRoundType] = useState<IntelRoundType | "">(draft.roundType);
   const [paste, setPaste] = useState(draft.paste);
   const [imageTexts, setImageTexts] = useState(draft.imageTexts);
-  const [supplementWeb, setSupplementWeb] = useState(draft.supplementWeb);
+  const [searchConfigured, setSearchConfigured] = useState(false);
   const [session, setSession] = useState<IntelSession | null>(null);
   const [dossier, setDossier] = useState<IntelDossier | null>(null);
   const [chat, setChat] = useState<IntelChatMessage[]>([]);
@@ -98,8 +97,8 @@ export function IntelPage() {
   const activeTab: IntelTab = rawTab === "summary" || rawTab === "library" ? rawTab : "input";
   const selectTab = (next: IntelTab) => { const params = new URLSearchParams(searchParams); params.set("tab", next); setSearchParams(params); };
 
-  useEffect(() => { let cancelled = false; api.applications.list({ page_size: 100 }).then((result) => { if (!cancelled) setApplications(result.items); }).catch((reason: Error) => { if (!cancelled) setError(reason.message); }); api.providers.list().then((result) => { if (!cancelled) { const configured = result.filter((item) => item.configured); setProviders(configured); setProvider((current) => configured.some((item) => item.name === current) ? current : configured.find((item) => item.is_default)?.name ?? configured[0]?.name ?? ""); } }).catch((reason: Error) => { if (!cancelled) setError(reason.message); }); return () => { cancelled = true; }; }, []);
-  useEffect(() => { saveDraft(window.localStorage, intelDraftKey, { applicationId, provider, roundType, paste, imageTexts, supplementWeb }); }, [applicationId, provider, roundType, paste, imageTexts, supplementWeb]);
+  useEffect(() => { let cancelled = false; api.applications.list({ page_size: 100 }).then((result) => { if (!cancelled) setApplications(result.items); }).catch((reason: Error) => { if (!cancelled) setError(reason.message); }); api.search.get().then((result) => { if (!cancelled) setSearchConfigured(result.configured); }).catch(() => undefined); return () => { cancelled = true; }; }, []);
+  useEffect(() => { saveDraft(window.localStorage, intelDraftKey, { applicationId, roundType, paste, imageTexts }); }, [applicationId, roundType, paste, imageTexts]);
   useEffect(() => { if (sessionId) return; const active = loadSessionId(window.localStorage, activeIntelSessionKey); if (active) { navigate(`/intel/${active}`, { replace: true }); return; } api.intel.sessions().then((items) => { if (items[0]) navigate(`/intel/${items[0].id}`, { replace: true }); }).catch(() => undefined); }, [navigate, sessionId]);
   useEffect(() => {
     if (!applicationId) {
@@ -187,35 +186,35 @@ export function IntelPage() {
 
   async function extractImages() {
     if (!imageFiles.length) return;
-    if (!provider) { setError("请先在设置页配置并选择分析模型"); return; }
     setUploading(true); setError("");
-    try { const result = await api.intel.extractImages({ provider, images: await Promise.all(imageFiles.map(readImage)) }); setImageTexts(result.images); setImagesRecognized(true); } catch (reason) { setError(reason instanceof Error ? reason.message : "图片识别失败"); } finally { setUploading(false); }
+    try { const result = await api.intel.extractImages({ images: await Promise.all(imageFiles.map(readImage)) }); setImageTexts(result.images); setImagesRecognized(true); } catch (reason) { setError(reason instanceof Error ? reason.message : "图片识别失败"); } finally { setUploading(false); }
   }
   function addImageFiles(files: File[]) { if (!files.length) return; if (imageFiles.length + files.length > 6 || files.some((file) => !["image/png", "image/jpeg", "image/webp"].includes(file.type))) { setError("最多上传 6 张 PNG、JPEG 或 WebP 图片"); return; } setImageFiles((current) => [...current, ...files]); setImagesRecognized(false); setImageTexts([]); setError(""); }
   function selectImageFiles(event: React.ChangeEvent<HTMLInputElement>) { addImageFiles(Array.from(event.target.files ?? [])); event.target.value = ""; }
   function dropImageFiles(event: React.DragEvent<HTMLDivElement>) { event.preventDefault(); setDraggingImages(false); addImageFiles(Array.from(event.dataTransfer.files)); }
+  function leaveImageDropzone(event: React.DragEvent<HTMLDivElement>) { if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setDraggingImages(false); }
   async function submit() {
     if (!applicationId) { setError("请选择投递"); return; }
     if (!roundType) { setError("请选择这份资料所属轮次"); return; }
     if (imageFiles.length && !imagesRecognized) { setError("请先点击“识别截图”，确认识别结果后再开始分析"); return; }
-    if (!paste.trim() && !imageTexts.some((item) => item.text.trim()) && !supplementWeb) { setError("请粘贴面经或识别截图，或开启联网补充"); return; }
+    if (!paste.trim() && !imageTexts.some((item) => item.text.trim()) && !searchConfigured) { setError("请粘贴面经或识别截图，或先在模型设置中配置公开检索 Key"); return; }
     setLoading(true); setError("");
-    try { const created = await api.intel.create({ application_id: applicationId, provider, round_type: roundType, user_paste: paste.trim() || null, image_texts: imageTexts.filter((item) => item.text.trim()), supplement_web: supplementWeb }); setSession(created); saveSessionId(window.localStorage, activeIntelSessionKey, created.id); navigate(`/intel/${created.id}?tab=input`, { replace: true }); } catch (reason) { setError(reason instanceof Error ? reason.message : "聚合失败"); } finally { setLoading(false); }
+    try { const created = await api.intel.create({ application_id: applicationId, round_type: roundType, user_paste: paste.trim() || null, image_texts: imageTexts.filter((item) => item.text.trim()) }); setSession(created); saveSessionId(window.localStorage, activeIntelSessionKey, created.id); navigate(`/intel/${created.id}?tab=input`, { replace: true }); } catch (reason) { setError(reason instanceof Error ? reason.message : "聚合失败"); } finally { setLoading(false); }
   }
   async function resolve() { if (!session || (session.conflicts ?? []).some((item) => !choices[item.field])) { setError("请为每项冲突选择一个候选结论"); return; } setLoading(true); setError(""); try { const done = await api.intel.resolve(session.id, choices); clearDraft(window.localStorage, activeIntelSessionKey); setSession(done); } catch (reason) { setError(reason instanceof Error ? reason.message : "裁决失败"); } finally { setLoading(false); } }
   async function discard() { if (!session) return; setLoading(true); setError(""); try { await api.intel.discard(session.id); clearDraft(window.localStorage, activeIntelSessionKey); setSession(null); navigate("/intel?tab=input", { replace: true }); } catch (reason) { setError(reason instanceof Error ? reason.message : "舍弃失败"); } finally { setLoading(false); } }
   async function retrySession() { if (!session) return; setLoading(true); setError(""); try { const next = await api.intel.retry(session.id); setSession(next); saveSessionId(window.localStorage, activeIntelSessionKey, next.id); } catch (reason) { setError(reason instanceof Error ? reason.message : "重试失败"); } finally { setLoading(false); } }
-  async function rebuildInsight() { if (!applicationId) return; setLoading(true); setError(""); try { setDossier(await api.intel.rebuildDossier({ application_id: applicationId, provider })); } catch (reason) { setError(reason instanceof Error ? reason.message : "洞察生成失败"); } finally { setLoading(false); } }
+  async function rebuildInsight() { if (!applicationId) return; setLoading(true); setError(""); try { setDossier(await api.intel.rebuildDossier({ application_id: applicationId })); } catch (reason) { setError(reason instanceof Error ? reason.message : "洞察生成失败"); } finally { setLoading(false); } }
   async function deleteMaterial(item: InterviewIntel) { setLoading(true); setError(""); try { await api.intel.deleteMaterial(item.id); setInsightVersion((current) => current + 1); } catch (reason) { setError(reason instanceof Error ? reason.message : "删除失败"); } finally { setLoading(false); } }
   function askDiscard() { setConfirmation({ title: "舍弃此次面经分析？", description: "舍弃后不会写入岗位资料库。", confirmLabel: "舍弃此次分析", onConfirm: () => { setConfirmation(null); void discard(); } }); }
   function askDeleteMaterial(item: InterviewIntel) { setConfirmation({ title: "删除这份面经材料？", description: `删除“${item.title}”后会重新生成岗位洞察。`, confirmLabel: "删除材料", onConfirm: () => { setConfirmation(null); void deleteMaterial(item); } }); }
-  async function ask() { if (!applicationId || !question.trim()) return; setLoading(true); setError(""); const asked = question.trim(); try { const result = await api.intel.chat({ application_id: applicationId, provider, question: asked }); setChat((current) => [...current, { id: Date.now(), role: "user", content: asked, status: "已完成", source_ids: [], created_at: new Date().toISOString() }, result.message]); setQuestion(""); } catch (reason) { setError(reason instanceof Error ? reason.message : "问答失败"); } finally { setLoading(false); } }
+  async function ask() { if (!applicationId || !question.trim()) return; setLoading(true); setError(""); const asked = question.trim(); try { const result = await api.intel.chat({ application_id: applicationId, question: asked }); setChat((current) => [...current, { id: Date.now(), role: "user", content: asked, status: "已完成", source_ids: [], created_at: new Date().toISOString() }, result.message]); setQuestion(""); } catch (reason) { setError(reason instanceof Error ? reason.message : "问答失败"); } finally { setLoading(false); } }
 
   const isRunning = session?.status === "聚合中";
   const selectedApplication = applications.find((item) => item.id === applicationId);
   const sourceTitle = (sourceId: string, message?: IntelChatMessage) => message?.sources?.find((source) => source.id === sourceId)?.title ?? dossier?.sources.find((source) => source.id === sourceId)?.title ?? sourceId;
   const chatTurns = groupChatMessages(chat);
-  const inputView = <div className="intel-tab-grid"><aside className="intel-rail"><div className="panel intel-input-card"><div className="section-title"><Sparkle size={20} /><div><h2>新增面经</h2><span>先选择轮次，再录入文字或截图</span></div></div><label>所属轮次<select value={roundType} onChange={(event) => setRoundType(event.target.value as IntelRoundType | "")} disabled={isRunning}><option value="">请选择轮次</option>{rounds.map((round) => <option key={round} value={round}>{round}</option>)}</select></label><textarea rows={9} value={paste} onChange={(event) => setPaste(event.target.value)} disabled={isRunning} placeholder="粘贴面经、备忘录或面试题…" /><div className={`intel-upload-zone${draggingImages ? " is-dragging" : ""}`} onDragOver={(event) => { event.preventDefault(); setDraggingImages(true); }} onDragLeave={() => setDraggingImages(false)} onDrop={dropImageFiles}><label className="upload-control"><ImageSquare size={18} />拖拽图片到这里，或点击选择<input type="file" accept="image/png,image/jpeg,image/webp" multiple onChange={selectImageFiles} disabled={uploading || isRunning} /></label>{imageFiles.length > 0 && <div className="intel-upload-files">{imageFiles.map((file, index) => <div className="intel-upload-file" key={`${file.name}-${index}`}><span title={file.name}>{file.name}</span><button type="button" onClick={() => { setImageFiles((current) => current.filter((_, fileIndex) => fileIndex !== index)); setImageTexts((current) => current.filter((_, textIndex) => textIndex !== index)); setImagesRecognized(false); }} disabled={uploading || isRunning}>移除</button></div>)}</div>}</div>{imageFiles.length > 0 && <button className="button ghost" type="button" onClick={extractImages} disabled={uploading || isRunning || !provider}>{uploading ? "正在识别截图…" : "识别截图"}</button>}{imageTexts.length > 0 && <div className="intel-image-texts"><strong>截图识别结果（可编辑）</strong>{imageTexts.map((item, index) => <label key={`${item.name}-${index}`}><span>{item.name}</span><textarea rows={5} value={item.text} onChange={(event) => setImageTexts((current) => current.map((entry, entryIndex) => entryIndex === index ? { ...entry, text: event.target.value } : entry))} disabled={isRunning} /></label>)}</div>}<button className="button primary" disabled={loading || uploading || isRunning || !provider} onClick={submit}><Sparkle size={18} />{loading || isRunning ? "正在整理…" : "开始分析"}</button></div>{session?.progress_payload && <ProgressSources progress={session.progress_payload} />}{session?.status === "待裁决" && <div className="intel-conflicts"><p>这份资料可能包含岗位描述或不确定结论，请确认后写入岗位档案。</p>{session.conflicts?.map((item) => <label key={item.field}>“{item.field}”<select value={choices[item.field] ?? ""} onChange={(event) => setChoices({ ...choices, [item.field]: event.target.value })}><option value="">请选择候选结论</option>{item.candidates.map((candidate) => <option key={candidate.value} value={candidate.value}>{candidate.value}</option>)}</select></label>)}<div className="intel-conflict-actions"><button className="button primary" disabled={loading} onClick={resolve}><Check size={17} />确认并写入</button><button className="button ghost danger-button" disabled={loading} onClick={askDiscard}>舍弃此次分析</button></div></div>}{session?.status === "失败" && <div className="notice error">{session.error_message ?? "面经分析失败"}</div>}{session?.status === "已完成" && <div className="notice success">已写入岗位面经档案{dossier?.reminder ? `，准备提醒已安排在 ${formatDateTime(dossier.reminder.scheduled_at)}` : "；当前没有确定的未来面试，暂不推送提醒"}。</div>}</aside></div>;
+  const inputView = <div className="intel-tab-grid"><aside className="intel-rail"><div className="panel intel-input-card"><div className="section-title"><Sparkle size={20} /><div><h2>新增面经</h2><span>先选择轮次，再录入文字或截图</span></div></div><label>所属轮次<select value={roundType} onChange={(event) => setRoundType(event.target.value as IntelRoundType | "")} disabled={isRunning}><option value="">请选择轮次</option>{rounds.map((round) => <option key={round} value={round}>{round}</option>)}</select></label><textarea rows={9} value={paste} onChange={(event) => setPaste(event.target.value)} disabled={isRunning} placeholder="粘贴面经、备忘录或面试题…" /><div className={`intel-upload-zone${draggingImages ? " is-dragging" : ""}`} onDragOver={(event) => { event.preventDefault(); setDraggingImages(true); }} onDragLeave={leaveImageDropzone} onDrop={dropImageFiles}><label className="upload-control"><ImageSquare size={18} />拖拽图片到这里，或点击选择<input type="file" accept="image/png,image/jpeg,image/webp" multiple onChange={selectImageFiles} disabled={uploading || isRunning} /></label>{imageFiles.length > 0 && <div className="intel-upload-files">{imageFiles.map((file, index) => <div className="intel-upload-file" key={`${file.name}-${index}`}><span title={file.name}>{file.name}</span><button type="button" onClick={() => { setImageFiles((current) => current.filter((_, fileIndex) => fileIndex !== index)); setImageTexts((current) => current.filter((_, textIndex) => textIndex !== index)); setImagesRecognized(false); }} disabled={uploading || isRunning}>移除</button></div>)}</div>}</div>{imageFiles.length > 0 && <button className="button ghost" type="button" onClick={extractImages} disabled={uploading || isRunning}>{uploading ? "正在识别截图…" : "识别截图"}</button>}{imageTexts.length > 0 && <div className="intel-image-texts"><strong>截图识别结果（可编辑）</strong>{imageTexts.map((item, index) => <label key={`${item.name}-${index}`}><span>{item.name}</span><textarea rows={5} value={item.text} onChange={(event) => setImageTexts((current) => current.map((entry, entryIndex) => entryIndex === index ? { ...entry, text: event.target.value } : entry))} disabled={isRunning} /></label>)}</div>}<button className="button primary" disabled={loading || uploading || isRunning} onClick={submit}><Sparkle size={18} />{loading || isRunning ? "正在整理…" : "开始分析"}</button></div>{session?.progress_payload && <ProgressSources progress={session.progress_payload} />}{session?.status === "待裁决" && <div className="intel-conflicts"><p>这份资料可能包含岗位描述或不确定结论，请确认后写入岗位档案。</p>{session.conflicts?.map((item) => <label key={item.field}>“{item.field}”<select value={choices[item.field] ?? ""} onChange={(event) => setChoices({ ...choices, [item.field]: event.target.value })}><option value="">请选择候选结论</option>{item.candidates.map((candidate) => <option key={candidate.value} value={candidate.value}>{candidate.value}</option>)}</select></label>)}<div className="intel-conflict-actions"><button className="button primary" disabled={loading} onClick={resolve}><Check size={17} />确认并写入</button><button className="button ghost danger-button" disabled={loading} onClick={askDiscard}>舍弃此次分析</button></div></div>}{session?.status === "失败" && <div className="notice error">{session.error_message ?? "面经分析失败"}</div>}{session?.status === "已完成" && <div className="notice success">已写入岗位面经档案{dossier?.reminder ? `，准备提醒已安排在 ${formatDateTime(dossier.reminder.scheduled_at)}` : "；当前没有确定的未来面试，暂不推送提醒"}。</div>}</aside></div>;
   const summaryView = (
     <div className="intel-summary-layout">
       <main className="intel-main panel">
@@ -309,7 +308,7 @@ export function IntelPage() {
       </div>
       {error && <div className="notice error" role="alert">{error}</div>}
       {session?.status === "失败" && <div className="notice error"><span>{session.error_message ?? "面经分析失败"}</span><button className="button ghost compact-button" type="button" disabled={loading} onClick={() => void retrySession()}>重试</button></div>}
-      <div className="intel-context panel">
+      <ContextBar className="intel-context">
         <label>
           当前投递
           <select value={applicationId} onChange={(event) => setApplicationId(Number(event.target.value))} disabled={isRunning}>
@@ -317,18 +316,10 @@ export function IntelPage() {
             {applications.map((item) => <option key={item.id} value={item.id}>{applicationLabel(item)}</option>)}
           </select>
         </label>
-        <label>
-          分析模型
-          <select value={provider} onChange={(event) => setProvider(event.target.value)} disabled={isRunning}>
-            {providers.map((item) => <option key={item.name} value={item.name}>{item.label} · {item.model}</option>)}
-          </select>
-        </label>
-        <label className="intel-toggle">
-          <input type="checkbox" checked={supplementWeb} onChange={(event) => setSupplementWeb(event.target.checked)} disabled={isRunning} />
-          联网补充（需 AnySearch）
-        </label>
+        <span className="intel-context-note">已按当前设置自动选择分析模型</span>
+        <StatusBadge tone={searchConfigured ? "ready" : "neutral"}>{searchConfigured ? "公开检索已启用" : "当前为本地资料模式"}</StatusBadge>
         {selectedApplication && <span className="intel-context-note">资料会聚合到 {applicationLabel(selectedApplication)}</span>}
-      </div>
+      </ContextBar>
       <nav className="intel-tabs" aria-label="面经工作台分区">
         {([["input", "录入与进度"], ["summary", "面试洞察"], ["library", "面经档案"]] as [IntelTab, string][]).map(([value, label]) => (
           <button key={value} type="button" className={activeTab === value ? "active" : ""} onClick={() => selectTab(value)}>

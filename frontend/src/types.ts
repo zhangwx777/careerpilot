@@ -24,6 +24,26 @@ export interface ProviderConfigInput {
   base_url?: string | null;
 }
 
+export interface SearchConfig {
+  configured: boolean;
+  api_key_masked: string | null;
+  endpoint: string | null;
+  tool_name: string;
+  validation_message: string | null;
+}
+
+export type LlmRoleName = "interview" | "planner" | "briefing" | "vision";
+export interface LlmRoleStatus {
+  provider: string | null;
+  effective_provider: string | null;
+  effective_model: string | null;
+  uses_default: boolean;
+}
+export interface LlmRoles {
+  roles: Record<LlmRoleName, LlmRoleStatus>;
+  providers: ProviderOption[];
+}
+
 export interface ProviderTestResult {
   provider: string;
   ok: boolean;
@@ -44,28 +64,25 @@ export interface PipelineBucket {
 
 export interface Dashboard {
   pipeline: PipelineBucket[];
-  attention: TimelineNode[];
-  today_actions: {
-    items: DashboardAction[];
-    total: number;
-    pending_count: number;
-  };
+  feed: DashboardFeedItem[];
 }
 
-export interface DashboardAction {
-  task_id: number;
-  planner_session_id: number;
-  application_id: number;
+export interface DashboardFeedItem {
+  kind: "preparation" | "timeline";
+  id: number;
+  title: string;
   company_name: string;
   position_title: string;
-  title: string;
+  task_id: number | null;
+  planner_session_id: number | null;
+  timeline_node_id: number | null;
   detail: string | null;
-  priority: number;
-  status: "待处理" | "已完成" | "已跳过";
-  estimated_minutes: number;
+  category: PreparationCategory | null;
+  priority: number | null;
+  node_type: string | null;
+  status: string;
   scheduled_at: string | null;
-  deferred_until: string | null;
-  source_ids: string[];
+  alert_types: string[];
 }
 
 export const APPLICATION_STATUSES = [
@@ -224,9 +241,12 @@ export interface IntelChatMessage { id: number; role: "user" | "assistant"; cont
 export interface AvailabilityWindow { weekday: number; start: string; end: string; }
 export interface ResumeProfile { resume_text: string; file_name: string | null; updated_at: string; }
 export interface PlannerGap { name: string; evidence: string; }
-export interface PlannerAction { title: string; detail: string | null; gap?: string | null; priority: number; estimated_minutes?: number; source_ids: string[]; evidence?: { kind: "resume" | "jd" | "intel" | "timeline"; reference: string }[]; }
+export type PreparationCategory = "八股" | "简历内容";
+export interface PlannerAction { title: string; detail: string | null; gap?: string | null; category: PreparationCategory; priority: number; estimated_minutes?: number; source_ids: string[]; evidence?: { kind: "resume" | "jd" | "intel" | "timeline"; reference: string }[]; }
+export interface PreparationAnswer { question: string; core_answer: string; personalized_answer: string; follow_ups: string[]; }
+export interface PreparationFeedback { strengths: string[]; gaps: string[]; rewrite: string; }
 export interface PlannerReport { summary: string | null; strengths: PlannerGap[]; gaps: PlannerGap[]; actions: PlannerAction[]; }
 export interface ScheduledTask { title: string; detail: string | null; gap: string; source_ids: string[]; estimated_minutes: number; scheduled_at: string; ends_at: string; }
 export interface PlannerSession { id: number; application_id: number; application: Application; provider: string; available_windows: AvailabilityWindow[]; draft_payload: PlannerReport | { gaps: PlannerGap[]; tasks: ScheduledTask[] } | null; status: "生成中" | "待确认" | "已确认" | "已完成" | "已丢弃" | "失败"; error_message: string | null; queue_task_id?: string | null; created_at: string; resolved_at: string | null; }
-export interface PreparationTask { id: number; planner_session_id: number; application_id: number; title: string; detail: string | null; gap: string | null; source_ids: string[]; evidence?: { kind: "resume" | "jd" | "intel" | "timeline"; reference: string }[]; scheduled_at: string | null; ends_at: string | null; estimated_minutes: number; priority: number; action_index: number | null; deferred_until: string | null; status: "待处理" | "已完成" | "已跳过"; timeline_node_id: number | null; created_at: string; }
-export interface DailyBriefing { id: number; briefing_date: string; payload: { alerts: { timeline_node_id: number; title: string; scheduled_at: string; alert_types: TimelineAlert[] }[]; today_tasks: { task_id: number; title: string; scheduled_at: string; ends_at: string; application_id: number }[]; new_sources: { application_id: number; title: string; url: string }[]; search_errors: { application_id: number; message: string }[]; }; created_at: string; }
+export interface PreparationTask { id: number; planner_session_id: number; application_id: number; title: string; detail: string | null; gap: string | null; category: PreparationCategory; source_ids: string[]; evidence?: { kind: "resume" | "jd" | "intel" | "timeline"; reference: string }[]; scheduled_at: string | null; ends_at: string | null; priority: number; action_index: number | null; deferred_until: string | null; status: "待处理" | "已完成" | "已跳过"; timeline_node_id: number | null; answer_payload: PreparationAnswer | null; user_answer: string | null; feedback_payload: PreparationFeedback | null; created_at: string; }
+export interface DailyBriefing { id: number; briefing_date: string; payload: { alerts: { timeline_node_id: number; title: string; scheduled_at: string; alert_types: TimelineAlert[] }[]; today_tasks: { task_id: number; title: string; scheduled_at: string; ends_at: string; application_id: number }[]; new_sources: { application_id: number; title: string; url: string; snippet?: string; company_name?: string; position_title?: string }[]; search_errors: { application_id: number; message: string }[]; analysis_status?: "未生成" | "生成中" | "已完成" | "失败" | "不可用"; analysis?: { summary?: string; items?: { url: string; value: "high" | "medium" | "low"; relation: "interview" | "preparation" | "both" | "unrelated"; reason: string; recommended_action?: string | null }[] }; }; created_at: string; }

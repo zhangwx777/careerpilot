@@ -23,10 +23,7 @@ const pageSize = 12;
 const weekDays = ["一", "二", "三", "四", "五", "六", "日"];
 
 function dateKey(date: Date) {
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, "0");
-  const day = String(date.getDate()).padStart(2, "0");
-  return `${year}-${month}-${day}`;
+  return new Intl.DateTimeFormat("sv-SE", { timeZone: "Asia/Shanghai" }).format(date);
 }
 
 function calendarTime(node: TimelineNode) {
@@ -36,9 +33,8 @@ function calendarTime(node: TimelineNode) {
 }
 
 function dayRange(value: string) {
-  const start = new Date(`${value}T00:00:00`);
-  const end = new Date(start);
-  end.setDate(end.getDate() + 1);
+  const start = new Date(`${value}T00:00:00+08:00`);
+  const end = new Date(start.getTime() + 86_400_000);
   return { start: start.toISOString(), end: end.toISOString() };
 }
 
@@ -223,9 +219,9 @@ export function TimelinePage() {
     <section>
       <div className="page-heading timeline-heading">
         <div>
-          <span className="eyebrow">安排与提醒</span>
+          <span className="eyebrow">完整日程</span>
           <h1>求职地图</h1>
-          <p>所有确认过的截止、笔试与面试，都在同一个时间坐标里。</p>
+          <p>集中查看面试、笔试、测评和截止日期，按列表或月历管理已确认的求职节点。</p>
         </div>
         <div className="view-switch" aria-label="切换时间线视图">
           <button className={view === "list" ? "active" : ""} type="button" onClick={() => setView("list")}>

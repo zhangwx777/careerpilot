@@ -19,6 +19,7 @@ import type {
   ProviderModelsResult,
   ResumeProfile,
   ScheduledTask,
+  LlmRoles,
 } from "./types";
 
 type QueryValue = string | number | boolean | undefined;
@@ -116,6 +117,15 @@ export const api = {
         body: JSON.stringify({ provider }),
       }),
   },
+  search: {
+    get: () => request<import("./types").SearchConfig>("/api/llm/search"),
+    save: (input: { api_key: string; endpoint: string; tool_name: string }) => request<import("./types").SearchConfig>("/api/llm/search", { method: "PUT", body: JSON.stringify(input) }),
+    remove: () => request<import("./types").SearchConfig>("/api/llm/search", { method: "DELETE" }),
+  },
+  roles: {
+    get: () => request<LlmRoles>("/api/llm/roles"),
+    save: (roles: Record<import("./types").LlmRoleName, string | null>) => request<LlmRoles>("/api/llm/roles", { method: "PUT", body: JSON.stringify(roles) }),
+  },
   applications: {
     list: (
       params: {
@@ -192,7 +202,7 @@ export const api = {
       }),
   },
   intel: {
-    create: (input: { application_id: number; provider?: string; round_type: import("./types").IntelRoundType; user_paste: string | null; image_texts: { name: string; text: string }[]; supplement_web: boolean }) => request<import("./types").IntelSession>("/api/intel", { method: "POST", body: JSON.stringify(input) }),
+    create: (input: { application_id: number; provider?: string; round_type: import("./types").IntelRoundType; user_paste: string | null; image_texts: { name: string; text: string }[] }) => request<import("./types").IntelSession>("/api/intel", { method: "POST", body: JSON.stringify(input) }),
     list: (params: { page?: number; page_size?: number; application_id?: number; q?: string } = {}) => request<Page<import("./types").InterviewIntel>>(`/api/intel${queryString(params)}`),
     sessions: () => request<import("./types").IntelSession[]>("/api/intel-sessions"),
     session: (id: number) => request<import("./types").IntelSession>(`/api/intel-sessions/${id}`),
@@ -214,16 +224,22 @@ export const api = {
     create: (input: { application_id: number; provider?: string }) => request<PlannerSession>("/api/planner-sessions", { method: "POST", body: JSON.stringify(input) }),
     sessions: () => request<PlannerSession[]>("/api/planner-sessions"),
     session: (id: number) => request<PlannerSession>(`/api/planner-sessions/${id}`),
-    materializeActions: (id: number) => request<PlannerSession>(`/api/planner-sessions/${id}/materialize-actions`, { method: "POST" }),
+    remove: (id: number) => request<void>(`/api/planner-sessions/${id}`, { method: "DELETE" }),
+    materializeActions: (id: number, action_indexes: number[]) => request<PlannerSession>(`/api/planner-sessions/${id}/materialize-actions`, { method: "POST", body: JSON.stringify({ action_indexes }) }),
     confirm: (id: number, tasks: ScheduledTask[]) => request<PlannerSession>(`/api/planner-sessions/${id}/confirm`, { method: "POST", body: JSON.stringify({ tasks }) }),
     discard: (id: number) => request<PlannerSession>(`/api/planner-sessions/${id}/discard`, { method: "POST" }),
     retry: (id: number) => request<PlannerSession>(`/api/planner-sessions/${id}/retry`, { method: "POST" }),
     tasks: (params: { page?: number; page_size?: number; application_id?: number; status?: PreparationTask["status"]; include_deferred?: boolean } = {}) => request<Page<PreparationTask>>(`/api/preparation-tasks${queryString(params)}`),
-    updateTask: (id: number, status: PreparationTask["status"], deferred_until?: string | null) => request<PreparationTask>(`/api/preparation-tasks/${id}/status`, { method: "PATCH", body: JSON.stringify({ status, ...(deferred_until !== undefined ? { deferred_until } : {}) }) }),
+    task: (id: number) => request<PreparationTask>(`/api/preparation-tasks/${id}`),
+    updateTask: (id: number, input: { status?: PreparationTask["status"]; category?: import("./types").PreparationCategory }) => request<PreparationTask>(`/api/preparation-tasks/${id}/status`, { method: "PATCH", body: JSON.stringify(input) }),
+    removeTask: (id: number) => request<void>(`/api/preparation-tasks/${id}`, { method: "DELETE" }),
+    generateAnswer: (id: number) => request<PreparationTask>(`/api/preparation-tasks/${id}/answer`, { method: "POST" }),
+    reviewAnswer: (id: number, user_answer: string) => request<PreparationTask>(`/api/preparation-tasks/${id}/review`, { method: "POST", body: JSON.stringify({ user_answer }) }),
   },
   briefings: {
     run: () => request<DailyBriefing>("/api/daily-briefings/run", { method: "POST" }),
-    list: (params: { page?: number; page_size?: number } = {}) => request<Page<DailyBriefing>>(`/api/daily-briefings${queryString(params)}`),
+    list: (params: { page?: number; page_size?: number; briefing_date?: string } = {}) => request<Page<DailyBriefing>>(`/api/daily-briefings${queryString(params)}`),
     get: (id: number) => request<DailyBriefing>(`/api/daily-briefings/${id}`),
+    analyze: (id: number) => request<DailyBriefing>(`/api/daily-briefings/${id}/analyze`, { method: "POST" }),
   },
 };

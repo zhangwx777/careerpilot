@@ -8,6 +8,7 @@ import { SmartEntryPage } from "./pages/SmartEntryPage";
 import { TimelinePage } from "./pages/TimelinePage";
 import { IntelPage } from "./pages/IntelPage";
 import { PlannerPage } from "./pages/PlannerPage";
+import { PracticePage } from "./pages/PracticePage";
 import { BriefingPage } from "./pages/BriefingPage";
 import { SettingsPage } from "./pages/SettingsPage";
 
@@ -27,6 +28,7 @@ export default function App() {
         <Route path="/intel/:id" element={<IntelPage />} />
         <Route path="/planner" element={<PlannerPage />} />
         <Route path="/planner/:id" element={<PlannerPage />} />
+        <Route path="/practice/:taskId" element={<PracticePage />} />
         <Route path="/daily-briefings" element={<BriefingPage />} />
         <Route path="/settings" element={<SettingsPage />} />
         <Route path="*" element={<Navigate to="/dashboard" replace />} />

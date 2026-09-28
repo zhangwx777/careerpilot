@@ -3,6 +3,7 @@ import { PencilSimple, Plus, Trash, Tray } from "@phosphor-icons/react";
 import { Link } from "react-router-dom";
 
 import { api } from "../api";
+import { ContextBar } from "../components/DesignPrimitives";
 import { ConfirmDialog } from "../components/ConfirmDialog";
 import { Pagination } from "../components/Pagination";
 import { StatusRail } from "../components/StatusRail";
@@ -15,15 +16,6 @@ import {
 } from "../types";
 
 const pageSize = 12;
-
-function availableStatuses(status: ApplicationStatus): ApplicationStatus[] {
-  if (status === "offer" || status === "挂") return [];
-  const forward = APPLICATION_STATUSES.slice(
-    APPLICATION_STATUSES.indexOf(status) + 1,
-    -1,
-  );
-  return [...forward, "挂"];
-}
 
 export function ApplicationsPage() {
   const [statusFilter, setStatusFilter] = useState<ApplicationStatus | "">("");
@@ -86,7 +78,7 @@ export function ApplicationsPage() {
         </Link>
       </div>
 
-      <div className="filter-bar applications-filters">
+      <ContextBar className="filter-bar applications-filters">
         <div className="search-form auto-search">
           <label htmlFor="application-search" className="sr-only">
             搜索投递
@@ -118,7 +110,7 @@ export function ApplicationsPage() {
             ))}
           </select>
         </label>
-      </div>
+      </ContextBar>
 
       {error && <div className="notice error" role="alert">{error}</div>}
 
@@ -126,8 +118,8 @@ export function ApplicationsPage() {
         <div className="ledger-head">
           <span>公司 / 岗位</span>
           <span>投递时间</span>
-          <span>阶段轨道</span>
-          <span>下一步</span>
+          <span>投递阶段</span>
+          <span>推进</span>
           <span>操作</span>
         </div>
         {loading ? (
@@ -145,7 +137,6 @@ export function ApplicationsPage() {
             {data.items.map((application) => {
               const company = application.position.company;
               const position = application.position;
-              const nextStatuses = availableStatuses(application.status);
               return (
                 <article className="ledger-row" key={application.id}>
                   <div className="ledger-application-target">
@@ -162,17 +153,15 @@ export function ApplicationsPage() {
                     {formatDate(application.applied_at)}
                   </div>
                   <StatusRail status={application.status} />
-                  <div className="status-action" data-label="下一步">
-                    {nextStatuses.length ? (
-                      <select
-                        aria-label={`推进 ${company.name} ${position.title} 的状态`}
-                        value=""
-                        onChange={(event) => transition(application, event.target.value as ApplicationStatus)}
-                      >
-                        <option value="" disabled>推进至…</option>
-                        {nextStatuses.map((status) => <option key={status}>{status}</option>)}
-                      </select>
-                    ) : <span className="terminal-label">流程已结束</span>}
+                  <div className="status-action" data-label="推进">
+                    <select
+                      aria-label={`推进 ${company.name} ${position.title} 的状态`}
+                      value={application.status}
+                      onChange={(event) => transition(application, event.target.value as ApplicationStatus)}
+                    >
+                      <option value={application.status} disabled>{application.status}</option>
+                      {APPLICATION_STATUSES.filter((status) => status !== application.status).map((status) => <option key={status}>{status}</option>)}
+                    </select>
                   </div>
                   <div className="row-actions">
                     <Link to={`/applications/${application.id}/edit`}>

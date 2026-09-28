@@ -4,8 +4,11 @@ import { BrowserRouter } from "react-router-dom";
 import { Theme } from "@radix-ui/themes";
 
 import App from "./App";
+import { clearTransientInputDrafts } from "./drafts";
 import "@radix-ui/themes/styles.css";
 import "./styles.css";
+
+clearTransientInputDrafts(window.localStorage);
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
