@@ -32,3 +32,7 @@ skills-lock.json
 
 # 宣传物料
 promo/
+
+# 开发过程文档（本地保留，不进仓库）
+docs/archive/
+docs/progress.md
