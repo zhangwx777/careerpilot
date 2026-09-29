@@ -174,10 +174,12 @@ export function SmartEntryPage() {
   });
 
   useEffect(() => {
-    if (timeMode === "截止窗口" && scheduledAt && deadlineWorkdays) {
+    // 工作日推算只在截止时间为空时补一个建议值；模型已给出明确截止时间、
+    // 或用户手动填过之后，就不再覆盖。
+    if (timeMode === "截止窗口" && scheduledAt && deadlineWorkdays && !endsAt) {
       setEndsAt(deadlineAfterWorkdays(scheduledAt, deadlineWorkdays));
     }
-  }, [deadlineWorkdays, scheduledAt, timeMode]);
+  }, [deadlineWorkdays, scheduledAt, timeMode, endsAt]);
 
   useEffect(() => {
     if (!session) saveDraft(window.localStorage, noticeDraftKey, { rawText });
@@ -469,24 +471,6 @@ export function SmartEntryPage() {
                       {TIME_MODES.map((value) => <option key={value}>{value}</option>)}
                     </select>
                   </label>
-                  <label className="field-block">
-                    <span>通知来源</span>
-                    <input value={source} onChange={(event) => setSource(event.target.value)} disabled={!canResolve} placeholder="邮件 / 短信 / 网页" />
-                  </label>
-                  {timeMode === "截止窗口" && (
-                    <label className="field-block">
-                      <span>完成时限（工作日）</span>
-                      <input
-                        type="number"
-                        min="1"
-                        max="31"
-                        value={deadlineWorkdays ?? ""}
-                        onChange={(event) => setDeadlineWorkdays(event.target.value ? Number(event.target.value) : null)}
-                        disabled={!canResolve}
-                        required
-                      />
-                    </label>
-                  )}
                   <label className="field-block">
                     <span>{timeMode === "截止窗口" ? "起算时间" : "开始时间"}</span>
                     <input type="datetime-local" value={scheduledAt} onChange={(event) => setScheduledAt(event.target.value)} disabled={!canResolve} required />

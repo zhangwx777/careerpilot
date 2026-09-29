@@ -13,11 +13,23 @@ const stages: ApplicationStatus[] = [
 ];
 
 export function StatusRail({ status }: { status: ApplicationStatus }) {
+  const rejected = status === "挂";
+  const currentIndex = stages.indexOf(status);
   return (
-    <div className="status-rail" aria-label={`投递阶段节点，当前状态：${status}`}>
-      {stages.map((stage) => (
-        <span key={stage} title={stage} aria-hidden="true" />
-      ))}
+    <div
+      className={rejected ? "status-rail is-rejected" : "status-rail"}
+      aria-label={`投递阶段节点，当前状态：${status}`}
+    >
+      {stages.map((stage, index) => {
+        const reached = !rejected && currentIndex >= 0 && index <= currentIndex;
+        const current = !rejected && index === currentIndex;
+        const className = [reached ? "is-reached" : "", current ? "is-current" : ""]
+          .filter(Boolean)
+          .join(" ");
+        return (
+          <span key={stage} className={className || undefined} title={stage} aria-hidden="true" />
+        );
+      })}
     </div>
   );
 }

@@ -265,6 +265,12 @@ input:focus, select:focus, textarea:focus { border-color: var(--brand); box-shad
 .status-rail { display: grid; grid-template-columns: repeat(9, 1fr) auto; align-items: center; min-width: 0; }
 .status-rail > span { position: relative; height: 2px; background: #d7d7cf; }
 .status-rail > span::before { content: ""; position: absolute; top: 50%; left: 0; width: 7px; height: 7px; border: 2px solid #c5c7c1; border-radius: 50%; background: var(--paper); transform: translate(-2px, -50%); }
+.status-rail > span.is-reached { background: var(--brand-soft); }
+.status-rail > span.is-reached::before { border-color: var(--brand); background: var(--brand); }
+.status-rail > span.is-current::before { width: 9px; height: 9px; border-color: var(--brand); background: var(--paper); box-shadow: 0 0 0 3px var(--brand-pale); transform: translate(-3px, -50%); }
+.status-rail.is-rejected > span { background: #e4e4df; }
+.status-rail.is-rejected > span::before { border-color: #d0d0ca; }
+.status-rail.is-rejected > span:last-child::before { border-color: var(--danger); background: var(--danger); }
 .status-action select { width: 100%; min-height: 36px; padding: 6px 28px 6px 10px; font-size: 12px; }
 .status-action select:disabled { color: var(--muted); background: #f4f8f8; cursor: default; opacity: 1; }
 .terminal-label { color: var(--muted); font-size: 12px; }

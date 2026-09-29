@@ -10,6 +10,7 @@ const intelPage = readFileSync(new URL("./src/pages/IntelPage.tsx", import.meta.
 const settingsPage = readFileSync(new URL("./src/pages/SettingsPage.tsx", import.meta.url), "utf8");
 const timelinePage = readFileSync(new URL("./src/pages/TimelinePage.tsx", import.meta.url), "utf8");
 const applicationsPage = readFileSync(new URL("./src/pages/ApplicationsPage.tsx", import.meta.url), "utf8");
+const smartEntryPage = readFileSync(new URL("./src/pages/SmartEntryPage.tsx", import.meta.url), "utf8");
 const statusRail = readFileSync(new URL("./src/components/StatusRail.tsx", import.meta.url), "utf8");
 const layout = readFileSync(new URL("./src/components/Layout.tsx", import.meta.url), "utf8");
 
@@ -94,5 +95,29 @@ test("application ledger presents the current node as the progression control", 
   assert.match(applicationsPage, /value=\{application\.status\}/);
   assert.match(applicationsPage, /APPLICATION_STATUSES\.map/);
   assert.doesNotMatch(applicationsPage, /下一步|推进至…/);
-  assert.doesNotMatch(statusRail, /is-reached|status-label/);
+});
+
+test("status rail highlights reached stages and marks the current node", () => {
+  // 轨道按当前状态在阶段序列中的位置高亮已达节点，并标出当前节点
+  assert.match(statusRail, /indexOf\(status\)/);
+  assert.match(statusRail, /is-reached/);
+  assert.match(statusRail, /is-current/);
+  // 终态“挂”不落在阶段轨道上，整条置灰单独标记
+  assert.match(statusRail, /"挂"/);
+  assert.match(statusRail, /is-rejected/);
+  // 高亮样式必须真正存在于 CSS 中
+  assert.match(styles, /\.status-rail\s+[^{]*\.is-reached/);
+  assert.match(styles, /\.status-rail\s+[^{]*\.is-current/);
+  assert.match(styles, /\.status-rail\.is-rejected/);
+});
+
+test("smart entry lets the user own the deadline instead of recomputing over it", () => {
+  // 工作日推算只在截止时间为空时补建议值，绝不覆盖已填写的截止时间
+  assert.doesNotMatch(smartEntryPage, /if \(timeMode === "截止窗口" && scheduledAt && deadlineWorkdays\) \{/);
+  assert.match(smartEntryPage, /!endsAt/);
+  // 完成时限与通知来源不再由用户手填
+  assert.doesNotMatch(smartEntryPage, /完成时限/);
+  assert.doesNotMatch(smartEntryPage, /邮件 \/ 短信 \/ 网页/);
+  assert.doesNotMatch(smartEntryPage, /setDeadlineWorkdays\(event\.target\.value/);
+  assert.doesNotMatch(smartEntryPage, /setSource\(event\.target\.value\)/);
 });
