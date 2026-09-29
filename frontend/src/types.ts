@@ -195,7 +195,7 @@ export interface ParseConfirmation {
   application_id: number;
   node_type: NodeType;
   time_mode: TimeMode;
-  scheduled_at: string;
+  scheduled_at: string | null;
   ends_at: string | null;
   source: string | null;
 }
@@ -236,7 +236,7 @@ export interface IntelInsightPreparation { title: string; detail: string; priori
 export interface IntelInsight { status: "未生成" | "生成中" | "已生成" | "失败" | "暂无资料"; high_frequency_directions: IntelDirection[]; core_questions: IntelCoreQuestion[]; preparation_items: IntelInsightPreparation[]; error_message: string | null; }
 export interface IntelDossier { application_id: number; position_id: number; company_name: string; position_title: string; payload: IntelPayload; insight: IntelInsight; materials: InterviewIntel[]; sources: SourceRecord[]; reminder: { id: number; scheduled_at: string | null; title: string | null } | null; }
 export interface IntelChatSource { id: string; title: string; url: string | null; kind: string; file_name: string | null; published_at: string | null; }
-export interface IntelChatMessage { id: number; role: "user" | "assistant"; content: string; status: "生成中" | "已完成" | "失败"; source_ids: string[]; agent_stage?: string | null; degraded?: boolean; insufficient_data?: boolean; used_tools?: string[]; answer_mode?: "sourced" | "mixed" | "general" | null; search_status?: "not_used" | "success" | "empty" | "failed" | null; sources?: IntelChatSource[]; created_at: string; }
+export interface IntelChatMessage { id: number; role: "user" | "assistant"; content: string; status: "生成中" | "已完成" | "失败"; source_ids: string[]; agent_stage?: string | null; degraded?: boolean; insufficient_data?: boolean; used_tools?: string[]; answer_mode?: "sourced" | "mixed" | "general" | null; search_status?: "not_used" | "success" | "empty" | "failed" | null; sources?: IntelChatSource[]; error_message?: string | null; created_at: string; }
 
 export interface AvailabilityWindow { weekday: number; start: string; end: string; }
 export interface ResumeProfile { resume_text: string; file_name: string | null; updated_at: string; }

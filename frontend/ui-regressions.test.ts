@@ -14,11 +14,46 @@ const smartEntryPage = readFileSync(new URL("./src/pages/SmartEntryPage.tsx", im
 const statusRail = readFileSync(new URL("./src/components/StatusRail.tsx", import.meta.url), "utf8");
 const layout = readFileSync(new URL("./src/components/Layout.tsx", import.meta.url), "utf8");
 
-test("intel chat has a dedicated always-visible vertical scrollbar", () => {
+test("intel chat history has an internal scroll region when messages exist", () => {
   const rule = styles.match(/\.intel-chat-history\s*\{([^}]*)\}/)?.[1] ?? "";
-  assert.match(rule, /overflow-y:\s*scroll/);
+  assert.match(intelPage, /className="intel-chat-history"/);
+  assert.match(rule, /overflow-y:\s*auto/);
   assert.match(rule, /scrollbar-gutter:\s*stable/);
-  assert.match(rule, /height:\s*(?:min|clamp)\(/);
+  assert.match(rule, /min-height:\s*0/);
+});
+
+test("intel workbench uses a fixed, independently scrollable chat window", () => {
+  assert.match(intelPage, /createPortal/);
+  assert.match(intelPage, /aria-expanded=\{chatOpen\}/);
+  assert.match(intelPage, /aria-controls="intel-chat-window"/);
+  assert.match(intelPage, /role="dialog"/);
+  assert.match(intelPage, /chatHistoryRef/);
+  assert.match(intelPage, /scrollTop\s*=\s*[^;]*scrollHeight/);
+  assert.doesNotMatch(intelPage, /<details className="intel-chat-turn"/);
+  assert.match(styles, /\.intel-workbench\s*\{[^}]*grid-template-columns:\s*1fr;/s);
+  assert.match(styles, /\.intel-chat-window\s*\{[^}]*position:\s*fixed;/s);
+  assert.match(styles, /\.intel-chat-window\s*\{[^}]*width:\s*min\(420px,/s);
+  assert.match(styles, /\.intel-chat-window\s*\{[^}]*max-height:\s*min\(680px,/s);
+  assert.match(styles, /\.intel-chat-history\s*\{[^}]*min-height:\s*0;[^}]*overflow-y:\s*auto/s);
+  assert.match(styles, /@media\s*\(max-width:\s*540px\)[\s\S]*?\.intel-chat-window/);
+});
+
+test("intel chat exposes answer copy, turn deletion, clear history and generation errors", () => {
+  assert.match(intelPage, /navigator\.clipboard\.writeText/);
+  assert.match(intelPage, /deleteChatTurn\(/);
+  assert.match(intelPage, /clearChatHistory\(/);
+  assert.match(intelPage, /answer\.error_message/);
+  assert.match(intelPage, /复制回答/);
+  assert.match(intelPage, /清空历史/);
+  assert.match(styles, /\.intel-chat-copy/);
+  assert.match(styles, /\.intel-chat-delete-turn/);
+});
+
+test("intel insights keep a compact round overview and move preparation focus out", () => {
+  assert.match(intelPage, /<h3>轮次概览<\/h3>/);
+  assert.doesNotMatch(intelPage, /<h3>准备重点<\/h3>/);
+  assert.doesNotMatch(intelPage, /className="intel-preparation-list"/);
+  assert.match(intelPage, /onAsk=\{[^}]*openChat/);
 });
 
 test("planner action selection stays interactive for candidate actions", () => {
@@ -53,12 +88,23 @@ test("planner is single-column and action metadata has a stable side rail", () =
   assert.doesNotMatch(plannerPage, /分析范围/);
 });
 
-test("wide pages and upload dropzone use one visual content boundary", () => {
+test("planner strengths and gaps keep evidence readable in distinct groups", () => {
+  assert.match(plannerPage, /planner-insight-strengths/);
+  assert.match(plannerPage, /planner-insight-gaps/);
+  assert.match(plannerPage, /planner-insight-preview/);
+  assert.match(styles, /\.planner-insight-strengths\s*\{[^}]*background:/s);
+  assert.match(styles, /\.planner-insight-gaps\s*\{[^}]*background:/s);
+  assert.match(styles, /-webkit-line-clamp:\s*2/);
+  assert.match(styles, /\.planner-summary p\s*\{[^}]*max-width:\s*82ch/);
+});
+
+test("wide pages and the intel composer use one visual content boundary", () => {
   assert.match(styles, /\.practice-layout\s*\{\s*width:\s*100%;\s*max-width:\s*none;/);
   assert.match(styles, /\.briefing-grid\s*\{\s*display:\s*block;/);
   assert.match(styles, /\.briefing-content section\s*\{[^}]*max-width:\s*none;/s);
-  assert.match(styles, /\.intel-upload-zone\s*\{[^}]*box-sizing:\s*border-box;/s);
-  assert.match(styles, /\.upload-control\s*\{[^}]*min-height:\s*92px;/s);
+  assert.match(intelPage, /className="intel-composer"/);
+  assert.match(styles, /\.intel-composer\s*\{[^}]*border:\s*1px solid/s);
+  assert.match(styles, /\.intel-composer-actions\s*\{/);
 });
 
 test("plan selection is an unlabeled accessible checkbox and views refresh after task changes", () => {
@@ -77,8 +123,8 @@ test("navigation, timeline and settings keep their distinct responsibilities", (
   assert.match(styles, /\.intel-tabs button\.active\s*\{[^}]*background:/s);
   assert.doesNotMatch(styles, /\.intel-tabs button\.active\s*\{[^}]*box-shadow:/s);
   assert.match(styles, /\.intel-tabs button:focus-visible/);
-  assert.match(styles, /\.intel-library-filter\s*\{[^}]*white-space:\s*nowrap;/s);
-  assert.match(intelPage, /轮次筛选/);
+  assert.doesNotMatch(intelPage, /轮次筛选|intel-library-filter/);
+  assert.match(intelPage, /<Materials items=\{dossier\?\.materials \?\? \[\]\}/);
   assert.match(timelinePage, /完整日程/);
   assert.match(dashboardPage, /查看完整日程/);
   assert.match(settingsPage, /settings-disclosure/);
@@ -115,9 +161,20 @@ test("smart entry lets the user own the deadline instead of recomputing over it"
   // 工作日推算只在截止时间为空时补建议值，绝不覆盖已填写的截止时间
   assert.doesNotMatch(smartEntryPage, /if \(timeMode === "截止窗口" && scheduledAt && deadlineWorkdays\) \{/);
   assert.match(smartEntryPage, /!endsAt/);
+  assert.match(smartEntryPage, /timeMode === "固定时间" && \(/);
+  assert.match(smartEntryPage, /scheduled_at: timeMode === "固定时间" \? toApiDate\(scheduledAt\) : null/);
+  assert.match(smartEntryPage, /timeMode === "截止窗口" \? !endsAt : !scheduledAt/);
   // 完成时限与通知来源不再由用户手填
   assert.doesNotMatch(smartEntryPage, /完成时限/);
   assert.doesNotMatch(smartEntryPage, /邮件 \/ 短信 \/ 网页/);
   assert.doesNotMatch(smartEntryPage, /setDeadlineWorkdays\(event\.target\.value/);
   assert.doesNotMatch(smartEntryPage, /setSource\(event\.target\.value\)/);
+});
+
+test("smart entry makes missing company and position names visible", () => {
+  assert.doesNotMatch(smartEntryPage, /disabled=\{!canResolve \|\| creatingApplication \|\| !companyName\.trim\(\) \|\| !positionTitle\.trim\(\)\}/);
+  assert.match(smartEntryPage, /请填写公司名称/);
+  assert.match(smartEntryPage, /请填写岗位名称/);
+  assert.match(styles, /\.extraction-clues input \{[^}]*font-size: 16px/);
+  assert.doesNotMatch(styles, /\.extraction-clues input \+ input \{[^}]*font-size: 12px/);
 });

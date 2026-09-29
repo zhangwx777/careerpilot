@@ -9,6 +9,24 @@
 
 桌面包包含前端、后端、PostgreSQL、随包任务队列运行时、.NET Runtime 和 Electron 启动器；用户不需要另装 Python、Node.js、pnpm、PostgreSQL、Redis、Docker 或 .NET。桌面启动器只管理安装包自己的 PostgreSQL、任务队列、API 和 worker，不读取开发机服务，也不调用开发环境的 Docker Compose。
 
+### 构建与客户端更新
+
+首次构建或修改桌面运行时依赖时，运行完整构建：
+
+```powershell
+.\packaging\build.ps1
+```
+
+前端、后端或 Electron 代码更新时，在已有完整构建 payload 的机器上运行快速构建：
+
+```powershell
+.\packaging\build.ps1 -AppOnly
+```
+
+快速构建会重新生成前端、后端应用层和 Electron 壳，再生成 `dist\CareerPilotSetup.exe` 与 `dist\CareerPilot-portable.zip`；PostgreSQL、Garnet、.NET 和冻结的 Python 运行时沿用已有 payload。没有完整 payload 时先运行一次完整构建。修改上述运行时、桌面依赖或安装器配置后应运行完整构建。
+
+桌面版本号取自 `desktop/package.json`。发布时使用对应的 `v<版本号>` GitHub Release 标签，并将安装器以精确文件名 `CareerPilotSetup.exe` 上传。客户端“模型设置 → 软件更新”会检查最新 Release；发现更高版本后可下载并启动该安装器。用户数据位于 `%LOCALAPPDATA%\CareerPilot`，由安装器更新时保留。
+
 ## Docker 源码部署
 
 开发和服务器部署需要 Docker Desktop 或 Docker Engine。复制 `.env.example` 为 `.env` 后运行：

@@ -215,6 +215,8 @@ export const api = {
     deleteMaterial: (id: number) => request<{ deleted: number }>(`/api/intel/materials/${id}`, { method: "DELETE" }),
     chat: (input: { application_id: number; provider?: string; question: string }) => request<{ message: import("./types").IntelChatMessage; source_ids: string[] }>("/api/intel/chat", { method: "POST", body: JSON.stringify(input) }),
     chatHistory: (application_id: number) => request<import("./types").IntelChatMessage[]>(`/api/intel/chat${queryString({ application_id })}`),
+    deleteChatTurn: (application_id: number, user_message_id: number, assistant_message_id: number) => request<{ deleted: number[] }>(`/api/intel/chat/${assistant_message_id}${queryString({ application_id, user_message_id })}`, { method: "DELETE" }),
+    clearChatHistory: (application_id: number) => request<{ deleted_count: number }>(`/api/intel/chat${queryString({ application_id })}`, { method: "DELETE" }),
   },
   planner: {
     resume: () => request<ResumeProfile>("/api/resume-profile"),

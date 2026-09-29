@@ -8,7 +8,7 @@ from typing import Annotated, Literal
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, status
 from pydantic import BaseModel, ConfigDict, Field
-from sqlalchemy import func, or_, select
+from sqlalchemy import delete, func, or_, select
 from sqlalchemy.orm import Session, joinedload
 
 from app.agent_runtime import DEFAULT_BUDGET, run_chat_agent
@@ -179,6 +179,7 @@ class IntelChatMessageRead(BaseModel):
     answer_mode: str | None = None
     search_status: str | None = None
     sources: list[IntelChatSourceRead] = Field(default_factory=list)
+    error_message: str | None = None
     created_at: datetime
 
 
@@ -205,6 +206,7 @@ def _chat_message_read(
     data["used_tools"] = list(run.used_tools or []) if run else []
     data["answer_mode"] = run.answer_mode if run else None
     data["search_status"] = run.search_status if run else None
+    data["error_message"] = run.error_message if run else None
     data["sources"] = [
         IntelChatSourceRead.model_validate({key: value for key, value in source.items() if key != "text"})
         for source in (run.sources if run else [])
@@ -708,7 +710,7 @@ def _run_intel_chat(message_id: int, application_id: int, provider: str, questio
             assistant = db.get(IntelChatMessage, message_id)
             if assistant is not None and assistant.status == "生成中":
                 assistant.status = "失败"
-                assistant.content = error_message
+                assistant.content = assistant.content or error_message
                 assistant.source_ids = []
                 run = db.scalar(
                     select(AgentRun).where(AgentRun.assistant_message_id == message_id)
@@ -763,6 +765,51 @@ def list_intel_chat(application_id: PositiveId, db: DbSession):
         _chat_message_read(message, runs.get(message.id), valid_material_ids)
         for message in messages
     ]
+
+
+@router.delete("/intel/chat/{assistant_message_id}")
+def delete_intel_chat_turn(
+    assistant_message_id: PositiveId,
+    application_id: PositiveId,
+    user_message_id: PositiveId,
+    db: DbSession,
+):
+    application = _application_with_position(db, application_id)
+    assistant = db.get(IntelChatMessage, assistant_message_id)
+    user = db.get(IntelChatMessage, user_message_id)
+    if (
+        assistant is None
+        or user is None
+        or assistant.role != "assistant"
+        or user.role != "user"
+        or assistant.position_id != application.position_id
+        or user.position_id != application.position_id
+    ):
+        raise HTTPException(404, "问答记录不存在")
+    if assistant.status == "生成中":
+        raise HTTPException(409, "回答生成中，暂时不能删除")
+    deleted_ids = [user.id, assistant.id]
+    db.execute(delete(AgentRun).where(AgentRun.assistant_message_id == assistant.id))
+    db.delete(user)
+    db.delete(assistant)
+    db.commit()
+    return {"deleted": deleted_ids}
+
+
+@router.delete("/intel/chat")
+def clear_intel_chat_history(application_id: PositiveId, db: DbSession):
+    application = _application_with_position(db, application_id)
+    messages = db.scalars(
+        select(IntelChatMessage).where(IntelChatMessage.position_id == application.position_id)
+    ).all()
+    if any(message.role == "assistant" and message.status == "生成中" for message in messages):
+        raise HTTPException(409, "回答生成中，暂时不能清空历史")
+    assistant_ids = [message.id for message in messages if message.role == "assistant"]
+    if assistant_ids:
+        db.execute(delete(AgentRun).where(AgentRun.assistant_message_id.in_(assistant_ids)))
+    db.execute(delete(IntelChatMessage).where(IntelChatMessage.position_id == application.position_id))
+    db.commit()
+    return {"deleted_count": len(messages)}
 
 
 @router.post("/intel/chat", response_model=IntelChatReply)

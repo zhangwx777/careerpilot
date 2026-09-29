@@ -206,7 +206,16 @@ def create_planner_session(
         llm_snapshot = snapshot_for(db, provider)
     except LlmConfigError as exc:
         raise HTTPException(503, str(exc)) from None
-    intel_snapshot = [
+    intel_snapshot = []
+    position_insight = application.position.intel_insight or {}
+    if position_insight.get("status") == "已生成":
+        intel_snapshot.append({
+            "kind": "position_insight",
+            "high_frequency_directions": position_insight.get("high_frequency_directions", []),
+            "core_questions": position_insight.get("core_questions", []),
+            "preparation_items": position_insight.get("preparation_items", []),
+        })
+    intel_snapshot.extend([
         {"id": intel.id, "payload": intel.payload, "confidence": intel.confidence}
         for intel in db.scalars(
             select(InterviewIntel)
@@ -214,7 +223,7 @@ def create_planner_session(
             .order_by(InterviewIntel.created_at.desc())
             .limit(3)
         ).all()
-    ]
+    ])
     item = PlannerSession(
         application_id=application.id,
         provider=provider,

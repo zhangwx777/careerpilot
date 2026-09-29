@@ -1,6 +1,8 @@
-const { app, BrowserWindow, dialog } = require("electron");
+const { app, BrowserWindow, dialog, ipcMain } = require("electron");
 const { spawn, spawnSync } = require("node:child_process");
 const fs = require("node:fs");
+const { Readable } = require("node:stream");
+const { pipeline } = require("node:stream/promises");
 const http = require("node:http");
 const net = require("node:net");
 const path = require("node:path");
@@ -20,6 +22,7 @@ const initdb = path.join(pgBin, "initdb.exe");
 const backendExe = path.join(runtimeRoot, "backend", "CareerPilotBackend.exe");
 const garnetExe = path.join(runtimeRoot, "garnet", "GarnetServer.exe");
 const dotnetRoot = path.join(runtimeRoot, "dotnet");
+const releaseApiUrl = "https://api.github.com/repos/zhangwx777/careerpilot/releases/latest";
 
 let backend;
 let worker;
@@ -33,6 +36,67 @@ let shuttingDown = false;
 function run(executable, args) {
   return spawnSync(executable, args, { stdio: "ignore", windowsHide: true });
 }
+
+function compareVersions(left, right) {
+  const parts = (version) => version.replace(/^v/, "").split(".").map(Number);
+  const a = parts(left);
+  const b = parts(right);
+  for (let index = 0; index < a.length; index += 1) {
+    if (a[index] !== b[index]) return a[index] - b[index];
+  }
+  return 0;
+}
+
+async function latestRelease() {
+  const response = await fetch(releaseApiUrl, {
+    headers: { Accept: "application/vnd.github+json", "User-Agent": "CareerPilot" },
+  });
+  if (!response.ok) throw new Error(`GitHub Releases 请求失败（${response.status}）。`);
+  const release = await response.json();
+  const version = String(release.tag_name ?? "").replace(/^v/, "");
+  if (!/^\d+\.\d+\.\d+$/.test(version)) throw new Error("最新 Release 的版本标签格式无效。");
+  return {
+    version,
+    installer: release.assets?.find((asset) => asset.name === "CareerPilotSetup.exe"),
+  };
+}
+
+ipcMain.handle("updates:check", async () => {
+  const release = await latestRelease();
+  const currentVersion = app.getVersion();
+  return {
+    currentVersion,
+    latestVersion: release.version,
+    updateAvailable: compareVersions(release.version, currentVersion) > 0,
+    installerAvailable: Boolean(release.installer?.browser_download_url),
+  };
+});
+
+ipcMain.handle("updates:install", async () => {
+  const release = await latestRelease();
+  if (compareVersions(release.version, app.getVersion()) <= 0) throw new Error("当前已是最新版本。");
+  if (!release.installer?.browser_download_url) throw new Error("最新 Release 中没有 CareerPilotSetup.exe。");
+
+  const response = await fetch(release.installer.browser_download_url);
+  if (!response.ok || !response.body) throw new Error(`安装包下载失败（${response.status}）。`);
+  const installerPath = path.join(app.getPath("temp"), `CareerPilotSetup-${release.version}.exe`);
+  try {
+    await pipeline(Readable.fromWeb(response.body), fs.createWriteStream(installerPath));
+  } catch (error) {
+    fs.rmSync(installerPath, { force: true });
+    throw error;
+  }
+
+  await new Promise((resolve, reject) => {
+    const installer = spawn(installerPath, [], { detached: true, stdio: "ignore", windowsHide: true });
+    installer.once("error", reject);
+    installer.once("spawn", () => {
+      installer.unref();
+      resolve();
+    });
+  });
+  app.quit();
+});
 
 function sleep(milliseconds) {
   return new Promise((resolve) => setTimeout(resolve, milliseconds));
@@ -199,7 +263,7 @@ function createWindow() {
     minHeight: 720,
     show: false,
     icon: path.join(appRoot, "brand-mark.png"),
-    webPreferences: { contextIsolation: true, zoomFactor: 0.9 },
+    webPreferences: { contextIsolation: true, preload: path.join(__dirname, "preload.cjs"), zoomFactor: 0.9 },
   });
   window.once("ready-to-show", () => window.show());
   window.loadURL(`http://127.0.0.1:${backendPort}`);

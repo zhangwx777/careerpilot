@@ -30,18 +30,20 @@ class ParseConfirmation(BaseModel):
     application_id: PositiveId
     node_type: NodeType
     time_mode: TimeMode = "固定时间"
-    scheduled_at: datetime
+    scheduled_at: datetime | None = None
     ends_at: datetime | None = None
     source: str | None = Field(default=None, max_length=200)
 
     @model_validator(mode="after")
     def validate_times(self):
-        if self.scheduled_at.utcoffset() is None:
+        if self.scheduled_at is not None and self.scheduled_at.utcoffset() is None:
             raise ValueError("scheduled_at 必须包含时区")
+        if self.time_mode == "固定时间" and self.scheduled_at is None:
+            raise ValueError("固定时间必须填写安排时间")
         if self.ends_at is not None:
             if self.ends_at.utcoffset() is None:
                 raise ValueError("ends_at 必须包含时区")
-            if self.ends_at <= self.scheduled_at:
+            if self.scheduled_at is not None and self.ends_at <= self.scheduled_at:
                 raise ValueError("ends_at 必须晚于 scheduled_at")
         if self.time_mode == "截止窗口" and self.ends_at is None:
             raise ValueError("截止窗口必须填写截止时间")

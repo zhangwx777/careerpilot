@@ -22,6 +22,8 @@ $garnetUrl = "https://github.com/microsoft/garnet/releases/download/v$garnetVers
 $dotnetUrl = "https://builds.dotnet.microsoft.com/dotnet/Runtime/$dotnetRuntimeVersion/dotnet-runtime-$dotnetRuntimeVersion-win-x64.zip"
 $pgHome = 'C:\Program Files\PostgreSQL\18'
 $python = Join-Path $root 'backend\.venv\Scripts\python.exe'
+$desktopPackage = Get-Content (Join-Path $root 'desktop\package.json') -Raw | ConvertFrom-Json
+$appVersion = $desktopPackage.version
 
 if (-not (Test-Path -LiteralPath $python)) { throw '缺少后端 Python 虚拟环境。' }
 if (-not $AppOnly -and -not (Test-Path -LiteralPath $pgHome)) { throw '未找到 PostgreSQL 18 安装。' }
@@ -41,6 +43,36 @@ function Ensure-Download([string]$url, [string]$destination) {
         Write-Host "下载 $url"
         Invoke-WebRequest -Uri $url -OutFile $destination -UseBasicParsing
     }
+}
+
+function Write-InstallerArtifacts {
+    if (Test-Path -LiteralPath $portableArtifact) { Remove-Item -LiteralPath $portableArtifact -Force }
+    Compress-Archive -Path (Join-Path $payloadRoot '*') -DestinationPath $portableArtifact -CompressionLevel Fastest -Force
+
+    if (Test-Path -LiteralPath $artifact) { Remove-Item -LiteralPath $artifact -Force }
+    $inno = @(
+        (Join-Path ${env:ProgramFiles(x86)} 'Inno Setup 6\ISCC.exe'),
+        (Join-Path $env:ProgramFiles 'Inno Setup 6\ISCC.exe')
+    ) | Where-Object { Test-Path -LiteralPath $_ } | Select-Object -First 1
+    if (-not $inno) { throw '未找到 Inno Setup 6 的 ISCC.exe。' }
+    $iss = Join-Path $PSScriptRoot 'installer\CareerPilot.iss'
+    & $inno "/DAppVersion=$appVersion" "/DPayloadRoot=$payloadRoot" "/DOutputDir=$(Split-Path $artifact)" "/DIconPath=$iconPath" $iss
+    if ($LASTEXITCODE -ne 0) { throw '标准安装器生成失败。' }
+    if (-not (Test-Path -LiteralPath $artifact)) { throw '安装器生成失败。' }
+}
+
+function Build-ElectronShell {
+    $electronSource = Join-Path $root 'desktop'
+    Push-Location (Join-Path $root 'frontend')
+    try {
+        & corepack pnpm exec electron-packager $electronSource CareerPilot --platform=win32 --arch=x64 --electron-version=37.10.3 --out $electronRoot --overwrite --icon $iconPath
+        if ($LASTEXITCODE -ne 0) { throw '桌面应用打包失败。' }
+    } finally {
+        Pop-Location
+    }
+    Copy-Item -Path (Join-Path $electronRoot 'CareerPilot-win32-x64\*') -Destination $payloadRoot -Recurse -Force
+    Copy-Item -LiteralPath $iconPath -Destination (Join-Path $payloadRoot 'brand-mark.ico') -Force
+    Copy-Item -LiteralPath (Join-Path $root 'frontend\public\brand-mark.png') -Destination (Join-Path $payloadRoot 'brand-mark.png') -Force
 }
 
 # --- 应用层：前端 dist ---
@@ -66,7 +98,15 @@ Get-ChildItem -Path $appBackend -Recurse -Directory -Filter '__pycache__' | Remo
 
 # @@MARKER_FULL_BUILD@@
 if ($AppOnly) {
-    Write-Host '应用层已刷新（-AppOnly）。运行时层与 Electron 壳保持不变。'
+    Write-Host '应用层与 Electron 壳已刷新（-AppOnly）。运行时层保持不变。'
+    Build-ElectronShell
+    Write-InstallerArtifacts
+    [pscustomobject]@{
+        Artifact = $artifact
+        PortableArtifact = $portableArtifact
+        SizeMB = [math]::Round((Get-Item $artifact).Length / 1MB, 1)
+        PortableSizeMB = [math]::Round((Get-Item $portableArtifact).Length / 1MB, 1)
+    } | Format-List
     return
 }
 
@@ -136,33 +176,9 @@ try {
     $iconWriter.Dispose()
 }
 
-# --- Electron 壳 ---
-$electronSource = Join-Path $root 'desktop'
-Push-Location (Join-Path $root 'frontend')
-try {
-    & corepack pnpm exec electron-packager $electronSource CareerPilot --platform=win32 --arch=x64 --electron-version=37.10.3 --out $electronRoot --overwrite --icon $iconPath
-    if ($LASTEXITCODE -ne 0) { throw '桌面应用打包失败。' }
-} finally {
-    Pop-Location
-}
-Copy-Item -Path (Join-Path $electronRoot 'CareerPilot-win32-x64\*') -Destination $payloadRoot -Recurse -Force
-Copy-Item -LiteralPath $iconPath -Destination (Join-Path $payloadRoot 'brand-mark.ico') -Force
-Copy-Item -LiteralPath $iconSource -Destination (Join-Path $payloadRoot 'brand-mark.png') -Force
+Build-ElectronShell
 
-# --- 打包产物：绿色版 zip + 标准 Setup.exe 安装器 ---
-if (Test-Path -LiteralPath $portableArtifact) { Remove-Item -LiteralPath $portableArtifact -Force }
-Compress-Archive -Path (Join-Path $payloadRoot '*') -DestinationPath $portableArtifact -CompressionLevel Fastest -Force
-
-if (Test-Path -LiteralPath $artifact) { Remove-Item -LiteralPath $artifact -Force }
-$inno = @(
-    (Join-Path ${env:ProgramFiles(x86)} 'Inno Setup 6\ISCC.exe'),
-    (Join-Path $env:ProgramFiles 'Inno Setup 6\ISCC.exe')
-) | Where-Object { Test-Path -LiteralPath $_ } | Select-Object -First 1
-if (-not $inno) { throw '未找到 Inno Setup 6 的 ISCC.exe。' }
-$iss = Join-Path $PSScriptRoot 'installer\CareerPilot.iss'
-& $inno "/DAppVersion=0.1.1" "/DPayloadRoot=$payloadRoot" "/DOutputDir=$(Split-Path $artifact)" "/DIconPath=$iconPath" $iss
-if ($LASTEXITCODE -ne 0) { throw '标准安装器生成失败。' }
-if (-not (Test-Path -LiteralPath $artifact)) { throw '安装器生成失败。' }
+Write-InstallerArtifacts
 
 [pscustomobject]@{
     Artifact = $artifact

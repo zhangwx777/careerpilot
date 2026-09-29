@@ -335,20 +335,20 @@ export function PlannerPage() {
                 </div>
               </section>
               <div className="planner-report-grid">
-                <section>
-                  <h3>已有优势</h3>
+                <section className="planner-insight-group planner-insight-strengths">
+                  <div className="planner-insight-heading"><div><span>与岗位要求相符</span><h3>已有优势</h3></div><strong>{report.strengths.length} 项</strong></div>
                   {report.strengths.length ? report.strengths.map((item) => (
                     <details className="planner-insight-item" key={item.name}>
-                      <summary><strong>{item.name}</strong><span>查看依据</span></summary>
+                      <summary><span className="planner-insight-summary-copy"><strong>{item.name}</strong><span className="planner-insight-preview">{item.evidence}</span></span><span className="planner-insight-expand"><span>展开依据</span><span>收起依据</span></span></summary>
                       <p>{item.evidence}</p>
                     </details>
                   )) : <p className="quiet-empty">暂无明确优势。</p>}
                 </section>
-                <section>
-                  <h3>需要补强</h3>
+                <section className="planner-insight-group planner-insight-gaps">
+                  <div className="planner-insight-heading"><div><span>准备行动的切入点</span><h3>需要补强</h3></div><strong>{report.gaps.length} 项</strong></div>
                   {report.gaps.length ? report.gaps.map((item) => (
                     <details className="planner-insight-item" key={item.name}>
-                      <summary><strong>{item.name}</strong><span>查看依据</span></summary>
+                      <summary><span className="planner-insight-summary-copy"><strong>{item.name}</strong><span className="planner-insight-preview">{item.evidence}</span></span><span className="planner-insight-expand"><span>展开依据</span><span>收起依据</span></span></summary>
                       <p>{item.evidence}</p>
                     </details>
                   )) : <p className="quiet-empty">暂无明确差距。</p>}

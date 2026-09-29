@@ -1,13 +1,21 @@
 import unittest
 from unittest.mock import patch
 
-from sqlalchemy import create_engine, delete
+from fastapi import HTTPException
+from sqlalchemy import create_engine, delete, select
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from app.agent_schemas import AgentRunResult, AgentSource
 from app.db import Base
-from app.intel_api import _run_intel_chat
+from app.llm.structured import StructuredOutputError
+from app.intel_api import (
+    _run_intel_chat,
+    clear_intel_chat_history,
+    delete_intel_chat_turn,
+    _chat_message_read,
+    router,
+)
 from app.models import AgentRun, Application, Company, IntelChatMessage, InterviewIntel, Position
 
 
@@ -71,6 +79,8 @@ class IntelAgentChatIntegrationTestCase(unittest.TestCase):
             )
             db.add(run)
             db.flush()
+            self.position_id = position.id
+            self.user_message_id = user.id
             self.message_id = assistant.id
             self.application_id = application.id
             self.run_id = run.id
@@ -102,6 +112,95 @@ class IntelAgentChatIntegrationTestCase(unittest.TestCase):
             self.assertEqual(assistant.source_ids, ["material-1:manual"])
             self.assertEqual(run.status, "completed")
             self.assertEqual(run.sources[0]["id"], "material-1:manual")
+
+    @patch("app.intel_api.config_from_snapshot", return_value={"api_key": "key", "model": "model"})
+    @patch("app.intel_api.run_chat_agent")
+    @patch("app.intel_api.parse_structured", side_effect=StructuredOutputError("格式错误"))
+    def test_structured_failure_keeps_streamed_plain_text(self, _parse, run_agent, _config):
+        def emit_partial_answer(*args, **kwargs):
+            kwargs["on_chunk"]('{"answer":"已生成的可读回答片段')
+            return AgentRunResult(raw="invalid structured output", sources=[])
+
+        run_agent.side_effect = emit_partial_answer
+        with patch("app.intel_api.SessionLocal", self.sessions), patch("app.intel_api.time.monotonic", return_value=10.0):
+            _run_intel_chat(self.message_id, self.application_id, "anthropic", "重点准备什么？")
+
+        with self.sessions() as db:
+            assistant = db.get(IntelChatMessage, self.message_id)
+            run = db.get(AgentRun, self.run_id)
+            self.assertEqual(assistant.status, "失败")
+            self.assertEqual(assistant.content, "已生成的可读回答片段")
+            self.assertEqual(run.error_kind, "structured_output")
+            self.assertEqual(_chat_message_read(assistant, run).error_message, "模型返回格式不符合要求，请稍后重试")
+
+    def test_chat_history_has_single_turn_and_clear_delete_routes(self):
+        delete_routes = {
+            route.path
+            for route in router.routes
+            if "DELETE" in getattr(route, "methods", set())
+        }
+        self.assertIn("/api/intel/chat", delete_routes)
+        self.assertIn("/api/intel/chat/{assistant_message_id}", delete_routes)
+
+    def test_delete_turn_removes_both_messages_and_its_run(self):
+        with self.sessions() as db:
+            user = IntelChatMessage(
+                position_id=self.position_id, role="user", content="第二个问题", status="已完成", source_ids=[]
+            )
+            assistant = IntelChatMessage(
+                position_id=self.position_id, role="assistant", content="第二个回答", status="已完成", source_ids=[]
+            )
+            db.add_all([user, assistant])
+            db.flush()
+            run = AgentRun(
+                kind="chat", assistant_message_id=assistant.id, position_id=self.position_id,
+                application_id=self.application_id, provider="anthropic", status="completed", stage="完成",
+            )
+            db.add(run)
+            db.flush()
+            user_id, assistant_id, run_id = user.id, assistant.id, run.id
+
+            result = delete_intel_chat_turn(assistant_id, self.application_id, user_id, db)
+
+            self.assertEqual(result["deleted"], [user_id, assistant_id])
+            self.assertIsNone(db.get(IntelChatMessage, user_id))
+            self.assertIsNone(db.get(IntelChatMessage, assistant_id))
+            self.assertIsNone(db.get(AgentRun, run_id))
+            self.assertIsNotNone(db.get(IntelChatMessage, self.message_id))
+
+    def test_clear_history_is_scoped_to_current_position(self):
+        with self.sessions() as db:
+            current_assistant = db.get(IntelChatMessage, self.message_id)
+            current_assistant.status = "失败"
+            db.get(AgentRun, self.run_id).status = "failed"
+            other_company = Company(name="另一家公司")
+            other_position = Position(company=other_company, title="另一岗位")
+            other_application = Application(position=other_position, status="已投递")
+            other_user = IntelChatMessage(
+                position=other_position, role="user", content="保留的问题", status="已完成", source_ids=[]
+            )
+            db.add_all([other_application, other_user])
+            db.flush()
+            other_position_id, other_user_id = other_position.id, other_user.id
+
+            result = clear_intel_chat_history(self.application_id, db)
+
+            self.assertEqual(result["deleted_count"], 2)
+            self.assertEqual(
+                db.scalars(select(IntelChatMessage).where(IntelChatMessage.position_id == self.position_id)).all(),
+                [],
+            )
+            self.assertEqual(db.get(IntelChatMessage, other_user_id).position_id, other_position_id)
+            self.assertIsNone(db.get(AgentRun, self.run_id))
+
+    def test_generating_turn_cannot_be_deleted_or_cleared(self):
+        with self.sessions() as db:
+            with self.assertRaises(HTTPException) as turn_error:
+                delete_intel_chat_turn(self.message_id, self.application_id, self.user_message_id, db)
+            self.assertEqual(turn_error.exception.status_code, 409)
+            with self.assertRaises(HTTPException) as clear_error:
+                clear_intel_chat_history(self.application_id, db)
+            self.assertEqual(clear_error.exception.status_code, 409)
 
 
 if __name__ == "__main__":

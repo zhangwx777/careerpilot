@@ -8,6 +8,7 @@ from fastapi import HTTPException
 from app.intel_api import IntelChatCreate, IntelImage, IntelImageExtractCreate, _chat_messages, _partial_chat_answer, create_intel_chat, extract_intel_images
 from app.intel_graph import _apply_round_selection, _decide_review, _is_relevant_source, _merge
 from app.intel_insight import _parse
+from app.llm.prompts import CHAT_PROMPT_VERSION, CHAT_SYSTEM_PROMPT, PLANNER_ACTION_PROMPT_VERSION, PLANNER_SYSTEM_PROMPT
 from app.intel_parsing import SYSTEM_PROMPT, extract_intel
 from app.intel_reminders import reminder_start
 from app.intel_schemas import Fact, IntelExtraction, IntelPayload, IntelQuestion, PreparationItem, SourceRecord
@@ -95,6 +96,13 @@ class IntelFeatureTestCase(unittest.TestCase):
         prompt = _chat_messages(application, IntelPayload(), [source], "如何设计 Agent workflow？")
         self.assertIn("直接回答用户的问题", prompt[0]["content"])
         self.assertNotIn("只根据提供的岗位面经回答", prompt[0]["content"])
+
+    def test_chat_and_planner_prompts_use_plain_text_and_position_insight(self):
+        self.assertIn("回答正文必须使用纯文本", CHAT_SYSTEM_PROMPT)
+        self.assertIn("不得使用 Markdown", CHAT_SYSTEM_PROMPT)
+        self.assertEqual(CHAT_PROMPT_VERSION, "chat-2026-09-29.v1")
+        self.assertIn("合并重复主题", PLANNER_SYSTEM_PROMPT)
+        self.assertEqual(PLANNER_ACTION_PROMPT_VERSION, "planner-action-2026-09-29.v1")
 
     def test_partial_chat_answer_is_visible_before_json_is_complete(self):
         self.assertEqual(_partial_chat_answer('{"answer":"先从项目边界'), "先从项目边界")

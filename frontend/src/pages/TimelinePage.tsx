@@ -26,16 +26,17 @@ function dateKey(date: Date) {
   return new Intl.DateTimeFormat("sv-SE", { timeZone: "Asia/Shanghai" }).format(date);
 }
 
-function calendarTime(node: TimelineNode) {
-  return node.scheduled_at
-    ? new Intl.DateTimeFormat("zh-CN", { hour: "2-digit", minute: "2-digit" }).format(new Date(node.scheduled_at))
-    : ""
+function timelineDate(node: TimelineNode) {
+  return node.time_mode === "截止窗口"
+    ? node.ends_at ?? node.scheduled_at
+    : node.scheduled_at;
 }
 
-function dayRange(value: string) {
-  const start = new Date(`${value}T00:00:00+08:00`);
-  const end = new Date(start.getTime() + 86_400_000);
-  return { start: start.toISOString(), end: end.toISOString() };
+function calendarTime(node: TimelineNode) {
+  const value = timelineDate(node);
+  return value
+    ? new Intl.DateTimeFormat("zh-CN", { hour: "2-digit", minute: "2-digit" }).format(new Date(value))
+    : ""
 }
 
 function monthGrid(month: Date) {
@@ -68,8 +69,8 @@ function TimelineItem({ node, focused, updatingId, onStatusChange }: TimelineIte
       className={`timeline-item${focused ? " is-focused" : ""}`}
     >
       <div className="timeline-date-block">
-        <strong>{formatDateTime(node.scheduled_at)}</strong>
-        <span>{node.ends_at ? `至 ${formatDateTime(node.ends_at)}` : "未记录结束时间"}</span>
+        <strong>{node.time_mode === "截止窗口" ? `截止 ${formatDateTime(timelineDate(node))}` : formatDateTime(node.scheduled_at)}</strong>
+        <span>{node.time_mode === "截止窗口" ? "截止时间" : node.ends_at ? `至 ${formatDateTime(node.ends_at)}` : "未记录结束时间"}</span>
       </div>
       <div className="timeline-target">
         <div>
@@ -103,10 +104,6 @@ export function TimelinePage() {
   const initialDate = searchParams.get("date") || dateKey(new Date());
   const [view, setView] = useState<"list" | "calendar">("list");
   const [page, setPage] = useState(1);
-  const [startDate, setStartDate] = useState(initialDate);
-  const [endDate, setEndDate] = useState(
-    initialDate,
-  );
   const [statusFilter, setStatusFilter] = useState<NodeStatus | "">("");
   const [listData, setListData] = useState<Page<TimelineNode>>({
     items: [], total: 0, page: 1, page_size: pageSize,
@@ -126,15 +123,13 @@ export function TimelinePage() {
     let cancelled = false;
     setLoading(true);
     setError("");
-    const start = startDate ? dayRange(startDate).start : undefined;
-    const end = endDate ? dayRange(endDate).end : undefined;
     api.timeline
-      .list({ page, page_size: pageSize, start, end, status: statusFilter || undefined })
+      .list({ page, page_size: pageSize, status: statusFilter || undefined })
       .then((result) => { if (!cancelled) setListData(result); })
       .catch((reason: Error) => { if (!cancelled) setError(reason.message); })
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
-  }, [endDate, page, revision, startDate, statusFilter]);
+  }, [page, revision, statusFilter]);
 
   const days = useMemo(() => monthGrid(calendarMonth), [calendarMonth]);
 
@@ -183,8 +178,9 @@ export function TimelinePage() {
   const nodesByDay = useMemo(() => {
     const grouped = new Map<string, TimelineNode[]>();
     for (const item of calendarNodes) {
-      if (!item.scheduled_at) continue;
-      const key = dateKey(new Date(item.scheduled_at));
+      const value = timelineDate(item);
+      if (!value) continue;
+      const key = dateKey(new Date(value));
       grouped.set(key, [...(grouped.get(key) ?? []), item]);
     }
     return grouped;
@@ -235,14 +231,6 @@ export function TimelinePage() {
 
       <div className="filter-bar timeline-filters">
         <label className="select-control">
-          <span>开始日期</span>
-          <input type="date" value={startDate} onChange={(event) => { setStartDate(event.target.value); setPage(1); }} />
-        </label>
-        <label className="select-control">
-          <span>结束日期</span>
-          <input type="date" value={endDate} onChange={(event) => { setEndDate(event.target.value); setPage(1); }} />
-        </label>
-        <label className="select-control">
           <span>状态</span>
           <select value={statusFilter} onChange={(event) => { setStatusFilter(event.target.value as NodeStatus | ""); setPage(1); }}>
             <option value="">全部状态</option>
@@ -263,7 +251,7 @@ export function TimelinePage() {
             ) : listData.items.length === 0 ? (
               <div className="empty-state">
                 <CalendarDots size={36} weight="duotone" aria-hidden="true" />
-                <strong>这个范围内还没有安排</strong>
+                <strong>还没有安排</strong>
                 <span>从智能录入确认一条通知后，它会出现在这里。</span>
               </div>
             ) : listData.items.map((item) => (

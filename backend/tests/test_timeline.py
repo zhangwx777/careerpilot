@@ -173,10 +173,19 @@ class TimelineApiTestCase(unittest.TestCase):
                 scheduled_at=datetime(2026, 10, 1, tzinfo=timezone.utc),
                 status="待处理",
             )
-            db.add_all([first, second, boundary])
+            deadline_only = TimelineNode(
+                application_id=application.id,
+                node_type="测评",
+                scheduled_at=None,
+                ends_at=datetime(2026, 10, 2, 23, 59, tzinfo=timezone.utc),
+                time_mode="截止窗口",
+                status="待处理",
+            )
+            db.add_all([first, second, boundary, deadline_only])
             db.flush()
             self.first_id = first.id
             self.second_id = second.id
+            self.deadline_only_id = deadline_only.id
 
         def override_db():
             with self.session_factory() as db:
@@ -203,6 +212,19 @@ class TimelineApiTestCase(unittest.TestCase):
         self.assertEqual([item["id"] for item in data["items"]], [self.first_id, self.second_id])
         self.assertEqual(data["items"][0]["conflict_node_ids"], [self.second_id])
         self.assertIn("冲突", data["items"][0]["alert_types"])
+
+    def test_deadline_only_node_is_filtered_by_its_deadline(self):
+        response = self.client.get(
+            "/api/timeline",
+            params={
+                "start": "2026-10-02T00:00:00+00:00",
+                "end": "2026-10-03T00:00:00+00:00",
+            },
+        )
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual([item["id"] for item in response.json()["items"]], [self.deadline_only_id])
+        self.assertIsNone(response.json()["items"][0]["scheduled_at"])
+        self.assertEqual(response.json()["items"][0]["ends_at"], "2026-10-02T23:59:00Z")
 
     def test_status_update_removes_conflict_from_both_views(self):
         updated = self.client.patch(

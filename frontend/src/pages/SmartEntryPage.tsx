@@ -92,9 +92,12 @@ export function SmartEntryPage() {
     setCompanyName(draft?.companyName ?? extraction?.company_name ?? "");
     setPositionTitle(draft?.positionTitle ?? extraction?.position_title ?? "");
     setNodeType(draft?.nodeType ?? extraction?.node_type ?? "");
-    setTimeMode(draft?.timeMode ?? extraction?.time_mode ?? "固定时间");
+    const restoredTimeMode = draft?.timeMode ?? extraction?.time_mode ?? "固定时间";
+    setTimeMode(restoredTimeMode);
     setDeadlineWorkdays(draft?.deadlineWorkdays ?? extraction?.deadline_workdays ?? null);
-    setScheduledAt(draft?.scheduledAt ?? toLocalInput(extraction?.scheduled_at ?? new Date().toISOString()));
+    setScheduledAt(draft?.scheduledAt ?? (restoredTimeMode === "固定时间"
+      ? toLocalInput(extraction?.scheduled_at ?? new Date().toISOString())
+      : ""));
     setEndsAt(draft?.endsAt ?? toLocalInput(extraction?.ends_at ?? null));
     setSource(draft?.source ?? extraction?.source ?? "");
     setApplicationQuery(draft?.applicationQuery ??
@@ -176,10 +179,10 @@ export function SmartEntryPage() {
   useEffect(() => {
     // 工作日推算只在截止时间为空时补一个建议值；模型已给出明确截止时间、
     // 或用户手动填过之后，就不再覆盖。
-    if (timeMode === "截止窗口" && scheduledAt && deadlineWorkdays && !endsAt) {
-      setEndsAt(deadlineAfterWorkdays(scheduledAt, deadlineWorkdays));
+    if (timeMode === "截止窗口" && session?.created_at && deadlineWorkdays && !endsAt) {
+      setEndsAt(deadlineAfterWorkdays(toLocalInput(session.created_at), deadlineWorkdays));
     }
-  }, [deadlineWorkdays, scheduledAt, timeMode, endsAt]);
+  }, [deadlineWorkdays, endsAt, session?.created_at, timeMode]);
 
   useEffect(() => {
     if (!session) saveDraft(window.localStorage, noticeDraftKey, { rawText });
@@ -231,8 +234,12 @@ export function SmartEntryPage() {
   }
 
   async function createApplication() {
-    if (!session || !companyName.trim() || !positionTitle.trim()) {
-      setError("请补全公司和岗位");
+    if (!session) return;
+    if (!companyName.trim() || !positionTitle.trim()) {
+      setError(`请填写${[
+        !companyName.trim() && "公司名称",
+        !positionTitle.trim() && "岗位名称",
+      ].filter(Boolean).join("和")}`);
       return;
     }
     setCreatingApplication(true);
@@ -265,8 +272,17 @@ export function SmartEntryPage() {
 
   async function confirm(event: FormEvent) {
     event.preventDefault();
-    if (!session || !applicationId || !nodeType || !scheduledAt) {
-      setError("请选择投递，并补全类型和开始时间");
+    if (!session) return;
+    if (!applicationId) {
+      setError("请选择这条通知所属的投递");
+      return;
+    }
+    if (!nodeType) {
+      setError("请选择安排类型");
+      return;
+    }
+    if (timeMode === "截止窗口" ? !endsAt : !scheduledAt) {
+      setError(timeMode === "截止窗口" ? "请填写截止时间" : "请填写安排时间");
       return;
     }
     setResolving(true);
@@ -276,14 +292,14 @@ export function SmartEntryPage() {
         application_id: applicationId,
         node_type: nodeType,
         time_mode: timeMode,
-        scheduled_at: toApiDate(scheduledAt)!,
+        scheduled_at: timeMode === "固定时间" ? toApiDate(scheduledAt) : null,
         ends_at: toApiDate(endsAt),
         source: source.trim() || null,
       });
       clearDraft(window.localStorage, noticeSessionDraftKey(session.id));
       clearDraft(window.localStorage, activeNoticeSessionKey);
       navigate(
-        `/timeline?focus=${confirmed.timeline_node_id}&date=${scheduledAt.slice(0, 10)}`,
+        `/timeline?focus=${confirmed.timeline_node_id}&date=${(timeMode === "截止窗口" ? endsAt : scheduledAt).slice(0, 10)}`,
       );
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "确认失败");
@@ -409,20 +425,30 @@ export function SmartEntryPage() {
                 {session.status === "解析失败" && <div className="notice error" role="alert">{session.error_message ?? "通知识别失败"}</div>}
                 <div className="extraction-clues">
                   <span>识别结果</span>
-                  <input
-                    value={companyName}
-                    onChange={(event) => setCompanyName(event.target.value)}
-                    placeholder="公司名称"
-                    disabled={!canResolve}
-                    aria-label="公司名称"
-                  />
-                  <input
-                    value={positionTitle}
-                    onChange={(event) => setPositionTitle(event.target.value)}
-                    placeholder="岗位名称"
-                    disabled={!canResolve}
-                    aria-label="岗位名称"
-                  />
+                  <div className="extraction-clue-fields">
+                    <label>
+                      <input
+                        value={companyName}
+                        onChange={(event) => setCompanyName(event.target.value)}
+                        placeholder="请输入公司名称"
+                        disabled={!canResolve}
+                        aria-label="公司名称"
+                        aria-invalid={canResolve && !companyName.trim()}
+                      />
+                      {canResolve && !companyName.trim() && <small>请填写公司名称</small>}
+                    </label>
+                    <label>
+                      <input
+                        value={positionTitle}
+                        onChange={(event) => setPositionTitle(event.target.value)}
+                        placeholder="请输入岗位名称"
+                        disabled={!canResolve}
+                        aria-label="岗位名称"
+                        aria-invalid={canResolve && !positionTitle.trim()}
+                      />
+                      {canResolve && !positionTitle.trim() && <small>请填写岗位名称</small>}
+                    </label>
+                  </div>
                 </div>
                 <div className="field-block application-linker">
                   <label>这条通知属于哪次投递？</label>
@@ -438,7 +464,7 @@ export function SmartEntryPage() {
                         className="button primary"
                         type="button"
                         onClick={createApplication}
-                        disabled={!canResolve || creatingApplication || !companyName.trim() || !positionTitle.trim()}
+                        disabled={!canResolve || creatingApplication}
                       >
                         {creatingApplication ? "正在创建…" : "创建本次投递"}
                       </button>
@@ -471,13 +497,15 @@ export function SmartEntryPage() {
                       {TIME_MODES.map((value) => <option key={value}>{value}</option>)}
                     </select>
                   </label>
-                  <label className="field-block">
-                    <span>{timeMode === "截止窗口" ? "起算时间" : "开始时间"}</span>
-                    <input type="datetime-local" value={scheduledAt} onChange={(event) => setScheduledAt(event.target.value)} disabled={!canResolve} required />
-                  </label>
+                  {timeMode === "固定时间" && (
+                    <label className="field-block">
+                      <span>安排时间</span>
+                      <input type="datetime-local" value={scheduledAt} onChange={(event) => setScheduledAt(event.target.value)} disabled={!canResolve} required />
+                    </label>
+                  )}
                   <label className="field-block">
                     <span>{timeMode === "截止窗口" ? "截止时间" : "结束时间（可选）"}</span>
-                    <input type="datetime-local" value={endsAt} onChange={(event) => setEndsAt(event.target.value)} disabled={!canResolve} min={scheduledAt || undefined} required={timeMode === "截止窗口"} />
+                    <input type="datetime-local" value={endsAt} onChange={(event) => setEndsAt(event.target.value)} disabled={!canResolve} min={timeMode === "固定时间" ? scheduledAt || undefined : undefined} required={timeMode === "截止窗口"} />
                   </label>
                 </div>
 

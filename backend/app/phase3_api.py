@@ -3,7 +3,7 @@ import logging
 from typing import Annotated
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, status
-from sqlalchemy import func, or_, select
+from sqlalchemy import case, func, or_, select
 from sqlalchemy.orm import Session, joinedload
 
 from app.config import settings
@@ -390,11 +390,15 @@ def list_timeline(
     node_status: NodeStatus | None = Query(default=None, alias="status"),
 ):
     _validate_timeline_range(start_at, end_at)
+    timeline_date = case(
+        (TimelineNode.time_mode == "截止窗口", TimelineNode.ends_at),
+        else_=TimelineNode.scheduled_at,
+    )
     filters = []
     if start_at is not None:
-        filters.append(TimelineNode.scheduled_at >= start_at)
+        filters.append(timeline_date >= start_at)
     if end_at is not None:
-        filters.append(TimelineNode.scheduled_at < end_at)
+        filters.append(timeline_date < end_at)
     if node_status is not None:
         filters.append(TimelineNode.status == node_status)
 
@@ -411,7 +415,7 @@ def list_timeline(
             )
             .where(*filters)
             .order_by(
-                TimelineNode.scheduled_at.asc().nulls_last(), TimelineNode.id.asc()
+                timeline_date.asc().nulls_last(), TimelineNode.id.asc()
             )
             .offset((page - 1) * page_size)
             .limit(page_size)
@@ -444,6 +448,10 @@ def get_dashboard(db: DbSession):
         for application_status in APPLICATION_STATUS
     ]
 
+    timeline_date = case(
+        (TimelineNode.time_mode == "截止窗口", TimelineNode.ends_at),
+        else_=TimelineNode.scheduled_at,
+    )
     nodes = list(
         db.scalars(
             select(TimelineNode)
@@ -454,7 +462,7 @@ def get_dashboard(db: DbSession):
             )
             .where(TimelineNode.status == "待处理")
             .order_by(
-                TimelineNode.scheduled_at.asc().nulls_last(), TimelineNode.id.asc()
+                timeline_date.asc().nulls_last(), TimelineNode.id.asc()
             )
         ).all()
     )
@@ -507,7 +515,7 @@ def get_dashboard(db: DbSession):
             position_title=read.application.position.title,
             node_type=read.node_type,
             status=read.status,
-            scheduled_at=read.scheduled_at,
+            scheduled_at=read.ends_at if read.time_mode == "截止窗口" else read.scheduled_at,
             alert_types=read.alert_types,
         )
         for read in sorted(
