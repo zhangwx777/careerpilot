@@ -97,6 +97,21 @@ test("startup page is loaded before database and main page after readiness", asy
   assert.deepEqual(events, ["loading", "database", "ready", "state", "main"]);
 });
 
+test("default Electron menu bar is removed", () => {
+  assert.match(source, /Menu\.setApplicationMenu\(null\)/);
+});
+
+test("installer download reports progress and version is exposed", () => {
+  const preload = readFileSync(new URL("./preload.cjs", import.meta.url), "utf8");
+  const install = source.slice(source.indexOf('ipcMain.handle("updates:install"'), source.indexOf("function sleep("));
+  assert.match(install, /content-length/);
+  assert.match(install, /sender\.send\("updates:progress"/);
+  assert.match(source, /ipcMain\.handle\("updates:version"/);
+  assert.match(preload, /version: \(\) => ipcRenderer\.invoke\("updates:version"\)/);
+  assert.match(preload, /onProgress:/);
+  assert.match(preload, /removeListener\("updates:progress"/);
+});
+
 test("app-only build initializes icon path before using it", () => {
   const build = readFileSync(new URL("../packaging/build.ps1", import.meta.url), "utf8");
   assert.ok(build.indexOf("$iconPath = Join-Path $buildRoot 'brand-mark.ico'") < build.indexOf("if ($AppOnly) {"));

@@ -11,6 +11,8 @@ import {
 } from "@phosphor-icons/react";
 import { NavLink, Outlet } from "react-router-dom";
 
+import { UpdateBadge } from "./UpdateBadge";
+
 const links = [
   { to: "/dashboard", label: "求职总览", icon: Gauge, group: "总览" },
   { to: "/applications", label: "投递台账", icon: ListChecks, group: "记录" },
@@ -29,7 +31,10 @@ export function Layout() {
         <div className="brand">
           <span className="brand-mark" aria-hidden="true"><img src="/brand-mark.png" alt="" /></span>
           <div>
-            <strong>职航</strong>
+            <div className="brand-title">
+              <strong>职航</strong>
+              <UpdateBadge />
+            </div>
             <span>CareerPilot · 求职决策工作台</span>
           </div>
         </div>

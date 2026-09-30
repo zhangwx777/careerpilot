@@ -14,6 +14,15 @@ const smartEntryPage = readFileSync(new URL("./src/pages/SmartEntryPage.tsx", im
 const statusRail = readFileSync(new URL("./src/components/StatusRail.tsx", import.meta.url), "utf8");
 const layout = readFileSync(new URL("./src/components/Layout.tsx", import.meta.url), "utf8");
 
+test("software update lives beside the brand instead of the settings page", () => {
+  const badge = readFileSync(new URL("./src/components/UpdateBadge.tsx", import.meta.url), "utf8");
+  assert.match(layout, /<strong>职航<\/strong>\s*<UpdateBadge \/>/);
+  assert.match(badge, /useEffect\(\(\) => \{[^]*?bridge\.check\(/);
+  assert.match(badge, /onProgress/);
+  assert.match(badge, /window\.confirm/);
+  assert.doesNotMatch(settingsPage, /软件更新|careerPilotUpdates|update-settings-card/);
+});
+
 test("intel chat history has an internal scroll region when messages exist", () => {
   const rule = styles.match(/\.intel-chat-history\s*\{([^}]*)\}/)?.[1] ?? "";
   assert.match(intelPage, /className="intel-chat-history"/);

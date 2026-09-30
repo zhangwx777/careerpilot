@@ -17,16 +17,6 @@ import { StatusBadge } from "../components/DesignPrimitives";
 import type { LlmRoleName, LlmRoles, ProviderConfigInput, ProviderOption, SearchConfig } from "../types";
 
 type FormState = { api_key: string; model: string; base_url: string };
-type UpdateCheck = { currentVersion: string; latestVersion: string; updateAvailable: boolean; installerAvailable: boolean };
-
-declare global {
-  interface Window {
-    careerPilotUpdates?: {
-      check: () => Promise<UpdateCheck>;
-      install: () => Promise<void>;
-    };
-  }
-}
 
 const EMPTY_FORM: FormState = { api_key: "", model: "", base_url: "" };
 const ROLE_LABELS: Record<LlmRoleName, string> = { interview: "面经分析", planner: "备战分析", briefing: "每日简报", vision: "图片识别" };
@@ -65,11 +55,6 @@ export function SettingsPage() {
   const [searchSaving, setSearchSaving] = useState(false);
   const [roles, setRoles] = useState<LlmRoles | null>(null);
   const [roleSaving, setRoleSaving] = useState(false);
-  const [updateCheck, setUpdateCheck] = useState<UpdateCheck | null>(null);
-  const [checkingUpdate, setCheckingUpdate] = useState(false);
-  const [installingUpdate, setInstallingUpdate] = useState(false);
-  const [updateError, setUpdateError] = useState("");
-  const [updateMessage, setUpdateMessage] = useState("");
 
   const selectedProvider = useMemo(
     () => providers.find((item) => item.name === selected) ?? providers[0],
@@ -205,37 +190,6 @@ export function SettingsPage() {
     finally { setRoleSaving(false); }
   }
 
-  async function checkForUpdates() {
-    if (!window.careerPilotUpdates) return;
-    setCheckingUpdate(true);
-    setUpdateError("");
-    setUpdateMessage("");
-    try {
-      const result = await window.careerPilotUpdates.check();
-      setUpdateCheck(result);
-      setUpdateMessage(result.updateAvailable
-        ? result.installerAvailable ? `发现新版本 v${result.latestVersion}。` : `发现新版本 v${result.latestVersion}，但 Release 中没有安装包。`
-        : `当前已是最新版本 v${result.currentVersion}。`);
-    } catch (reason) {
-      setUpdateError(reason instanceof Error ? reason.message : "检查更新失败");
-    } finally {
-      setCheckingUpdate(false);
-    }
-  }
-
-  async function installUpdate() {
-    if (!window.careerPilotUpdates) return;
-    setInstallingUpdate(true);
-    setUpdateError("");
-    setUpdateMessage("正在下载并启动安装器…");
-    try {
-      await window.careerPilotUpdates.install();
-    } catch (reason) {
-      setUpdateError(reason instanceof Error ? reason.message : "下载或启动安装器失败");
-      setInstallingUpdate(false);
-    }
-  }
-
   if (loading) {
     return <section><div className="page-heading"><div><span className="eyebrow">工作区设置</span><h1>模型设置</h1></div></div><div className="panel loading-state" aria-label="正在读取模型配置"><span className="skeleton" /><span className="skeleton" /><span className="skeleton" /></div></section>;
   }
@@ -337,24 +291,6 @@ export function SettingsPage() {
           <div className="provider-actions"><button className="button primary" type="button" onClick={() => void saveSearch()} disabled={searchSaving || !searchEndpoint.trim() || !searchToolName.trim()}><FloppyDisk size={17} />{searchSaving ? "保存中…" : "保存联网工具"}</button>{searchConfig?.configured && <button className="button ghost danger-button" type="button" onClick={() => void removeSearch()} disabled={searchSaving}><Trash size={16} />删除配置</button>}</div>
         </div>
       </details>
-
-      {window.careerPilotUpdates && <div className="panel update-settings-card">
-        <div className="settings-toolbar">
-          <div><span className="eyebrow">应用维护</span><h2>软件更新</h2></div>
-          {updateCheck && <span className="settings-toolbar-hint">当前版本 v{updateCheck.currentVersion}</span>}
-        </div>
-        <p className="section-help">检查 GitHub Releases；有新版本时下载并启动安装器。</p>
-        <div className="provider-actions">
-          <button className="button" type="button" onClick={() => void checkForUpdates()} disabled={checkingUpdate || installingUpdate}>
-            <ArrowClockwise size={17} />{checkingUpdate ? "检查中…" : "检查更新"}
-          </button>
-          {updateCheck?.updateAvailable && updateCheck.installerAvailable && <button className="button primary" type="button" onClick={() => void installUpdate()} disabled={installingUpdate || checkingUpdate}>
-            {installingUpdate ? "下载并启动中…" : `下载并安装 v${updateCheck.latestVersion}`}
-          </button>}
-        </div>
-        {updateMessage && <p className="section-help" role="status">{updateMessage}</p>}
-        {updateError && <div className="notice error" role="alert">{updateError}</div>}
-      </div>}
 
       <div className="settings-local-note"><LockKey size={16} /><span>配置仅保存在本机，不会写入浏览器存储。</span></div>
     </section>

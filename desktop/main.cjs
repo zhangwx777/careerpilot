@@ -1,4 +1,4 @@
-const { app, BrowserWindow, dialog, ipcMain } = require("electron");
+const { app, BrowserWindow, Menu, dialog, ipcMain } = require("electron");
 const { spawn, spawnSync } = require("node:child_process");
 const fs = require("node:fs");
 const { Readable } = require("node:stream");
@@ -61,6 +61,8 @@ async function latestRelease() {
   };
 }
 
+ipcMain.handle("updates:version", () => app.getVersion());
+
 ipcMain.handle("updates:check", async () => {
   const release = await latestRelease();
   const currentVersion = app.getVersion();
@@ -72,7 +74,7 @@ ipcMain.handle("updates:check", async () => {
   };
 });
 
-ipcMain.handle("updates:install", async () => {
+ipcMain.handle("updates:install", async (event) => {
   const release = await latestRelease();
   if (compareVersions(release.version, app.getVersion()) <= 0) throw new Error("当前已是最新版本。");
   if (!release.installer?.browser_download_url) throw new Error("最新 Release 中没有 CareerPilotSetup.exe。");
@@ -80,8 +82,20 @@ ipcMain.handle("updates:install", async () => {
   const response = await fetch(release.installer.browser_download_url);
   if (!response.ok || !response.body) throw new Error(`安装包下载失败（${response.status}）。`);
   const installerPath = path.join(app.getPath("temp"), `CareerPilotSetup-${release.version}.exe`);
+  const total = Number(response.headers.get("content-length")) || 0;
+  const body = Readable.fromWeb(response.body);
+  let received = 0;
+  let reported = -1;
+  body.on("data", (chunk) => {
+    received += chunk.length;
+    const percent = total ? Math.floor((received / total) * 100) : null;
+    if (percent !== reported) {
+      reported = percent;
+      event.sender.send("updates:progress", percent);
+    }
+  });
   try {
-    await pipeline(Readable.fromWeb(response.body), fs.createWriteStream(installerPath));
+    await pipeline(body, fs.createWriteStream(installerPath));
   } catch (error) {
     fs.rmSync(installerPath, { force: true });
     throw error;
@@ -320,6 +334,7 @@ app.commandLine.appendSwitch("disable-gpu");
 app.commandLine.appendSwitch("disable-gpu-compositing");
 app.commandLine.appendSwitch("in-process-gpu");
 app.disableHardwareAcceleration();
+Menu.setApplicationMenu(null);
 if (!app.requestSingleInstanceLock()) app.quit();
 
 app.on("second-instance", () => {
