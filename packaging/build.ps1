@@ -6,6 +6,7 @@ $ErrorActionPreference = 'Stop'
 
 $root = Split-Path -Parent $PSScriptRoot
 $buildRoot = Join-Path $root 'build\installer'
+$iconPath = Join-Path $buildRoot 'brand-mark.ico'
 $payloadRoot = Join-Path $buildRoot 'payload'
 $runtimeRoot = Join-Path $payloadRoot 'runtime'
 $appLayer = Join-Path $payloadRoot 'app'
@@ -154,7 +155,6 @@ Copy-Item -Path (Join-Path $PSScriptRoot 'installed\stop.ps1') -Destination $pay
 
 # --- 图标（PNG 压缩的 ICO 容器） ---
 $iconSource = Join-Path $root 'frontend\public\brand-mark.png'
-$iconPath = Join-Path $buildRoot 'brand-mark.ico'
 $iconPng = Join-Path $buildRoot 'brand-mark-256.png'
 Add-Type -AssemblyName System.Drawing
 $sourceImage = [System.Drawing.Image]::FromFile($iconSource)

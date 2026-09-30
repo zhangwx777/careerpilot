@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src 'self'; style-src 'unsafe-inline'" />
+  <title>职航 CareerPilot</title>
+  <style>
+    :root { color: #1e293b; background: #f2f9ff; font-family: "Microsoft YaHei UI", "PingFang SC", system-ui, sans-serif; }
+    * { box-sizing: border-box; }
+    body { margin: 0; min-height: 100vh; display: grid; place-items: center; padding: 32px; }
+    main { width: min(100%, 480px); }
+    .brand { display: flex; align-items: center; gap: 14px; margin-bottom: 48px; }
+    .brand img { width: 48px; height: 48px; }
+    .brand strong { font-size: 24px; letter-spacing: 2px; }
+    .brand span { display: block; margin-top: 4px; font-size: 12px; color: #64748b; letter-spacing: 1px; }
+    h1 { margin: 0 0 14px; font-size: 28px; line-height: 1.4; font-weight: 650; }
+    #startup-detail { min-height: 44px; margin: 0; font-size: 14px; line-height: 1.8; color: #64748b; white-space: pre-wrap; overflow-wrap: anywhere; }
+    .activity { margin-top: 24px; height: 3px; background: #d6e6f5; overflow: hidden; border-radius: 4px; }
+    .activity::after { content: ""; display: block; height: 100%; width: 35%; background: #3b82f6; animation: travel 1.8s ease-in-out infinite; }
+    .steps { display: flex; justify-content: space-between; padding: 0; margin: 24px 0 0; list-style: none; color: #64748b; font-size: 13px; }
+    .steps li { display: flex; align-items: center; gap: 8px; }
+    .steps li::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: #d6e6f5; }
+    .steps .active { color: #2563eb; }
+    .steps .active::before { background: #3b82f6; }
+    .steps .done::before { background: #2e7a63; }
+    body[data-failed="true"] h1 { color: #b34b5a; }
+    body[data-failed="true"] .activity::after { animation: none; width: 100%; background: #b34b5a; }
+    @keyframes travel { from { transform: translateX(-100%); } to { transform: translateX(390%); } }
+    @media (prefers-reduced-motion: reduce) { .activity::after { animation: none; width: 100%; opacity: .5; } }
+  </style>
+</head>
+<body>
+  <main>
+    <div class="brand"><img src="../../brand-mark.png" alt="" /><div><strong>职航</strong><span>CareerPilot</span></div></div>
+    <section role="status" aria-live="polite" aria-atomic="true">
+      <h1 id="startup-stage">正在启动职航</h1>
+      <p id="startup-detail">正在准备你的求职工作台。</p>
+    </section>
+    <div class="activity" aria-hidden="true"></div>
+    <ol class="steps" aria-label="启动阶段"><li class="active">本地资料</li><li>分析服务</li><li>工作台</li></ol>
+  </main>
+</body>
+</html>

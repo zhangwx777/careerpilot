@@ -150,12 +150,26 @@ function isBackendReady(port) {
   });
 }
 
-async function waitFor(check) {
-  for (let attempt = 0; attempt < 40; attempt += 1) {
-    if (await check()) return;
-    await sleep(500);
+async function waitFor(check, stage, service, timeoutMilliseconds = 20000) {
+  const deadline = Date.now() + timeoutMilliseconds;
+  let startError;
+  const onError = (error) => { startError = error; };
+  service?.once("error", onError);
+  try {
+    while (Date.now() < deadline) {
+      if (startError) throw new Error(`${stage}无法启动：${startError.message}`);
+      if (service && (service.exitCode !== null || service.signalCode !== null)) {
+        throw new Error(`${stage}提前退出（${service.exitCode ?? service.signalCode}）。`);
+      }
+      const ready = await check();
+      if (startError) throw new Error(`${stage}无法启动：${startError.message}`);
+      if (ready) return;
+      await sleep(500);
+    }
+    throw new Error(`${stage}启动超时，请查看启动日志。`);
+  } finally {
+    service?.removeListener("error", onError);
   }
-  throw new Error("本地服务启动超时，请检查安装文件。 ");
 }
 
 function readState() {
@@ -255,7 +269,7 @@ async function shutdown(event) {
   app.exit();
 }
 
-function createWindow() {
+async function createWindow() {
   window = new BrowserWindow({
     width: 1440,
     height: 920,
@@ -265,25 +279,41 @@ function createWindow() {
     icon: path.join(appRoot, "brand-mark.png"),
     webPreferences: { contextIsolation: true, preload: path.join(__dirname, "preload.cjs"), zoomFactor: 0.9 },
   });
-  window.once("ready-to-show", () => window.show());
-  window.loadURL(`http://127.0.0.1:${backendPort}`);
+  await window.loadFile(path.join(__dirname, "startup.html"));
+  window.show();
+}
+
+async function updateStartup(stage, detail, step, failed = false) {
+  await window.webContents.executeJavaScript(`
+    document.getElementById("startup-stage").textContent = ${JSON.stringify(stage)};
+    document.getElementById("startup-detail").textContent = ${JSON.stringify(detail)};
+    document.body.dataset.failed = ${JSON.stringify(String(failed))};
+    document.querySelectorAll(".steps li").forEach((item, index) => {
+      item.className = index < ${step} ? "done" : index === ${step} ? "active" : "";
+    });
+  `);
 }
 
 async function launch() {
   fs.mkdirSync(logRoot, { recursive: true });
+  await createWindow();
+  await updateStartup("正在准备本地资料", "首次启动可能需要稍久，请保持窗口打开。", 0);
   stopPreviousRun();
   dbPort = await findFreePort(55432);
   startPostgres();
-  await waitFor(() => isPostgresReady(dbPort));
+  await waitFor(() => isPostgresReady(dbPort), "本地数据库");
+  await updateStartup("正在准备分析环境", "正在连接本地任务服务。", 1);
   queuePort = await findFreePort(6379);
   startQueue();
-  await waitFor(() => isQueueReady(queuePort));
+  await waitFor(() => isQueueReady(queuePort), "任务服务", queue);
   backendPort = await findFreePort(58080);
+  await updateStartup("正在启动分析服务", "就绪后将自动进入工作台。", 1);
   startWorker();
   startBackend();
-  await waitFor(() => isBackendReady(backendPort));
+  await waitFor(() => isBackendReady(backendPort), "分析服务", backend, 120000);
   fs.writeFileSync(stateFile, JSON.stringify({ desktop_pid: process.pid, backend_pid: backend.pid, worker_pid: worker.pid, queue_pid: queue.pid, backend_port: backendPort, db_port: dbPort, queue_port: queuePort, db_data: dbData }, null, 2));
-  createWindow();
+  await updateStartup("正在打开工作台", "本地服务已就绪。", 2);
+  await window.loadURL(`http://127.0.0.1:${backendPort}`);
 }
 
 app.commandLine.appendSwitch("disable-gpu");
@@ -301,6 +331,10 @@ app.on("second-instance", () => {
 app.on("before-quit", shutdown);
 app.on("window-all-closed", () => app.quit());
 app.whenReady().then(launch).catch(async (error) => {
-  dialog.showErrorBox("职航启动失败", error.message);
+  const detail = `${error.message}\n日志目录：${logRoot}`;
+  if (window && !window.isDestroyed()) {
+    await updateStartup("启动未完成", detail, -1, true).catch(() => {});
+  }
+  dialog.showErrorBox("职航启动失败", detail);
   await shutdown();
 });
