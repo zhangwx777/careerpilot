@@ -178,16 +178,21 @@ export function SettingsPage() {
   }
 
   async function saveSearch() {
-    if (!searchKey.trim() || !searchEndpoint.trim() || !searchToolName.trim()) return;
+    if (!searchEndpoint.trim() || !searchToolName.trim()) return;
     setSearchSaving(true); setError(""); setMessage("");
-    try { setSearchConfig(await api.search.save({ api_key: searchKey.trim(), endpoint: searchEndpoint.trim(), tool_name: searchToolName.trim() })); setSearchKey(""); setMessage("联网工具配置已保存。"); }
+    try {
+      const config = await api.search.save({ api_key: searchKey.trim(), endpoint: searchEndpoint.trim(), tool_name: searchToolName.trim() });
+      setSearchConfig(config);
+      setSearchKey("");
+      setMessage(searchKey.trim() ? "联网工具配置已保存。" : "已启用匿名检索。未填写 Key 时按客户端 IP 使用 AnySearch 免费额度。");
+    }
     catch (reason) { setError(reason instanceof Error ? reason.message : "公开检索配置保存失败"); }
     finally { setSearchSaving(false); }
   }
 
   async function removeSearch() {
     setSearchSaving(true); setError(""); setMessage("");
-    try { setSearchConfig(await api.search.remove()); setSearchKey(""); setMessage("联网工具配置已删除，业务将只使用本地资料。"); }
+    try { setSearchConfig(await api.search.remove()); setSearchKey(""); setSearchEndpoint(""); setSearchToolName("search"); setMessage("联网工具配置已删除，业务将只使用本地资料。"); }
     catch (reason) { setError(reason instanceof Error ? reason.message : "公开检索配置删除失败"); }
     finally { setSearchSaving(false); }
   }
@@ -320,16 +325,16 @@ export function SettingsPage() {
       </div>
 
       <details className="panel settings-disclosure search-settings-disclosure">
-        <summary><span><span className="eyebrow">公开资料补充</span><strong>公开检索</strong></span><StatusBadge tone={searchConfig?.configured ? "ready" : "neutral"}>{searchConfig?.configured ? "已配置" : "未配置"}</StatusBadge></summary>
+        <summary><span><span className="eyebrow">公开资料补充</span><strong>公开检索</strong></span><StatusBadge tone={searchConfig?.configured ? "ready" : "neutral"}>{searchConfig?.configured ? (searchConfig.api_key_masked ? "已配置 Key" : "匿名可用") : "未配置"}</StatusBadge></summary>
         <div className="search-settings-card">
-          <p className="settings-help">这里单独配置联网工具。配置后，面经分析和每日简报会自动补充公开资料；未配置时仍可正常使用本地粘贴文字和截图。</p>
+          <p className="settings-help">配置联网地址和工具名后，面经分析和每日简报可补充公开资料。API Key 可留空以使用 AnySearch 匿名额度；配置 Key 可使用对应账户额度。</p>
           {searchConfig?.api_key_masked && <div className="provider-meta-strip"><span>当前密钥：{searchConfig.api_key_masked}</span></div>}
           <div className="settings-form-grid">
             <label className="field-block"><span>联网工具 API 地址</span><input type="url" value={searchEndpoint} onChange={(event) => setSearchEndpoint(event.target.value)} placeholder="https://example.com/mcp" /></label>
             <label className="field-block"><span>搜索工具名称</span><input value={searchToolName} onChange={(event) => setSearchToolName(event.target.value)} placeholder="search" /></label>
           </div>
-          <label className="field-block"><span>联网工具 API Key</span><input type="password" value={searchKey} onChange={(event) => setSearchKey(event.target.value)} placeholder="粘贴联网工具 Key" autoComplete="new-password" /></label>
-          <div className="provider-actions"><button className="button primary" type="button" onClick={() => void saveSearch()} disabled={searchSaving || !searchKey.trim() || !searchEndpoint.trim() || !searchToolName.trim()}><FloppyDisk size={17} />{searchSaving ? "保存中…" : "保存联网工具"}</button>{searchConfig?.configured && <button className="button ghost danger-button" type="button" onClick={() => void removeSearch()} disabled={searchSaving}><Trash size={16} />删除配置</button>}</div>
+          <label className="field-block"><span>联网工具 API Key（可选）</span><input type="password" value={searchKey} onChange={(event) => setSearchKey(event.target.value)} placeholder="留空使用匿名额度" autoComplete="new-password" /></label>
+          <div className="provider-actions"><button className="button primary" type="button" onClick={() => void saveSearch()} disabled={searchSaving || !searchEndpoint.trim() || !searchToolName.trim()}><FloppyDisk size={17} />{searchSaving ? "保存中…" : "保存联网工具"}</button>{searchConfig?.configured && <button className="button ghost danger-button" type="button" onClick={() => void removeSearch()} disabled={searchSaving}><Trash size={16} />删除配置</button>}</div>
         </div>
       </details>
 

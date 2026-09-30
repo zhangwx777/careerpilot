@@ -1,11 +1,13 @@
 import os
 import unittest
+from unittest.mock import patch
 
+from fastapi import BackgroundTasks, HTTPException
 from sqlalchemy import create_engine, delete
 from sqlalchemy.orm import sessionmaker
 
-from app.intel_api import discard_intel, list_intel
-from app.models import Application, Company, IntelSession, InterviewIntel, Position
+from app.intel_api import IntelCreate, create_intel, discard_intel, list_intel
+from app.models import Application, Company, IntelSession, InterviewIntel, LlmSettings, Position
 from scripts.init_db import initialize_database
 
 
@@ -65,6 +67,65 @@ class IntelLibraryApiTestCase(unittest.TestCase):
             {item.application.position.company.name for item in ctrip_records.items},
             {"携程"},
         )
+
+
+class IntelSearchGateTestCase(unittest.TestCase):
+    class FakeDb:
+        def __init__(self, application, search_endpoint):
+            self.application = application
+            self.search_endpoint = search_endpoint
+            self.added = []
+
+        def get(self, model, _id):
+            if model is LlmSettings and self.search_endpoint:
+                return LlmSettings(
+                    id=1,
+                    search_endpoint=self.search_endpoint,
+                    search_tool_name="search",
+                )
+            return None
+
+        def scalar(self, _query):
+            return self.application
+
+        def add(self, item):
+            self.added.append(item)
+
+        def commit(self):
+            pass
+
+        def refresh(self, _item):
+            pass
+
+    def setUp(self):
+        self.application = Application(
+            position=Position(company=Company(name="测试公司"), title="Agent工程师"),
+            status="已投递",
+        )
+        self.db = self.FakeDb(
+            self.application, "https://api.anysearch.com/mcp"
+        )
+
+    def test_anonymous_search_allows_empty_manual_input(self):
+        with (
+            patch("app.intel_api.resolve_role_provider", return_value="qwen"),
+            patch("app.intel_api.snapshot_for", return_value=None),
+            patch("app.intel_api._session_read", side_effect=lambda item: item),
+        ):
+            result = create_intel(
+                IntelCreate(application_id=1), BackgroundTasks(), self.db
+            )
+
+        self.assertTrue(result.supplement_web)
+        self.assertIsNone(result.user_paste)
+        self.assertEqual(len(self.db.added), 1)
+
+    def test_empty_manual_input_still_requires_search_endpoint(self):
+        self.db.search_endpoint = None
+        with self.assertRaises(HTTPException) as raised:
+            create_intel(IntelCreate(application_id=1), BackgroundTasks(), self.db)
+
+        self.assertEqual(raised.exception.status_code, 422)
 
 
 if __name__ == "__main__":

@@ -27,19 +27,17 @@ async def _search(
     endpoint: str | None,
     tool_name: str,
 ) -> list[dict]:
-    if not api_key:
-        raise PublicSearchError("未配置公开检索 Key")
     if not endpoint:
         raise PublicSearchError("未配置公开检索地址")
+    server_config = {
+        "transport": "http",
+        "url": endpoint,
+    }
+    if api_key:
+        server_config["headers"] = {"Authorization": f"Bearer {api_key}"}
     client = MultiServerMCPClient(
         {
-            "public_search": {
-                "transport": "http",
-                "url": endpoint,
-                "headers": {
-                    "Authorization": f"Bearer {api_key}",
-                },
-            }
+            "public_search": server_config,
         }
     )
     tools = await client.get_tools()

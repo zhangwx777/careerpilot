@@ -25,7 +25,7 @@ from app.llm.config_store import (
     LlmConfigError,
     config_from_snapshot,
     get_effective_config,
-    get_search_api_key,
+    get_search_config,
     resolve_provider,
     resolve_role_provider,
     snapshot_for,
@@ -266,9 +266,9 @@ def create_intel(
     payload: IntelCreate, background_tasks: BackgroundTasks, db: DbSession
 ):
     has_manual_content = bool((payload.user_paste or "").strip()) or any(item.text.strip() for item in payload.image_texts)
-    search_enabled = bool(get_search_api_key(db))
+    search_enabled = bool(get_search_config(db)["endpoint"])
     if not search_enabled and not has_manual_content:
-        raise HTTPException(422, "请粘贴面经或识别截图，或先在模型设置中配置公开检索 Key")
+        raise HTTPException(422, "请粘贴面经或识别截图，或先配置公开检索地址")
     application = db.scalar(select(Application).options(joinedload(Application.position).joinedload(Position.company)).where(Application.id == payload.application_id))
     if application is None:
         raise HTTPException(404, "投递记录不存在")

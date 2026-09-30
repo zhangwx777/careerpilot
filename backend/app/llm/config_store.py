@@ -435,7 +435,7 @@ def search_status(db: Session) -> dict:
         api_key = None
         error = "已保存的公开检索 Key 无法解密，请重新填写"
     return {
-        "configured": bool(api_key and row and row.search_endpoint),
+        "configured": bool(row and row.search_endpoint and not error),
         "api_key_masked": mask_key(api_key),
         "endpoint": row.search_endpoint if row else None,
         "tool_name": row.search_tool_name or DEFAULT_SEARCH_TOOL if row else DEFAULT_SEARCH_TOOL,
@@ -460,6 +460,9 @@ def save_search_config(
         row = LlmSettings(id=1)
         db.add(row)
     row.encrypted_search_api_key = encrypt_text(value) if value else None
+    if api_key is None and endpoint is None and tool_name is None:
+        row.search_endpoint = None
+        row.search_tool_name = DEFAULT_SEARCH_TOOL
     if endpoint is not None:
         row.search_endpoint = endpoint.strip() or None
     if tool_name is not None:

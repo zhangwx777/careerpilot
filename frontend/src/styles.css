@@ -145,7 +145,7 @@ a { color: inherit; }
 .sidebar-note small { display: block; margin-top: 4px; color: var(--muted); line-height: 1.5; }
 .workspace { min-width: 0; height: 100dvh; overflow-y: auto; scrollbar-gutter: stable; }
 .mobile-header { display: none; }
-.page-container { max-width: 1460px; margin: 0 auto; padding: 42px 44px 68px; animation: page-in 260ms ease both; }
+.page-container { max-width: 1600px; margin: 0 auto; padding: 42px 36px 68px; animation: page-in 260ms ease both; }
 
 @keyframes page-in {
   from { opacity: 0; transform: translateY(4px); }

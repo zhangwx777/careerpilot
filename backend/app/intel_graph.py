@@ -254,7 +254,9 @@ def build_intel_graph(checkpointer: PostgresSaver, session_factory: Callable[[],
                     # The graph owns the global three-attempt budget. One research
                     # turn per graph attempt keeps retries bounded and observable.
                     max_rounds=1,
-                    search_fn=lambda query: search(query, **search_config),
+                    search_fn=lambda query, timeout_seconds=30: search(
+                        query, **search_config, timeout_seconds=timeout_seconds
+                    ),
                 )
         except PublicSearchError:
             logger.exception("面经公开检索失败：%s", state["query"])
@@ -279,9 +281,13 @@ def build_intel_graph(checkpointer: PostgresSaver, session_factory: Callable[[],
             # can repeat on a later retry. The graph owns the durable source
             # namespace so every accepted URL gets a stable, unique ID.
             accepted.append({
-                **item,
                 "id": f"session-{state['intel_session_id']}:web-{attempt}-{index}",
+                "title": item["title"],
+                "url": item.get("url"),
+                "published_at": item.get("published_at"),
+                "text": item.get("text", ""),
                 "kind": "web",
+                "file_name": item.get("file_name"),
             })
             existing_urls.add(_canonical_url(item.get("url")))
         if research.error:

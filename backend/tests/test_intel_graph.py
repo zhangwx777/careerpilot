@@ -1,17 +1,117 @@
 import os
 import unittest
-from unittest.mock import patch
+from types import SimpleNamespace
+from unittest.mock import MagicMock, Mock, patch
 
+from langgraph.checkpoint.memory import InMemorySaver
 from sqlalchemy import create_engine, delete, select
 from sqlalchemy.orm import sessionmaker
 
-from app.intel_graph import IntelGraphError, _merge, resume_intel_graph, start_intel_graph
+from app.agent_schemas import AgentSource
+from app.agent_research import ResearchResult
+from app.intel_graph import IntelGraphError, _merge, build_intel_graph, resume_intel_graph, start_intel_graph
 from app.intel_schemas import Fact, IntelExtraction, SourceRecord
 from app.llm.config_store import save_provider
 from app.models import Application, Company, IntelSession, InterviewIntel, Position
 from scripts.init_db import initialize_database
 
 TEST_DATABASE_URL = os.environ.get("TEST_DATABASE_URL")
+
+
+class IntelGraphSearchCallbackTestCase(unittest.TestCase):
+    def test_search_callback_accepts_and_forwards_timeout(self):
+        item = SimpleNamespace(progress_payload={}, status="聚合中")
+        db = MagicMock()
+        db.__enter__.return_value = db
+        db.get.return_value = item
+        search_mock = Mock(return_value=[])
+
+        def research_with_timeout(**kwargs):
+            kwargs["search_fn"]("测试关键词", timeout_seconds=17)
+            return ResearchResult()
+
+        with (
+            patch("app.intel_graph.search", search_mock),
+            patch("app.intel_graph._ORIGINAL_SEARCH", search_mock),
+            patch("app.intel_graph.research_public_sources", side_effect=research_with_timeout),
+            patch(
+                "app.intel_graph.get_search_config",
+                return_value={"api_key": "test", "endpoint": "https://api.anysearch.com/mcp", "tool_name": "search"},
+            ),
+            patch("app.intel_graph._session_llm_config", return_value={}),
+        ):
+            graph = build_intel_graph(InMemorySaver(), lambda: db)
+            graph.invoke(
+                {
+                    "intel_session_id": 1,
+                    "provider": "qwen",
+                    "query": "测试公司 后端",
+                    "user_paste": None,
+                    "round_type": "一面",
+                    "image_texts": [],
+                    "supplement_web": True,
+                    "sources": [],
+                    "extractions": {},
+                },
+                {"configurable": {"thread_id": "intel-search-callback-test"}},
+            )
+
+        self.assertGreater(search_mock.call_count, 0)
+        self.assertTrue(all(call.kwargs["timeout_seconds"] == 17 for call in search_mock.call_args_list))
+
+    def test_public_research_source_scope_is_not_passed_to_intel_record(self):
+        item = SimpleNamespace(
+            id=1,
+            status="聚合中",
+            progress_payload={},
+            application_id=1,
+            application=SimpleNamespace(position_id=1),
+        )
+        db = MagicMock()
+        db.__enter__.return_value = db
+        db.get.return_value = item
+        db.scalar.return_value = item
+        source = AgentSource(
+            id="research-1",
+            title="测试公司面经",
+            url="https://example.com/interview",
+            text="一面问了算法和项目",
+            kind="web",
+            scope="public",
+        ).model_dump(mode="json")
+
+        def extraction(record, _provider, **_kwargs):
+            return IntelExtraction(summary=Fact(value="测试摘要", source_ids=[record.id]))
+
+        with (
+            patch("app.intel_graph.get_search_config", return_value={"api_key": "test", "endpoint": "https://api.anysearch.com/mcp", "tool_name": "search"}),
+            patch("app.intel_graph.research_public_sources", return_value=ResearchResult(sources=[source])),
+            patch("app.intel_graph._session_llm_config", return_value={}),
+            patch("app.intel_graph.extract_intel", side_effect=extraction),
+            patch("app.intel_graph._decide_after_aggregate", return_value="persist"),
+            patch("app.intel_graph.rebuild_position_insight"),
+            patch("app.intel_reminders.sync_intel_reminder"),
+        ):
+            graph = build_intel_graph(InMemorySaver(), lambda: db)
+            result = graph.invoke(
+                {
+                    "intel_session_id": 1,
+                    "provider": "qwen",
+                    "query": "测试公司 后端",
+                    "user_paste": None,
+                    "round_type": "一面",
+                    "image_texts": [],
+                    "supplement_web": True,
+                    "sources": [],
+                    "extractions": {},
+                },
+                {"configurable": {"thread_id": "intel-public-source-scope-test"}},
+            )
+
+        self.assertEqual(item.status, "已完成")
+        self.assertNotIn("scope", result["sources"][0])
+        self.assertEqual(result["sources"][0]["kind"], "web")
+
 
 @unittest.skipUnless(TEST_DATABASE_URL, "需要配置 TEST_DATABASE_URL，面经图测试不允许跳过")
 class IntelGraphTestCase(unittest.TestCase):
