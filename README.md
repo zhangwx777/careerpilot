@@ -9,7 +9,7 @@ CareerPilot 不自动投递，也不代替用户做求职决策；它优先使�
 - **求职总览**：用投递分布、关注指标和“接下来”时间流，快速查看阶段进度、待练习行动、临期节点、逾期节点和时间冲突。
 - **投递推进**：投递台账保留完整阶段节点，当前节点在“推进”下拉框中展示；不同公司的非线性流程可以自由调整到任意阶段。
 - **智能录入**：粘贴邮件、短信或通知文本，让模型提取公司、岗位、笔试/面试节点和时间；确认后再写入投递和时间线。
-- **面经工作台**：按公司与岗位保存文字和截图面经，跨轮次生成考察方向、核心问题和准备重点。
+- **面经工作台**：按公司与岗位保存文字和截图面经，跨轮次整理考察方向与核心问题；备战分析结合岗位洞察、简历和 JD 统一生成准备行动。
 - **岗位问答**：基于当前岗位的 JD、面经、简历、时间线和历史问答进行有来源的只读检索与回答。
 - **备战分析**：上传 PDF/DOCX 简历，结合岗位资料生成匹配总结、差距和准备行动；选中的行动进入独立练习页生成答案并提交自答点评。
 - **求职地图**：按月查看完整的面试、笔试、测评和截止日期等求职节点，不承载学习行动完成逻辑。
@@ -21,11 +21,11 @@ CareerPilot 不自动投递，也不代替用户做求职决策；它优先使�
 
 ### Windows 桌面包
 
-普通使用者从 [Releases 页面](https://github.com/zhangwx777/careerpilot/releases/latest) 下载 `CareerPilotSetup.exe`，按向导安装即可；安装器会创建桌面和开始菜单快捷方式，也可以在安装完成页直接启动。桌面包内置前端、后端、PostgreSQL、任务队列和所需运行时，不需要另外安装 Python、Node.js、pnpm、PostgreSQL、Redis 或 .NET。首次进入后，在“模型设置”页填写 API Key、Base URL 和默认模型。
+Windows x64 用户从 [Releases 页面](https://github.com/zhangwx777/careerpilot/releases/latest) 下载 `CareerPilotSetup.exe`，运行后按向导安装；安装器会创建桌面和开始菜单快捷方式，也可以在安装完成页直接启动。安装器未进行代码签名，Windows 可能显示未知发布者提示。桌面包内置前端、后端、PostgreSQL、任务队列和所需运行时，不需要另外安装 Python、Node.js、pnpm、PostgreSQL、Redis 或 .NET。首次进入后，在“模型设置”页填写模型 Provider、API Key、Base URL 和默认模型。
 
-如果不想安装，可下载 `CareerPilot-portable.zip`，解压后双击 `CareerPilot.exe`。模型调用和公开检索仍需要网络以及用户自己的 API Key。
+如果不想安装，可下载 `CareerPilot-portable.zip`，解压后双击 `CareerPilot.exe`。模型调用需要网络和用户配置的模型 API Key。公开检索需要配置联网工具地址和工具名；使用 AnySearch 时 API Key 可留空并使用匿名额度，自定义 MCP 服务是否要求 Key 由其服务端决定。
 
-桌面包数据保存在当前 Windows 用户目录。不要把用户数据目录或 `.env` 提交到 Git。
+桌面包数据保存在 `%LOCALAPPDATA%\CareerPilot`。不要把用户数据目录或 `.env` 提交到 Git。
 
 ### Docker 开发/服务器环境
 
@@ -61,6 +61,10 @@ docker compose run --rm frontend pnpm build
 - [当前路线图](docs/roadmap.md)
 
 编码 Agent 的工作规则位于 [CLAUDE.md](CLAUDE.md)。
+
+## 许可证
+
+本项目按 MIT 许可证发布，详见 [LICENSE](LICENSE)。第三方依赖仍按各自许可证使用。
 
 ## 技术栈概览
 

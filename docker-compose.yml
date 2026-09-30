@@ -6,7 +6,7 @@ services:
       POSTGRES_USER: qiuzhao_app
       POSTGRES_PASSWORD: qiuzhao_dev
     ports:
-      - "5432:5432"
+      - "127.0.0.1:5432:5432"
     volumes:
       - careerpilot-postgres:/var/lib/postgresql
       - ./docker/postgres-init:/docker-entrypoint-initdb.d:ro
@@ -19,7 +19,7 @@ services:
   redis:
     image: redis:7-alpine
     ports:
-      - "6379:6379"
+      - "127.0.0.1:6379:6379"
     volumes:
       - careerpilot-redis:/data
     healthcheck:
@@ -44,7 +44,7 @@ services:
       CAREERPILOT_BACKEND_PORT: 8000
     command: ["python", "/workspace/backend/packaged_server.py"]
     ports:
-      - "8000:8000"
+      - "127.0.0.1:8000:8000"
     volumes:
       - ./backend:/workspace/backend
       - ./.llm_config_secret:/workspace/.llm_config_secret:ro
@@ -85,7 +85,7 @@ services:
       VITE_API_TARGET: http://backend:8000
     command: ["pnpm", "dev", "--host", "0.0.0.0", "--port", "5173", "--strictPort"]
     ports:
-      - "5173:5173"
+      - "127.0.0.1:5173:5173"
     volumes:
       - ./frontend:/workspace
       - careerpilot-frontend-node-modules:/workspace/node_modules
