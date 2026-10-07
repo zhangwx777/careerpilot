@@ -193,6 +193,7 @@ class IntelGraphTestCase(unittest.TestCase):
                 ["甲面经", "乙面经"],
             )
 
+    @patch("app.intel_graph._decide_after_aggregate", new=lambda _state: "critic")
     @patch("app.intel_graph.chat", side_effect=["```json\n{}\n```", "```json\n{}\n```"])
     @patch("app.intel_graph.extract_intel", return_value=IntelExtraction())
     @patch("app.intel_graph.search", return_value=[{"title": "甲面经", "url": "https://a.test", "text": "一面问了算法"}])
