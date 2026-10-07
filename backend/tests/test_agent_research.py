@@ -6,6 +6,19 @@ from app.agent_schemas import AgentToolResult
 
 
 class AgentResearchTestCase(unittest.TestCase):
+    def test_prior_query_is_not_repeated_and_feedback_reaches_model(self):
+        turn = {"content": None, "tool_calls": [{"id": "c", "name": "search_public_intel", "arguments": {"query": "  ACME  后端 "}}]}
+        with patch("app.agent_research.chat_with_tools", return_value=turn) as model, patch("app.agent_research.search") as search:
+            result = research_public_sources(session_id=1, query="ACME", provider="qwen", config={}, prior_queries=["acme 后端"], critic_feedback="缺少二面资料")
+        search.assert_not_called()
+        self.assertEqual(result.queries, [])
+        self.assertIn("缺少二面资料", model.call_args.args[0][1]["content"])
+
+    def test_known_url_is_skipped_before_candidate_extraction(self):
+        turn = {"content": None, "tool_calls": [{"id": "c", "name": "search_public_intel", "arguments": {"query": "新词"}}]}
+        with patch("app.agent_research.chat_with_tools", return_value=turn):
+            result = research_public_sources(session_id=1, query="ACME", provider="qwen", config={}, max_rounds=1, existing_urls=["https://example.com/a"], search_fn=lambda *a, **k: [{"url": "https://example.com/a/#section", "title": "旧来源"}, {"url": "https://example.com/b", "title": "新来源"}])
+        self.assertEqual([item["url"] for item in result.sources], ["https://example.com/b"])
     @patch(
         "app.agent_research.chat_with_tools",
         return_value={

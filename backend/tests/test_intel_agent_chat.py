@@ -242,6 +242,13 @@ class IntelAgentChatIntegrationTestCase(unittest.TestCase):
             self.assertEqual(read.invalid_source_ids, ["material-1:manual"])
             self.assertTrue(read.insufficient_data)
 
+    def test_chat_message_read_exposes_only_aggregate_execution_metrics(self):
+        from datetime import datetime, timezone
+        assistant = IntelChatMessage(id=9001, role="assistant", content="完成", status="已完成", source_ids=[], created_at=datetime.now(timezone.utc))
+        run = AgentRun(kind="chat", position_id=1, provider="qwen", sources=[], budget={"usage": {"model_call_limit": 6, "duration_limit_ms": 90000, "model_calls": 3, "provider_ms": 700, "reported_tokens": None, "elapsed_ms": 1000}, "private": "hidden"})
+        read = _chat_message_read(assistant, run)
+        self.assertEqual(read.execution_metrics, {"model_call_limit": 6, "duration_limit_ms": 90000, "model_calls": 3, "provider_ms": 700, "reported_tokens": None, "elapsed_ms": 1000})
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -450,6 +450,7 @@ export function IntelPage() {
                       {(answer.invalid_source_ids?.length ?? 0) > 0 && <small className="intel-chat-warning">部分原始资料已删除；这条历史回答的相关依据已失效。</small>}
                       {answer.search_status === "failed" && <small className="intel-chat-warning">公开检索失败，回答未将搜索结果视为已完成。</small>}
                       {(answer.used_tools?.length ?? 0) > 0 && <small>本次查阅范围：{answer.used_tools?.map((name) => toolLabels[name] ?? "其他资料").join("、")}</small>}
+                      {answer.execution_metrics && <small>本次耗时 {(answer.execution_metrics.elapsed_ms / 1000).toFixed(1)} / {(answer.execution_metrics.duration_limit_ms / 1000).toFixed(0)} 秒 · 模型调用 {answer.execution_metrics.model_calls} / {answer.execution_metrics.model_call_limit} 次{answer.execution_metrics.reported_tokens == null ? "" : ` · ${answer.execution_metrics.reported_tokens.toLocaleString()} tokens`}</small>}
                       {answer.source_ids.length > 0 && <small>引用：{answer.source_ids.map((sourceId) => sourceTitle(sourceId, answer)).join("、")}</small>}
                       {answer.content && answer.status !== "生成中" && <button className="intel-chat-copy" type="button" onClick={() => void copyAnswer(answer)}><CopySimple size={14} />{copiedMessageId === answer.id ? "已复制" : "复制回答"}</button>}
                     </article>

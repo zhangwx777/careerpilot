@@ -28,6 +28,6 @@ def required_tools_for_question(question: str) -> list[tuple[str, dict]]:
         return []
     if any(token in text for token in ("简历", "经历", "匹配", "优势", "短板")):
         return [("read_resume", {}), ("read_current_jd", {})]
-    if any(token in text for token in ("时间线", "安排", "截止", "什么时候", "面试时间")):
+    if any(token in text for token in ("时间线", "日程", "冲突", "安排", "截止", "什么时候", "面试时间")):
         return [("search_timeline", {}), ("read_current_jd", {})]
     return [("read_current_jd", {}), ("search_current_intel", {})]

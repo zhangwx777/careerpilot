@@ -1,0 +1,224 @@
+[
+  {
+    "id": "general-01",
+    "question": "什么是 Python 装饰器？",
+    "tools": []
+  },
+  {
+    "id": "general-02",
+    "question": "解释一下数据库事务隔离级别",
+    "tools": []
+  },
+  {
+    "id": "general-03",
+    "question": "如何实现 LRU 缓存？",
+    "tools": []
+  },
+  {
+    "id": "general-04",
+    "question": "介绍一下事件循环",
+    "tools": []
+  },
+  {
+    "id": "general-05",
+    "question": "什么是向量索引？",
+    "tools": []
+  },
+  {
+    "id": "general-06",
+    "question": "请解释 HTTP 幂等性",
+    "tools": []
+  },
+  {
+    "id": "position-01",
+    "question": "这个岗位的核心要求是什么？",
+    "tools": [
+      "read_current_jd",
+      "search_current_intel"
+    ]
+  },
+  {
+    "id": "position-02",
+    "question": "这家公司一面问了什么？",
+    "tools": [
+      "read_current_jd",
+      "search_current_intel"
+    ]
+  },
+  {
+    "id": "position-03",
+    "question": "结合当前岗位分析需要准备的面试题",
+    "tools": [
+      "read_current_jd",
+      "search_current_intel"
+    ]
+  },
+  {
+    "id": "position-04",
+    "question": "这份 JD 看重哪些能力？",
+    "tools": [
+      "read_current_jd",
+      "search_current_intel"
+    ]
+  },
+  {
+    "id": "position-05",
+    "question": "总结这个岗位的面试流程",
+    "tools": [
+      "read_current_jd",
+      "search_current_intel"
+    ]
+  },
+  {
+    "id": "position-06",
+    "question": "结合面经给我复习建议",
+    "tools": [
+      "read_current_jd",
+      "search_current_intel"
+    ]
+  },
+  {
+    "id": "resume-01",
+    "question": "我的简历与岗位匹配吗？",
+    "tools": [
+      "read_resume",
+      "read_current_jd"
+    ]
+  },
+  {
+    "id": "resume-02",
+    "question": "我的项目经历如何对应职位职责",
+    "tools": [
+      "read_resume",
+      "read_current_jd"
+    ]
+  },
+  {
+    "id": "resume-03",
+    "question": "简历里还需要补充什么？",
+    "tools": [
+      "read_resume",
+      "read_current_jd"
+    ]
+  },
+  {
+    "id": "resume-04",
+    "question": "结合我的经历说明岗位匹配度",
+    "tools": [
+      "read_resume",
+      "read_current_jd"
+    ]
+  },
+  {
+    "id": "resume-05",
+    "question": "当前岗位要求和简历经历有哪些差距？",
+    "tools": [
+      "read_resume",
+      "read_current_jd"
+    ]
+  },
+  {
+    "id": "resume-06",
+    "question": "我的项目经历如何对应职位职责",
+    "tools": [
+      "read_resume",
+      "read_current_jd"
+    ]
+  },
+  {
+    "id": "timeline-01",
+    "question": "面试时间是什么时候？",
+    "tools": [
+      "search_timeline",
+      "read_current_jd"
+    ]
+  },
+  {
+    "id": "timeline-02",
+    "question": "近期安排和截止日期有哪些？",
+    "tools": [
+      "search_timeline",
+      "read_current_jd"
+    ]
+  },
+  {
+    "id": "timeline-03",
+    "question": "这家公司下一轮面试安排如何？",
+    "tools": [
+      "search_timeline",
+      "read_current_jd"
+    ]
+  },
+  {
+    "id": "timeline-04",
+    "question": "投递的笔试截止时间是什么？",
+    "tools": [
+      "search_timeline",
+      "read_current_jd"
+    ]
+  },
+  {
+    "id": "timeline-05",
+    "question": "我有哪些日程冲突？",
+    "tools": [
+      "search_timeline",
+      "read_current_jd"
+    ]
+  },
+  {
+    "id": "timeline-06",
+    "question": "查询面试安排",
+    "tools": [
+      "search_timeline",
+      "read_current_jd"
+    ]
+  },
+  {
+    "id": "edge-01",
+    "question": "简历与这家公司面试要求匹配吗？",
+    "tools": [
+      "read_resume",
+      "read_current_jd"
+    ]
+  },
+  {
+    "id": "edge-02",
+    "question": "面试时间和岗位 JD 的截止时间分别是什么？",
+    "tools": [
+      "search_timeline",
+      "read_current_jd"
+    ]
+  },
+  {
+    "id": "edge-03",
+    "question": "介绍一下当前岗位里的 Python 框架要求",
+    "tools": [
+      "read_current_jd",
+      "search_current_intel"
+    ]
+  },
+  {
+    "id": "edge-04",
+    "question": "如何实现简历所写的缓存系统？",
+    "tools": [
+      "read_resume",
+      "read_current_jd"
+    ]
+  },
+  {
+    "id": "edge-05",
+    "question": "什么是面试中的 CAP 定理？",
+    "tools": [
+      "read_current_jd",
+      "search_current_intel"
+    ]
+  },
+  {
+    "id": "edge-06",
+    "question": "我的时间线里下一次面试是什么时候？",
+    "tools": [
+      "search_timeline",
+      "read_current_jd"
+    ]
+  }
+]

@@ -310,6 +310,7 @@ class TaskDispatch(Base):
     heartbeat_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     next_attempt_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now, index=True)
     error_message: Mapped[str | None] = mapped_column(Text)
+    metrics: Mapped[dict] = mapped_column(PortableJSON, default=dict)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
 
 

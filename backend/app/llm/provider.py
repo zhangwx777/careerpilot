@@ -5,11 +5,13 @@
 """
 
 import json
+from time import monotonic
 from typing import Any, TypedDict
 
 import litellm
 
 from app.llm.registry import LLM_RETRIES, LLM_TIMEOUT_SECONDS
+from app.llm.budget import BudgetExceeded, current_budget
 
 
 _FALLBACK_PARAMETERS = ("temperature", "response_format")
@@ -82,12 +84,40 @@ def _completion_with_fallback(kwargs: dict):
     """Call LiteLLM once, retrying only explicit parameter incompatibilities."""
 
     try:
-        return litellm.completion(**kwargs)
+        return _completion(kwargs)
     except Exception as exc:
         retry_kwargs = _unsupported_parameter_fallback(kwargs, exc)
         if retry_kwargs is None:
             raise
-        return litellm.completion(**retry_kwargs)
+        return _completion(retry_kwargs)
+
+
+def _completion(kwargs):
+    budget = current_budget.get()
+    if budget:
+        kwargs = {**kwargs, "timeout": min(kwargs["timeout"], budget.claim_call()), "num_retries": 0}
+    started = monotonic()
+    streaming = False
+    try:
+        response = litellm.completion(**kwargs)
+        if budget and kwargs.get("stream"):
+            streaming = True
+            def timed_stream():
+                try:
+                    yield from response
+                finally:
+                    with budget.lock:
+                        budget.provider_ms += int((monotonic() - started) * 1000)
+
+            return timed_stream()
+        if budget:
+            budget.remaining()
+            budget.record_tokens(response)
+        return response
+    finally:
+        if budget and not streaming:
+            with budget.lock:
+                budget.provider_ms += int((monotonic() - started) * 1000)
 
 
 class LlmCallError(RuntimeError):
@@ -238,6 +268,8 @@ def chat(
     try:
         resp = _completion_with_fallback(kwargs)
         return resp.choices[0].message.content
+    except BudgetExceeded:
+        raise
     except Exception as exc:
         raise LlmCallError(_error_kind(exc)) from None
 
@@ -289,6 +321,8 @@ def chat_with_tools(
             "content": getattr(message, "content", None),
             "tool_calls": _normalize_tool_calls(message),
         }
+    except BudgetExceeded:
+        raise
     except Exception as exc:
         if _tool_call_unsupported(exc):
             raise LlmCallError("tool_call_unsupported") from None
@@ -314,8 +348,14 @@ def chat_stream(
         for attempt in range(2):
             received_chunk = False
             try:
-                stream = litellm.completion(**kwargs)
+                stream = _completion(kwargs)
                 for chunk in stream:
+                    budget = current_budget.get()
+                    if budget:
+                        budget.remaining()
+                        budget.record_tokens(chunk)
+                    if not chunk.choices:
+                        continue
                     # Do not replay a partially delivered stream.  A retry is
                     # safe only when the provider rejected the request before
                     # yielding any chunk.
@@ -325,11 +365,16 @@ def chat_stream(
                     )
                     if isinstance(content, str) and content:
                         yield content
+                budget = current_budget.get()
+                if budget:
+                    budget.remaining()
                 return
             except Exception as exc:
                 retry_kwargs = _unsupported_parameter_fallback(kwargs, exc)
                 if attempt or received_chunk or retry_kwargs is None:
                     raise
                 kwargs = retry_kwargs
+    except BudgetExceeded:
+        raise
     except Exception as exc:
         raise LlmCallError(_error_kind(exc)) from None

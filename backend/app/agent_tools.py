@@ -301,7 +301,8 @@ def _search_public_intel(context: AgentToolContext, arguments: dict[str, Any]) -
     try:
         with context.session_factory() as db:
             search_config = get_search_config(db)
-        results = search(parsed.query, **search_config, timeout_seconds=30)
+        from app.llm.budget import remaining_timeout
+        results = search(parsed.query, **search_config, timeout_seconds=remaining_timeout(30))
     except PublicSearchError as exc:
         error_text = str(exc)
         if "未配置" in error_text:

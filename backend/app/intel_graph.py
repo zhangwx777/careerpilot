@@ -27,6 +27,7 @@ from app.llm.provider import chat
 from app.llm.structured import StructuredOutputError, complete_structured
 from app.models import IntelSession, InterviewIntel, Position
 from app.task_execution import assert_dispatch_owner, prepare_dispatch, publish_dispatch
+from app.llm.budget import BudgetExceeded
 from app.task_queue import rebuild_insight_task
 
 logger = logging.getLogger(__name__)
@@ -59,6 +60,7 @@ class IntelGraphState(TypedDict, total=False):
     sources: Annotated[list[dict], add]
     extractions: dict[str, dict]
     search_attempt: int
+    search_queries: Annotated[list[str], add]
     supplement_web: bool
     search_errors: list[str]
     source_errors: list[str]
@@ -258,10 +260,15 @@ def build_intel_graph(checkpointer: PostgresSaver, session_factory: Callable[[],
                     # The graph owns the global three-attempt budget. One research
                     # turn per graph attempt keeps retries bounded and observable.
                     max_rounds=1,
+                    prior_queries=state.get("search_queries", []),
+                    existing_urls=[item.get("url") for item in state.get("sources", []) if item.get("url")],
+                    critic_feedback=state.get("critic_feedback", ""),
                     search_fn=lambda query, timeout_seconds=30: search(
                         query, **search_config, timeout_seconds=timeout_seconds
                     ),
                 )
+        except BudgetExceeded:
+            raise
         except PublicSearchError:
             logger.exception("面经公开检索失败：%s", state["query"])
             errors.append("公开面经搜索暂时失败")
@@ -297,7 +304,7 @@ def build_intel_graph(checkpointer: PostgresSaver, session_factory: Callable[[],
         if research.error:
             errors.append("公开面经搜索暂时失败" if research.error.startswith("search_") else "面经研究 Agent 返回异常")
         save_source_progress(state, "正在整理来源", accepted, rejected=rejected, errors=errors)
-        return {"search_attempt": attempt, "search_errors": errors, "sources": accepted}
+        return {"search_attempt": attempt, "search_errors": errors, "sources": accepted, "search_queries": research.queries}
 
     def paste_node(state: IntelGraphState):
         sources = []

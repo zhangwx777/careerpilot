@@ -34,6 +34,7 @@ from app.llm.config_store import (
 )
 from app.llm.prompts import CHAT_PROMPT_VERSION, CHAT_SYSTEM_PROMPT, IMAGE_EXTRACTION_PROMPT, INTEL_PROMPT_VERSION
 from app.llm.provider import LlmCallError, chat
+from app.llm.budget import BudgetExceeded, execution_budget
 from app.llm.structured import StructuredOutputError, complete_structured, parse_structured
 from app.models import AgentRun, Application, Company, IntelChatMessage, IntelSession, InterviewIntel, LlmProviderConfig, Position, TimelineNode
 from app.schemas import ApplicationRead, PositiveId
@@ -183,6 +184,7 @@ class IntelChatMessageRead(BaseModel):
     used_tools: list[str] = Field(default_factory=list)
     answer_mode: str | None = None
     search_status: str | None = None
+    execution_metrics: dict[str, int | None] | None = None
     sources: list[IntelChatSourceRead] = Field(default_factory=list)
     error_message: str | None = None
     created_at: datetime
@@ -215,6 +217,8 @@ def _chat_message_read(
     data["used_tools"] = list(run.used_tools or []) if run else []
     data["answer_mode"] = run.answer_mode if run else None
     data["search_status"] = run.search_status if run else None
+    usage = run.budget.get("usage") if run and isinstance(run.budget, dict) else None
+    data["execution_metrics"] = usage if isinstance(usage, dict) else None
     data["error_message"] = run.error_message if run else None
     data["sources"] = [
         IntelChatSourceRead.model_validate({key: value for key, value in source.items() if key != "text"})
@@ -632,6 +636,7 @@ def _update_chat_preview(message_id: int, content: str, attempt: int | None = No
 
 def _run_intel_chat(message_id: int, application_id: int, provider: str, question: str) -> None:
     attempt = None
+    limits = None
     try:
         with SessionLocal() as db:
             assert_dispatch_owner(db)
@@ -702,25 +707,26 @@ def _run_intel_chat(message_id: int, application_id: int, provider: str, questio
                 last_preview = preview
                 last_persisted_at = time.monotonic()
 
-        result = run_chat_agent(
-            messages,
-            tool_specs,
-            tool_registry,
-            provider,
-            assistant_config,
-            required_tools=required_tools,
-            on_stage=update_stage,
-            on_chunk=update_preview,
-        )
-        parsed = parse_structured(
-            result.raw,
-            messages,
-            provider,
-            lambda content: _parse_chat_answer(content, {source.id for source in result.sources}),
-            chat_fn=chat,
-            config=assistant_config,
-            generation="chat",
-        )
+        with execution_budget(DEFAULT_BUDGET.max_model_calls, DEFAULT_BUDGET.max_duration_seconds) as limits:
+            result = run_chat_agent(
+                messages,
+                tool_specs,
+                tool_registry,
+                provider,
+                assistant_config,
+                required_tools=required_tools,
+                on_stage=update_stage,
+                on_chunk=update_preview,
+            )
+            parsed = parse_structured(
+                result.raw,
+                messages,
+                provider,
+                lambda content: _parse_chat_answer(content, {source.id for source in result.sources}),
+                chat_fn=chat,
+                config=assistant_config,
+                generation="chat",
+            )
         answer = parsed.answer
         source_ids = parsed.source_ids
         if required_tools and result.sources and not source_ids and not (parsed.insufficient_data or result.insufficient_data):
@@ -739,6 +745,7 @@ def _run_intel_chat(message_id: int, application_id: int, provider: str, questio
                 assistant.status = "已完成"
                 run.status = result.status
                 run.stage = "已完成"
+                run.budget = {**run.budget, "usage": limits.snapshot()}
                 run.steps = [item.model_dump(mode="json") for item in result.steps]
                 run.sources = [item.model_dump(mode="json") for item in result.sources]
                 run.insufficient_data = parsed.insufficient_data or result.insufficient_data
@@ -756,6 +763,8 @@ def _run_intel_chat(message_id: int, application_id: int, provider: str, questio
         logger.exception("面经问答消息 %s 后台生成失败", message_id)
         if isinstance(exc, EvidenceChangedError):
             error_message = "回答依据的资料已变更，请重新生成"
+        elif isinstance(exc, BudgetExceeded):
+            error_message = str(exc)
         elif isinstance(exc, LlmCallError):
             error_message = str(exc)
         elif isinstance(exc, StructuredOutputError):
@@ -776,11 +785,15 @@ def _run_intel_chat(message_id: int, application_id: int, provider: str, questio
                 if run is not None:
                     run.status = "failed"
                     run.stage = "失败"
+                    if limits is not None:
+                        run.budget = {**run.budget, "usage": limits.snapshot()}
                     run.error_kind = (
                         exc.kind
                         if isinstance(exc, LlmCallError)
                         else "structured_output"
                         if isinstance(exc, StructuredOutputError)
+                        else "budget_exceeded"
+                        if isinstance(exc, BudgetExceeded)
                         else "source_invalidated"
                         if isinstance(exc, EvidenceChangedError)
                         else "agent_error"

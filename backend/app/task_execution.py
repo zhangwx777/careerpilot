@@ -11,6 +11,7 @@ from sqlalchemy import func, select
 
 from app.config import settings
 from app.db import SessionLocal
+from app.llm.budget import BudgetExceeded, execution_budget
 from app.models import AgentRun, IntelChatMessage, IntelSession, ParseSession, PlannerSession, Position, PreparationTask, TaskDispatch
 
 logger = logging.getLogger(__name__)
@@ -266,32 +267,35 @@ def execute_job(job_id: str) -> None:
     heartbeat.start()
     error = None
     try:
-        if task_name == "careerpilot.practice":
-            from app.planner_api import _run_practice
-            _run_practice(*args)
-        elif task_name == "careerpilot.intel_chat":
-            from app.intel_api import _run_intel_chat
-            _run_intel_chat(*args)
-        elif task_name == "careerpilot.intel_session":
-            from app.intel_api import _run_intel_session
-            _run_intel_session(*args)
-        elif task_name == "careerpilot.planner_session":
-            from app.planner_api import _run_planner_session
-            _run_planner_session(*args)
-        elif task_name == "careerpilot.parse_session":
-            from app.task_queue import run_parse_session_task
-            run_parse_session_task.run(*args)
-        elif task_name == "careerpilot.rebuild_insight":
-            from app.intel_insight import rebuild_position_insight
-            from app.llm.config_store import config_from_snapshot
-            position_id, provider, snapshot, revision = args
-            with SessionLocal() as db:
-                config = config_from_snapshot(snapshot, db, provider)
-            rebuild_position_insight(position_id, provider, SessionLocal, llm_config=config, expected_revision=revision)
-        else:
-            raise ValueError("未知后台任务")
+        with execution_budget(6 if task_name == "careerpilot.intel_chat" else 12, 90 if task_name == "careerpilot.intel_chat" else settings.celery_task_timeout - 15) as limits:
+            if task_name == "careerpilot.practice":
+                from app.planner_api import _run_practice
+                _run_practice(*args)
+            elif task_name == "careerpilot.intel_chat":
+                from app.intel_api import _run_intel_chat
+                _run_intel_chat(*args)
+            elif task_name == "careerpilot.intel_session":
+                from app.intel_api import _run_intel_session
+                _run_intel_session(*args)
+            elif task_name == "careerpilot.planner_session":
+                from app.planner_api import _run_planner_session
+                _run_planner_session(*args)
+            elif task_name == "careerpilot.parse_session":
+                from app.task_queue import run_parse_session_task
+                run_parse_session_task.run(*args)
+            elif task_name == "careerpilot.rebuild_insight":
+                from app.intel_insight import rebuild_position_insight
+                from app.llm.config_store import config_from_snapshot
+                position_id, provider, snapshot, revision = args
+                with SessionLocal() as db:
+                    config = config_from_snapshot(snapshot, db, provider)
+                rebuild_position_insight(position_id, provider, SessionLocal, llm_config=config, expected_revision=revision)
+            else:
+                raise ValueError("未知后台任务")
     except TaskLeaseLost:
         return
+    except BudgetExceeded as exc:
+        error = str(exc)
     except Exception:
         error = "后台任务执行失败，请重试"
     finally:
@@ -304,6 +308,7 @@ def execute_job(job_id: str) -> None:
             return
         failure, retryable = _domain_failure(db, job)
         error = error or failure
+        job.metrics = {**limits.snapshot(), "attempt": job.attempt}
         job.status = "failed" if error else "completed"
         job.error_message = error
         job.heartbeat_at = datetime.now(timezone.utc)

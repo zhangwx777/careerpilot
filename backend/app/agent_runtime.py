@@ -1,6 +1,7 @@
 """Bounded, provider-neutral ReAct execution for read-only tools."""
 
 from dataclasses import dataclass
+from functools import wraps
 import json
 from time import monotonic
 from typing import Any, Callable
@@ -9,6 +10,7 @@ from app.agent_schemas import AgentRunResult, AgentSource, AgentStep, AgentToolR
 from app.agent_tools import AgentTool
 from app.task_execution import TaskLeaseLost
 from app.llm.provider import chat, chat_stream, chat_with_tools
+from app.llm.budget import BudgetExceeded, current_budget, execution_budget
 
 
 @dataclass(frozen=True)
@@ -103,7 +105,7 @@ def _finalize(
             raw += chunk
             if on_chunk:
                 on_chunk(raw)
-    except TaskLeaseLost:
+    except (TaskLeaseLost, BudgetExceeded):
         raise
     except Exception:
         # Keep a partial final stream for the existing structured-output
@@ -120,6 +122,16 @@ def _finalize(
     return raw
 
 
+def _bounded_chat(function):
+    @wraps(function)
+    def run(*args, **kwargs):
+        budget = kwargs.get("budget", args[5] if len(args) > 5 else DEFAULT_BUDGET)
+        with execution_budget(budget.max_model_calls, budget.max_duration_seconds):
+            return function(*args, **kwargs)
+    return run
+
+
+@_bounded_chat
 def run_chat_agent(
     messages: list[dict[str, Any]],
     tools: list[dict[str, Any]],
@@ -156,7 +168,11 @@ def run_chat_agent(
         baseline_started = monotonic()
         baseline_error_message: str | None = None
         for index, (tool_name, arguments) in enumerate(required_tools, 1):
+            current_budget.get().remaining()
             tool = tool_registry.get(tool_name)
+            if tool_calls_used >= budget.max_tool_calls or (tool and tool.category == "personal" and personal_reads >= budget.max_personal_reads) or (tool and tool.category == "public" and public_searches >= budget.max_public_searches):
+                raise BudgetExceeded("强制资料读取超出执行预算")
+            tool_calls_used += 1
             if tool is None:
                 result = AgentToolResult(ok=False, error="未知工具", error_kind="unknown")
             else:
@@ -164,6 +180,8 @@ def run_chat_agent(
                     result = tool.handler(arguments)
                 except (TypeError, ValueError):
                     result = AgentToolResult(ok=False, error="工具参数无效", error_kind="invalid_arguments")
+                except (TaskLeaseLost, BudgetExceeded):
+                    raise
                 except Exception:
                     result = AgentToolResult(ok=False, error="工具执行失败", error_kind="unknown")
             used_tools.add(tool_name)
@@ -221,6 +239,7 @@ def run_chat_agent(
         step_sources: set[str] = set()
         call_summaries: list[dict[str, Any]] = []
         for call in calls:
+            current_budget.get().remaining()
             tool = tool_registry.get(call["name"])
             used_tools.add(call["name"])
             category = tool.category if tool else "unknown"
@@ -248,6 +267,8 @@ def run_chat_agent(
                     result = tool.handler(call["arguments"])
                 except (TypeError, ValueError):
                     result = AgentToolResult(ok=False, error="工具参数无效", error_kind="invalid_arguments")
+                except (TaskLeaseLost, BudgetExceeded):
+                    raise
                 except Exception:
                     result = AgentToolResult(ok=False, error="工具执行失败", error_kind="unknown")
                 if category == "personal":
@@ -314,6 +335,7 @@ def run_chat_agent(
         budget_exceeded = True
     if on_stage:
         on_stage("正在整理回答")
+    current_budget.get().remaining()
     raw = _finalize(working_messages, provider, config, on_chunk)
     return AgentRunResult(
         raw=raw,
