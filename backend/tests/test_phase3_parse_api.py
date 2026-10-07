@@ -13,6 +13,7 @@ from app.main import app
 from app.models import Application, Company, ParseSession, Position, TimelineNode
 from app.parsing import NoticeExtraction, NoticeParseError
 from scripts.init_db import initialize_database
+from app.task_execution import execute_job
 
 
 TEST_DATABASE_URL = os.getenv("TEST_DATABASE_URL")
@@ -64,10 +65,17 @@ class ParseSessionApiTestCase(unittest.TestCase):
         )
         self.url_patch.start()
         self.factory_patch.start()
+        self.dispatched_jobs = []
+        self.dispatch_patch = patch("app.task_execution.publish_dispatch", side_effect=self.dispatched_jobs.append)
+        self.dispatch_factory_patch = patch("app.task_execution.SessionLocal", self.session_factory)
+        self.dispatch_patch.start()
+        self.dispatch_factory_patch.start()
         self.client = TestClient(app)
 
     def tearDown(self):
         self.client.close()
+        self.dispatch_factory_patch.stop()
+        self.dispatch_patch.stop()
         self.factory_patch.stop()
         self.url_patch.stop()
         app.dependency_overrides.clear()
@@ -86,6 +94,8 @@ class ParseSessionApiTestCase(unittest.TestCase):
 
     def wait_for_status(self, parse_session_id: int, expected: set[str]) -> str:
         for _ in range(100):
+            while self.dispatched_jobs:
+                execute_job(self.dispatched_jobs.pop(0))
             with self.session_factory() as db:
                 item = db.get(ParseSession, parse_session_id)
                 if item is not None and item.status in expected:

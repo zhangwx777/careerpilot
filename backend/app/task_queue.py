@@ -106,3 +106,18 @@ def enqueue(task, *args, **kwargs):
         raise TaskQueueUnavailable(
             "Agent 任务队列不可用，请启动 Redis 和 CareerPilot worker"
         ) from exc
+
+
+@celery_app.task(name="careerpilot.dispatch")
+def execute_dispatch(job_id: str) -> None:
+    from app.task_execution import execute_job
+
+    execute_job(job_id)
+
+
+@celery_app.task(name="careerpilot.parse_session")
+def run_parse_session_task(session_id: int, thread_id: str, raw_text: str, provider: str, requested_at: str) -> None:
+    from datetime import datetime
+    from app.phase3_api import _run_parse_session
+
+    _run_parse_session(session_id, thread_id, raw_text, provider, datetime.fromisoformat(requested_at))

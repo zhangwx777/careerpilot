@@ -25,7 +25,9 @@ from app.llm.config_store import config_from_snapshot, get_search_config
 from app.llm.prompts import CRITIC_PROMPT
 from app.llm.provider import chat
 from app.llm.structured import StructuredOutputError, complete_structured
-from app.models import IntelSession, InterviewIntel
+from app.models import IntelSession, InterviewIntel, Position
+from app.task_execution import assert_dispatch_owner, prepare_dispatch, publish_dispatch
+from app.task_queue import rebuild_insight_task
 
 logger = logging.getLogger(__name__)
 
@@ -202,6 +204,7 @@ def _merge(extractions: list[IntelExtraction], sources: list[SourceRecord]) -> I
 def build_intel_graph(checkpointer: PostgresSaver, session_factory: Callable[[], Session]):
     def save_progress(state: IntelGraphState, stage: str, sources: list[dict] | None = None):
         with session_factory() as db:
+            assert_dispatch_owner(db)
             item = db.get(IntelSession, state["intel_session_id"])
             if item is None:
                 raise IntelGraphError("面经会话不存在")
@@ -219,6 +222,7 @@ def build_intel_graph(checkpointer: PostgresSaver, session_factory: Callable[[],
     def save_source_progress(state: IntelGraphState, stage: str, sources: list[dict], *, rejected: int = 0, errors: list[str] | None = None):
         save_progress(state, stage, visible_sources(sources))
         with session_factory() as db:
+            assert_dispatch_owner(db)
             item = db.get(IntelSession, state["intel_session_id"])
             if item is not None:
                 payload = item.progress_payload or {}
@@ -429,6 +433,7 @@ def build_intel_graph(checkpointer: PostgresSaver, session_factory: Callable[[],
 
     def fail_empty(state: IntelGraphState):
         with session_factory() as db:
+            assert_dispatch_owner(db)
             item = db.get(IntelSession, state["intel_session_id"])
             if item is not None and item.status not in {"已完成", "已丢弃"}:
                 item.status = "失败"
@@ -444,6 +449,7 @@ def build_intel_graph(checkpointer: PostgresSaver, session_factory: Callable[[],
 
     def review(state: IntelGraphState):
         with session_factory() as db:
+            assert_dispatch_owner(db)
             item = db.get(IntelSession, state["intel_session_id"])
             if item is None:
                 raise IntelGraphError("面经会话不存在")
@@ -465,6 +471,7 @@ def build_intel_graph(checkpointer: PostgresSaver, session_factory: Callable[[],
     def persist(state: IntelGraphState):
         with session_factory() as db:
             with db.begin():
+                assert_dispatch_owner(db)
                 item = db.scalar(select(IntelSession).where(IntelSession.id == state["intel_session_id"]).with_for_update())
                 if item is None:
                     raise IntelGraphError("面经会话不存在")
@@ -505,13 +512,15 @@ def build_intel_graph(checkpointer: PostgresSaver, session_factory: Callable[[],
 
                 sync_intel_reminder(db, item.application_id, payload)
                 position_id = item.application.position_id
+                position = db.scalar(select(Position).where(Position.id == position_id).with_for_update().execution_options(populate_existing=True))
+                position.intel_revision += 1
+                position.intel_insight = {"status": "生成中"}
+                dispatch = prepare_dispatch(db, rebuild_insight_task, position_id, state["provider"], item.llm_snapshot, position.intel_revision) if item.llm_snapshot else None
+                if dispatch is None:
+                    position.intel_insight = {"status": "失败", "error_message": "缺少原任务模型快照，请重建岗位洞察"}
             try:
-                rebuild_position_insight(
-                    position_id,
-                    state["provider"],
-                    session_factory,
-                    llm_config=_session_llm_config(state, session_factory),
-                )
+                if dispatch is not None:
+                    publish_dispatch(dispatch.id)
             except Exception:
                 logger.exception("岗位 %s 洞察重建失败", position_id)
                 with session_factory() as progress_db:

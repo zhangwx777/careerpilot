@@ -16,6 +16,7 @@ from app.planner_parsing import extract_plan as _extract_action_plan
 from app.planner_parsing import extract_scheduled_plan as _extract_scheduled_plan
 from app.planner_schemas import AvailabilityWindow, PlannerConfirmation, PlannerDraft, ScheduledTask
 from app.llm.config_store import config_from_snapshot
+from app.task_execution import assert_dispatch_owner
 
 
 class PlannerGraphError(Exception):
@@ -91,6 +92,7 @@ def build_planner_graph(checkpointer: PostgresSaver, session_factory: Callable[[
 
     def review_node(state: PlannerGraphState):
         with session_factory() as db:
+            assert_dispatch_owner(db)
             item = db.get(PlannerSession, state["planner_session_id"])
             if item is None:
                 raise PlannerGraphError("备战计划会话不存在")
@@ -104,6 +106,7 @@ def build_planner_graph(checkpointer: PostgresSaver, session_factory: Callable[[
         confirmation = PlannerConfirmation.model_validate(state["confirmation"])
         with session_factory() as db:
             with db.begin():
+                assert_dispatch_owner(db)
                 item = db.scalar(
                     select(PlannerSession)
                     .where(PlannerSession.id == state["planner_session_id"])

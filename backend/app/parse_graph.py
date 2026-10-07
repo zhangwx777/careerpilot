@@ -15,6 +15,7 @@ from app.llm.config_store import config_from_snapshot
 from app.models import Application, ParseSession, TimelineNode
 from app.parsing import extract_notice
 from app.phase3_schemas import ParseConfirmation
+from app.task_execution import assert_dispatch_owner
 
 
 class ParseGraphState(TypedDict, total=False):
@@ -49,6 +50,7 @@ def build_parse_graph(
         )
         payload = extraction.model_dump(mode="json")
         with session_factory() as db:
+            assert_dispatch_owner(db)
             parse_session = db.get(ParseSession, state["parse_session_id"])
             if parse_session is None:
                 raise ParseGraphStateError("解析会话不存在")
@@ -70,6 +72,7 @@ def build_parse_graph(
         confirmation = ParseConfirmation.model_validate(state["confirmation"])
         with session_factory() as db:
             with db.begin():
+                assert_dispatch_owner(db)
                 parse_session = db.scalar(
                     select(ParseSession)
                     .where(ParseSession.id == state["parse_session_id"])

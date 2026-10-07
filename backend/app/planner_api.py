@@ -31,6 +31,7 @@ from app.planner_schemas import (
 )
 from app.planner_coach import generate_preparation_answer, review_preparation_answer as run_review_preparation_answer
 from app.task_queue import TaskQueueUnavailable, enqueue, run_planner_session_task, rebuild_insight_task
+from app.task_execution import TaskLeaseLost, assert_dispatch_owner, submit_task
 
 router = APIRouter(prefix="/api")
 DbSession = Annotated[Session, Depends(get_db)]
@@ -115,6 +116,10 @@ def _run_planner_session(session_id: int, thread_id: str) -> None:
                     item.provider,
                     llm_config=config_from_snapshot(item.llm_snapshot, task_db, item.provider),
                 )
+                assert_dispatch_owner(task_db)
+                task_db.refresh(item)
+                if item.status != "生成中":
+                    return
                 item.draft_payload = draft.model_dump(mode="json")
                 item.status = "已完成"
                 item.resolved_at = datetime.now(timezone.utc)
@@ -123,9 +128,12 @@ def _run_planner_session(session_id: int, thread_id: str) -> None:
         result = start_planner_graph(session_id, thread_id, settings.database_url, SessionLocal)
         if "__interrupt__" not in result:
             raise PlannerGraphError("备战计划图未停在确认节点")
+    except TaskLeaseLost:
+        raise
     except Exception:
         logger.exception("备战计划会话 %s 后台任务失败", session_id)
         with SessionLocal() as task_db:
+            assert_dispatch_owner(task_db)
             item = task_db.get(PlannerSession, session_id)
             if item is not None and item.status == "生成中":
                 item.status = "失败"
@@ -236,10 +244,9 @@ def create_planner_session(
         status="生成中",
     )
     db.add(item)
-    db.commit()
-    db.refresh(item)
+    db.flush()
     try:
-        task = enqueue(run_planner_session_task, item.id, str(item.thread_id))
+        task = submit_task(db, run_planner_session_task, item.id, str(item.thread_id))
     except TaskQueueUnavailable as exc:
         item.status = "失败"
         item.error_message = str(exc)
@@ -329,16 +336,17 @@ def discard_planner_session(planner_session_id: int, db: DbSession):
 
 @router.post("/planner-sessions/{planner_session_id}/retry", response_model=PlannerSessionRead)
 def retry_planner_session(planner_session_id: int, db: DbSession):
-    item = _get_session(db, planner_session_id)
+    item = db.scalar(select(PlannerSession).where(PlannerSession.id == planner_session_id).with_for_update().execution_options(populate_existing=True))
+    if item is None:
+        raise HTTPException(404, "备战计划会话不存在")
     if item.status != "失败":
         raise HTTPException(409, "只有失败的备战分析可以重试")
     item.status = "生成中"
     item.error_message = None
     item.resolved_at = None
     item.draft_payload = None
-    db.commit()
     try:
-        task = enqueue(run_planner_session_task, item.id, str(item.thread_id))
+        task = submit_task(db, run_planner_session_task, item.id, str(item.thread_id))
     except TaskQueueUnavailable as exc:
         item.status = "失败"
         item.error_message = str(exc)

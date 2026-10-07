@@ -4,6 +4,7 @@ from collections.abc import Callable
 from urllib.parse import urlsplit, urlunsplit
 
 from sqlalchemy import select
+from app.task_execution import TaskLeaseLost, assert_dispatch_owner
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.intel_schemas import IntelInsight
@@ -152,10 +153,20 @@ def rebuild_position_insight(
     provider: str,
     session_factory: Callable[[], Session] | sessionmaker,
     llm_config: dict | None = None,
+    expected_revision: int | None = None,
 ) -> None:
+    revision = None
     try:
         with session_factory() as db:
-            position = db.scalar(select(Position).where(Position.id == position_id))
+            assert_dispatch_owner(db)
+            position = db.scalar(select(Position).where(Position.id == position_id).with_for_update())
+            if position is None:
+                return
+            if expected_revision is not None and position.intel_revision != expected_revision:
+                return
+            if expected_revision is None:
+                position.intel_revision += 1
+            revision = position.intel_revision
             materials = list(
                 db.scalars(
                     select(InterviewIntel)
@@ -175,14 +186,18 @@ def rebuild_position_insight(
             prompt, allowed = _build_input(position, materials)
         insight = _generate(prompt, provider, allowed, llm_config=llm_config)
         with session_factory() as db:
-            position = db.get(Position, position_id)
-            if position is not None:
+            assert_dispatch_owner(db)
+            position = db.scalar(select(Position).where(Position.id == position_id).with_for_update())
+            if position is not None and position.intel_revision == revision:
                 position.intel_insight = insight.model_dump(mode="json")
                 db.commit()
+    except TaskLeaseLost:
+        raise
     except Exception:
         logger.exception("岗位 %s 洞察生成失败", position_id)
         with session_factory() as db:
-            position = db.get(Position, position_id)
-            if position is not None:
+            assert_dispatch_owner(db)
+            position = db.scalar(select(Position).where(Position.id == position_id).with_for_update())
+            if position is not None and revision is not None and position.intel_revision == revision:
                 position.intel_insight = IntelInsight(status="失败", error_message="岗位洞察生成失败，请稍后重试").model_dump(mode="json")
                 db.commit()

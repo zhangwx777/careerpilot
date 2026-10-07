@@ -74,7 +74,7 @@ class IntelAgentChatIntegrationTestCase(unittest.TestCase):
                 position_id=position.id,
                 application_id=application.id,
                 provider="anthropic",
-                status="running",
+                status="queued",
                 stage="准备中",
             )
             db.add(run)
@@ -201,6 +201,46 @@ class IntelAgentChatIntegrationTestCase(unittest.TestCase):
             with self.assertRaises(HTTPException) as clear_error:
                 clear_intel_chat_history(self.application_id, db)
             self.assertEqual(clear_error.exception.status_code, 409)
+
+    def test_running_chat_cannot_be_claimed_again(self):
+        with self.sessions.begin() as db:
+            db.get(AgentRun, self.run_id).status = "running"
+        with patch("app.intel_api.SessionLocal", self.sessions), patch("app.intel_api.run_chat_agent") as work:
+            _run_intel_chat(self.message_id, self.application_id, "anthropic", "问题")
+        work.assert_not_called()
+
+    def test_removed_material_is_rejected_before_answer_commit(self):
+        def remove_then_answer(*args, **kwargs):
+            with self.sessions.begin() as db:
+                db.execute(delete(InterviewIntel))
+            return AgentRunResult(raw='{"answer":"旧材料结论","source_ids":["material-1:manual"]}', sources=[AgentSource(id="material-1:manual", title="旧资料")])
+        with patch("app.intel_api.SessionLocal", self.sessions), patch("app.intel_api.config_from_snapshot", return_value={}), patch("app.intel_api.run_chat_agent", side_effect=remove_then_answer):
+            _run_intel_chat(self.message_id, self.application_id, "anthropic", "问题")
+        with self.sessions() as db:
+            answer = db.get(IntelChatMessage, self.message_id)
+            self.assertEqual(answer.status, "失败")
+            self.assertEqual(answer.source_ids, [])
+            self.assertIn("资料已变更", answer.content)
+            self.assertEqual(db.get(AgentRun, self.run_id).error_kind, "source_invalidated")
+
+    def test_model_cannot_override_runtime_tool_and_search_facts(self):
+        result = AgentRunResult(raw='{"answer":"已有材料结论","source_ids":["material-1:manual"],"used_tools":["invented"],"search_status":"success"}', sources=[AgentSource(id="material-1:manual", title="用户面经")], used_tools=["search_current_intel"], search_status="failed")
+        with patch("app.intel_api.SessionLocal", self.sessions), patch("app.intel_api.config_from_snapshot", return_value={}), patch("app.intel_api.run_chat_agent", return_value=result):
+            _run_intel_chat(self.message_id, self.application_id, "anthropic", "问题")
+        with self.sessions() as db:
+            run = db.get(AgentRun, self.run_id)
+            self.assertEqual(run.used_tools, ["search_current_intel"])
+            self.assertEqual(run.search_status, "failed")
+            self.assertIn("公开检索失败", db.get(IntelChatMessage, self.message_id).content)
+
+    def test_history_marks_invalid_references_without_presenting_them_as_valid(self):
+        with self.sessions() as db:
+            answer = db.get(IntelChatMessage, self.message_id)
+            answer.source_ids = ["material-1:manual"]
+            read = _chat_message_read(answer, db.get(AgentRun, self.run_id), set())
+            self.assertEqual(read.source_ids, [])
+            self.assertEqual(read.invalid_source_ids, ["material-1:manual"])
+            self.assertTrue(read.insufficient_data)
 
 
 if __name__ == "__main__":

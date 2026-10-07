@@ -7,6 +7,7 @@ from typing import Any, Callable
 
 from app.agent_schemas import AgentRunResult, AgentSource, AgentStep, AgentToolResult
 from app.agent_tools import AgentTool
+from app.task_execution import TaskLeaseLost
 from app.llm.provider import chat, chat_stream, chat_with_tools
 
 
@@ -102,6 +103,8 @@ def _finalize(
             raw += chunk
             if on_chunk:
                 on_chunk(raw)
+    except TaskLeaseLost:
+        raise
     except Exception:
         # Keep a partial final stream for the existing structured-output
         # repair path; only an empty stream needs a one-shot retry.

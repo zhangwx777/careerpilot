@@ -9,6 +9,8 @@ from sqlalchemy.orm import Session, joinedload
 from app.config import settings
 from app.application_records import materialize_position
 from app.db import SessionLocal, get_db
+from app.task_queue import run_parse_session_task
+from app.task_execution import TaskLeaseLost, assert_dispatch_owner, submit_task
 from app.models import (
     APPLICATION_STATUS,
     Application,
@@ -103,6 +105,11 @@ def _run_parse_session(
     requested_at: datetime,
 ) -> None:
     try:
+        with SessionLocal() as db:
+            assert_dispatch_owner(db)
+            item = db.get(ParseSession, parse_session_id)
+            if item is None or item.status != "解析中":
+                return
         result = start_parse_graph(
             parse_session_id,
             thread_id,
@@ -114,6 +121,8 @@ def _run_parse_session(
         )
         if "__interrupt__" not in result:
             raise ParseGraphStateError("解析图未停在人工确认节点")
+    except TaskLeaseLost:
+        raise
     except Exception as exc:
         logger.exception("解析会话 %s 后台任务失败", parse_session_id)
         error_message = (
@@ -122,6 +131,7 @@ def _run_parse_session(
             else "解析失败，请检查通知内容或稍后重试"
         )
         with SessionLocal() as task_db:
+            assert_dispatch_owner(task_db)
             parse_session = task_db.get(ParseSession, parse_session_id)
             if parse_session is not None and parse_session.status == "解析中":
                 parse_session.status = "解析失败"
@@ -151,6 +161,10 @@ def create_parse_session(
         status="解析中",
     )
     db.add(parse_session)
+    if isinstance(db, Session):
+        db.flush()
+        submit_task(db, run_parse_session_task, parse_session.id, str(parse_session.thread_id), parse_session.raw_text, parse_session.provider, datetime.now(timezone.utc).isoformat())
+        return _session_detail(db, _get_parse_session(db, parse_session.id))
     db.commit()
     db.refresh(parse_session)
 

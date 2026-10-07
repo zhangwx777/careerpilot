@@ -66,6 +66,8 @@ class IntelGraphSearchCallbackTestCase(unittest.TestCase):
             progress_payload={},
             application_id=1,
             application=SimpleNamespace(position_id=1),
+            intel_revision=0,
+            llm_snapshot=None,
         )
         db = MagicMock()
         db.__enter__.return_value = db
@@ -89,7 +91,7 @@ class IntelGraphSearchCallbackTestCase(unittest.TestCase):
             patch("app.intel_graph._session_llm_config", return_value={}),
             patch("app.intel_graph.extract_intel", side_effect=extraction),
             patch("app.intel_graph._decide_after_aggregate", return_value="persist"),
-            patch("app.intel_graph.rebuild_position_insight"),
+            patch("app.intel_graph.publish_dispatch"),
             patch("app.intel_reminders.sync_intel_reminder"),
         ):
             graph = build_intel_graph(InMemorySaver(), lambda: db)

@@ -97,7 +97,7 @@ class PlannerHistoryApiTestCase(unittest.TestCase):
 
         with patch("app.planner_api.resolve_role_provider", return_value="openai"), \
                 patch("app.planner_api.snapshot_for", return_value="provider-snapshot"), \
-                patch("app.planner_api.enqueue", return_value=SimpleNamespace(id="queue-task")):
+                patch("app.planner_api.submit_task", side_effect=lambda db, *args: (db.commit() or SimpleNamespace(id="queue-task"))):
             response = self.client.post("/api/planner-sessions", json={"application_id": application.id})
 
         self.assertEqual(response.status_code, 201, response.text)

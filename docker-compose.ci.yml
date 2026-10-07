@@ -30,6 +30,7 @@ services:
       CELERY_BROKER_URL: redis://redis:6379/0
       CELERY_RESULT_BACKEND: redis://redis:6379/0
       CAREERPILOT_APP_ROOT: /workspace
+      PYTHONPYCACHEPREFIX: /tmp/bytecode
     volumes:
       - frontend-build:/workspace/frontend/dist:ro
     command: ["sh", "-c", "pytest -p no:cacheprovider --junitxml=/tmp/tests.xml && python -m scripts.check_test_results /tmp/tests.xml"]

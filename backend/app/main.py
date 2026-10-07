@@ -16,6 +16,7 @@ from app.planner_api import router as planner_router
 from app.briefing_api import router as briefing_router
 from app.daily_scheduler import daily_loop
 from app.task_queue import queue_available
+from app.task_execution import recovery_loop
 
 logger = logging.getLogger(__name__)
 
@@ -23,12 +24,16 @@ logger = logging.getLogger(__name__)
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     task = asyncio.create_task(daily_loop())
+    recovery = asyncio.create_task(recovery_loop())
     try:
         yield
     finally:
         task.cancel()
+        recovery.cancel()
         with suppress(asyncio.CancelledError):
             await task
+        with suppress(asyncio.CancelledError):
+            await recovery
 
 app = FastAPI(title="求职作战台", lifespan=lifespan)
 app.include_router(router)

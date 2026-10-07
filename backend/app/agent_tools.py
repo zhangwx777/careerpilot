@@ -9,6 +9,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session, joinedload
 
 from app.agent_schemas import AgentSource, AgentToolResult
+from app.evidence import valid_source_ids
 from app.anysearch import PublicSearchError, search
 from app.llm.config_store import get_search_config
 from app.models import AgentRun, Application, IntelChatMessage, InterviewIntel, TimelineNode
@@ -241,22 +242,15 @@ def _read_chat_history(context: AgentToolContext, _arguments: dict[str, Any]) ->
                 .limit(6)
             ).all()
         )
-        valid_material_ids = {
-            source.id
-            # ponytail: 全表扫描面经材料，材料量大时按 position_id/company_id 收窄
-            for material in db.scalars(
-                select(InterviewIntel)
-                .join(InterviewIntel.application)
-                .where(Application.position_id == context.position_id)
-            ).all()
-            for source in _material_sources(material)
-        }
+        valid_material_ids = valid_source_ids(db, [raw.get("id", "") for run in runs for raw in run.sources or [] if isinstance(raw, dict)])
         records: list[tuple[dict[str, Any], list[AgentSource]]] = []
         for run in reversed(runs):
             assistant = db.get(IntelChatMessage, run.assistant_message_id) if run.assistant_message_id else None
             if assistant is None:
                 continue
-            user = db.scalar(
+            if any(source_id.startswith("material-") and source_id not in valid_material_ids for source_id in assistant.source_ids or []):
+                continue
+            user = db.get(IntelChatMessage, run.user_message_id) if run.user_message_id else db.scalar(
                 select(IntelChatMessage)
                 .where(
                     IntelChatMessage.position_id == context.position_id,

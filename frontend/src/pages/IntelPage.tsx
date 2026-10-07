@@ -9,7 +9,11 @@ import { ContextBar, StatusBadge } from "../components/DesignPrimitives";
 import { clearDraft, loadDraft, loadSessionId, saveDraft, saveSessionId } from "../drafts";
 import { formatDateTime } from "../format";
 import { usePolling } from "../hooks/usePolling";
+import { groupChatMessages } from "../chat";
+
 import type { Application, IntelChatMessage, IntelDossier, IntelInsight, IntelPayload, IntelProgress, IntelRoundType, IntelSession, InterviewIntel, SourceRecord } from "../types";
+
+const toolLabels: Record<string, string> = { read_current_jd: "岗位 JD", search_current_intel: "岗位面经", read_resume: "简历", search_timeline: "时间线", search_related_intel: "关联岗位", read_chat_history: "历史问答", search_public_intel: "公开资料" };
 
 const rounds: IntelRoundType[] = ["测评", "笔试", "AI面", "一面", "二面", "三面", "HR面", "多轮综合", "未注明"];
 const intelDraftKey = "qiuzhao-agent:intel-draft";
@@ -56,16 +60,6 @@ async function readImage(file: File): Promise<{ name: string; mime_type: string;
 
 type ChatTurn = { user: IntelChatMessage | null; assistant: IntelChatMessage | null };
 
-function groupChatMessages(messages: IntelChatMessage[]): ChatTurn[] {
-  const turns: ChatTurn[] = [];
-  for (const message of messages) {
-    const last = turns[turns.length - 1];
-    if (message.role === "user") turns.push({ user: message, assistant: null });
-    else if (last && !last.assistant) last.assistant = message;
-    else turns.push({ user: null, assistant: message });
-  }
-  return turns;
-}
 
 export function IntelPage() {
   const { id } = useParams();
@@ -279,7 +273,17 @@ export function IntelPage() {
   async function deleteMaterial(item: InterviewIntel) { setLoading(true); setError(""); try { await api.intel.deleteMaterial(item.id); setInsightVersion((current) => current + 1); } catch (reason) { setError(reason instanceof Error ? reason.message : "删除失败"); } finally { setLoading(false); } }
   function askDiscard() { setConfirmation({ title: "舍弃此次面经分析？", description: "舍弃后不会写入岗位资料库。", confirmLabel: "舍弃此次分析", onConfirm: () => { setConfirmation(null); void discard(); } }); }
   function askDeleteMaterial(item: InterviewIntel) { setConfirmation({ title: "删除这份面经材料？", description: `删除“${item.title}”后会重新生成岗位洞察。`, confirmLabel: "删除材料", onConfirm: () => { setConfirmation(null); void deleteMaterial(item); } }); }
-  async function ask() { if (!applicationId || !question.trim()) return; setLoading(true); setError(""); const asked = question.trim(); try { const result = await api.intel.chat({ application_id: applicationId, question: asked }); setChat((current) => [...current, { id: Date.now(), role: "user", content: asked, status: "已完成", source_ids: [], created_at: new Date().toISOString() }, result.message]); setQuestion(""); } catch (reason) { setError(reason instanceof Error ? reason.message : "问答失败"); } finally { setLoading(false); } }
+  async function ask() { if (!applicationId || !question.trim()) return; setLoading(true); setError(""); const asked = question.trim(); try { const result = await api.intel.chat({ application_id: applicationId, question: asked }); setChat((current) => [...current, { id: result.message.user_message_id ?? Date.now(), role: "user", content: asked, status: "已完成", source_ids: [], created_at: new Date().toISOString() }, result.message]); setQuestion(""); } catch (reason) { setError(reason instanceof Error ? reason.message : "问答失败"); } finally { setLoading(false); } }
+
+  async function retryChat(messageId: number) {
+    if (!applicationId) return;
+    setLoading(true); setError("");
+    try {
+      const result = await api.intel.retryChat(applicationId, messageId);
+      setChat((current) => current.map((message) => message.id === result.message.id ? result.message : message));
+    } catch (reason) { setError(reason instanceof Error ? reason.message : "问答重试失败"); }
+    finally { setLoading(false); }
+  }
   async function copyAnswer(answer: IntelChatMessage) { try { await navigator.clipboard.writeText(answer.content); setCopiedMessageId(answer.id); } catch { setError("复制失败，请检查浏览器剪贴板权限"); } }
   async function deleteChatTurn(turn: ChatTurn) {
     if (!applicationId || !turn.user || !turn.assistant || turn.assistant.status === "生成中") return;
@@ -316,7 +320,12 @@ export function IntelPage() {
 
   const isRunning = session?.status === "聚合中";
   const selectedApplication = applications.find((item) => item.id === applicationId);
-  const sourceTitle = (sourceId: string, message?: IntelChatMessage) => message?.sources?.find((source) => source.id === sourceId)?.title ?? dossier?.sources.find((source) => source.id === sourceId)?.title ?? sourceId;
+  const sourceTitle = (sourceId: string, message?: IntelChatMessage) => {
+    const source = message?.sources?.find((item) => item.id === sourceId);
+    const label = source?.scope === "related_position" ? "关联岗位参考" : source?.scope === "public" ? "公开资料" : source?.scope === "conversation" ? "历史对话" : "";
+    const title = source?.title ?? dossier?.sources.find((item) => item.id === sourceId)?.title ?? sourceId;
+    return label ? `${label} · ${title}` : title;
+  };
   const chatTurns = groupChatMessages(chat);
   const latestChatMessage = chat[chat.length - 1];
   useEffect(() => {
@@ -423,10 +432,12 @@ export function IntelPage() {
                       <span>{answer.status === "生成中" ? (answer.agent_stage || "AI 正在生成") : "AI"}</span>
                       <p>{answer.content || (answer.status === "生成中" ? "正在生成回答…" : "暂无回答")}</p>
                       {answer.status === "失败" && <small className="intel-chat-error">{answer.error_message || "本次回答生成失败，可重新提问。"}</small>}
+                      {answer.status === "失败" && <button className="button ghost compact-button" type="button" disabled={loading} onClick={() => void retryChat(answer.id)}>重试回答</button>}
                       {answer.degraded && <small className="intel-chat-warning">本次资料读取未完成，回答可能不完整。</small>}
                       {answer.insufficient_data && <small className="intel-chat-warning">当前岗位资料不足，以上内容包含不确定性。</small>}
+                      {(answer.invalid_source_ids?.length ?? 0) > 0 && <small className="intel-chat-warning">部分原始资料已删除；这条历史回答的相关依据已失效。</small>}
                       {answer.search_status === "failed" && <small className="intel-chat-warning">公开检索失败，回答未将搜索结果视为已完成。</small>}
-                      {(answer.used_tools?.length ?? 0) > 0 && <small>已读取：{answer.used_tools?.join("、")}</small>}
+                      {(answer.used_tools?.length ?? 0) > 0 && <small>本次查阅范围：{answer.used_tools?.map((name) => toolLabels[name] ?? "其他资料").join("、")}</small>}
                       {answer.source_ids.length > 0 && <small>引用：{answer.source_ids.map((sourceId) => sourceTitle(sourceId, answer)).join("、")}</small>}
                       {answer.content && answer.status !== "生成中" && <button className="intel-chat-copy" type="button" onClick={() => void copyAnswer(answer)}><CopySimple size={14} />{copiedMessageId === answer.id ? "已复制" : "复制回答"}</button>}
                     </article>

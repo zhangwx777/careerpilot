@@ -34,6 +34,7 @@ class Settings(BaseSettings):
     celery_task_timeout: int = 180
     celery_max_retries: int = 2
     celery_task_always_eager: bool = False
+    celery_queue: str = "celery"
 
 
 settings = Settings()

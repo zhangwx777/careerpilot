@@ -122,6 +122,7 @@ class Position(Base):
     title: Mapped[str] = mapped_column(String(200), nullable=False)
     jd_text: Mapped[str | None] = mapped_column(Text)
     intel_insight: Mapped[dict | None] = mapped_column(PortableJSON)
+    intel_revision: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
 
     company: Mapped["Company"] = relationship(back_populates="positions")
@@ -263,6 +264,7 @@ class AgentRun(Base):
     assistant_message_id: Mapped[int | None] = mapped_column(
         ForeignKey("intel_chat_message.id", ondelete="CASCADE"), unique=True
     )
+    user_message_id: Mapped[int | None] = mapped_column(ForeignKey("intel_chat_message.id", ondelete="CASCADE"))
     intel_session_id: Mapped[int | None] = mapped_column(
         ForeignKey("intel_session.id", ondelete="CASCADE")
     )
@@ -292,6 +294,23 @@ class AgentRun(Base):
     last_error_message: Mapped[str | None] = mapped_column(Text)
     started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class TaskDispatch(Base):
+    """Durable dispatch and execution ownership, committed with domain changes."""
+
+    __tablename__ = "task_dispatch"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
+    task_name: Mapped[str] = mapped_column(String(100), nullable=False)
+    args: Mapped[list] = mapped_column(PortableJSON, default=list)
+    status: Mapped[str] = mapped_column(String(20), default="pending", index=True)
+    attempt: Mapped[int] = mapped_column(Integer, default=0)
+    lease_token: Mapped[str | None] = mapped_column(String(36))
+    heartbeat_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    next_attempt_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now, index=True)
+    error_message: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
 
 
 class IntelSession(Base):
