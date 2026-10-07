@@ -1,0 +1,49 @@
+name: careerpilot-ci
+
+services:
+  postgres:
+    image: postgres:18-alpine
+    environment:
+      POSTGRES_DB: qiuzhao_test
+      POSTGRES_USER: qiuzhao_test
+      POSTGRES_PASSWORD: test_only
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U qiuzhao_test -d qiuzhao_test"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+  redis:
+    image: redis:7-alpine
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+  backend:
+    build: ./backend
+    working_dir: /workspace/backend
+    environment:
+      DATABASE_URL: postgresql+psycopg://qiuzhao_test:test_only@postgres:5432/qiuzhao_test
+      TEST_DATABASE_URL: postgresql+psycopg://qiuzhao_test:test_only@postgres:5432/qiuzhao_test
+      CELERY_BROKER_URL: redis://redis:6379/0
+      CELERY_RESULT_BACKEND: redis://redis:6379/0
+      CAREERPILOT_APP_ROOT: /workspace
+    volumes:
+      - frontend-build:/workspace/frontend/dist:ro
+    command: ["sh", "-c", "pytest -p no:cacheprovider --junitxml=/tmp/tests.xml && python -m scripts.check_test_results /tmp/tests.xml"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  frontend:
+    build: ./frontend
+    volumes:
+      - frontend-build:/workspace/dist
+    command: ["sh", "-c", "pnpm test && pnpm build"]
+
+volumes:
+  frontend-build:

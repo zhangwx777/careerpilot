@@ -68,6 +68,22 @@ docker compose run --rm frontend pnpm build
 
 没有 `TEST_DATABASE_URL` 时，依赖 PostgreSQL/LangGraph 的测试会跳过。跳过不等于通过；需要在独立测试库上运行并确认 0 skipped。默认测试应 mock LLM、MCP 和外网调用。
 
+完整验证使用独立 Compose 项目，不读取开发 `.env`、密钥或数据卷，不对宿主机开放端口：
+
+```powershell
+docker compose -f docker-compose.ci.yml build
+docker compose -f docker-compose.ci.yml run --rm frontend
+docker compose -f docker-compose.ci.yml run --rm backend
+node --test docker-compose.test.mjs desktop/port-selection.test.mjs desktop/startup.test.mjs
+docker compose -f docker-compose.ci.yml down --volumes --remove-orphans
+```
+
+前端必须先执行，以便将真实构建产物写入测试专用卷，后端只读挂载该卷以验证桌面包的静态页面。仅上面的 `careerpilot-ci` 测试项目允许删除测试卷，开发项目的数据卷必须保留。完整后端验证会检查 JUnit 结果，存在 skipped 或未收集到测试时返回失败。GitHub Actions 使用相同入口。
+
+容器后端通过 `requirements.lock` 锁定 Python 3.12/Linux 的运行与测试依赖；桌面构建仍使用 Windows 环境。更新依赖时，在 Python 3.12 容器中用 `pip-tools==7.6.2` 执行 `pip-compile --extra=test --strip-extras --no-header --no-emit-index-url --output-file=requirements.lock pyproject.toml`，再完成完整验证。不要仅修改版本下限而遗漏锁文件。
+
+前端使用 pnpm 12 的多文档锁文件：第一段记录包管理器，第二段记录应用依赖，必须保留完整文件。安装继续使用 `pnpm install --frozen-lockfile`。
+
 ## API 开发约定
 
 - 完整请求、响应和路由以运行中的 `/docs` 与 `/openapi.json` 为准；手写文档只保留领域入口和行为说明。

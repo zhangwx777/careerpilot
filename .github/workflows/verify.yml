@@ -1,0 +1,27 @@
+name: Verify
+
+on:
+  push:
+    branches: [main, "codex/**"]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build from locked dependencies
+        run: docker compose -f docker-compose.ci.yml build
+      - name: Frontend tests and production build
+        run: docker compose -f docker-compose.ci.yml run --rm frontend
+      - name: Backend and PostgreSQL integration tests
+        run: docker compose -f docker-compose.ci.yml run --rm backend
+      - name: Desktop and development configuration checks
+        run: node --test docker-compose.test.mjs desktop/port-selection.test.mjs desktop/startup.test.mjs
+      - name: Clean up isolated test services
+        if: always()
+        run: docker compose -f docker-compose.ci.yml down --volumes --remove-orphans
