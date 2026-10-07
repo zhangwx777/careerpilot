@@ -11,6 +11,7 @@ from app.application_records import materialize_position
 from app.db import SessionLocal, get_db
 from app.task_queue import run_parse_session_task
 from app.task_execution import TaskLeaseLost, assert_dispatch_owner, submit_task
+from app.preparation import transition_task
 from app.models import (
     APPLICATION_STATUS,
     Application,
@@ -562,6 +563,9 @@ def update_timeline_status(
     )
     if node is None:
         raise HTTPException(status_code=404, detail="时间线节点不存在")
+    linked = db.scalar(select(PreparationTask).where(PreparationTask.timeline_node_id == node.id).with_for_update())
+    if linked is not None:
+        transition_task(db, linked, {"待处理": "待处理", "已完成": "已完成", "已取消": "已跳过", "已错过": "已跳过"}[payload.status])
     node.status = payload.status
     if node.node_type in INTERVIEW_NODE_TYPES:
         sync_intel_reminder_for_application(db, node.application_id)

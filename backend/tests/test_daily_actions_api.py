@@ -4,7 +4,7 @@ from unittest.mock import patch
 
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine, delete
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from app.db import Base, get_db
@@ -16,6 +16,7 @@ from app.models import (
     Position,
     PreparationTask,
     TimelineNode,
+    TaskDispatch,
 )
 from app.planner_api import materialize_planner_actions
 from app.planner_schemas import PreparationAnswer, PreparationFeedback
@@ -49,12 +50,18 @@ class DailyActionsApiTestCase(unittest.TestCase):
 
         app.dependency_overrides[get_db] = override_db
         self.client = TestClient(app)
+        self.dispatch_patch = patch("app.task_execution.publish_dispatch")
+        self.dispatch_patch.start()
+        self.sessions_patch = patch("app.task_execution.SessionLocal", sessionmaker(bind=engine, expire_on_commit=False))
+        self.sessions_patch.start()
 
     def tearDown(self):
+        self.dispatch_patch.stop()
+        self.sessions_patch.stop()
         self.client.close()
         app.dependency_overrides.clear()
         self.session.rollback()
-        for model in (TimelineNode, PreparationTask, PlannerSession, Application, Position, Company):
+        for model in (TaskDispatch, TimelineNode, PreparationTask, PlannerSession, Application, Position, Company):
             self.session.execute(delete(model))
         self.session.commit()
         self.session.close()
@@ -91,6 +98,15 @@ class DailyActionsApiTestCase(unittest.TestCase):
         self.session.add(session)
         self.session.flush()
         return session
+
+    def drain_practice(self):
+        from app.task_execution import execute_job
+        factory = sessionmaker(bind=engine, expire_on_commit=False)
+        with patch("app.planner_api.SessionLocal", factory):
+            self.session.expire_all()
+            for job in self.session.query(TaskDispatch).filter_by(status="pending").all():
+                execute_job(job.id)
+            self.session.expire_all()
 
     def test_completed_plan_materializes_actions_idempotently(self):
         planner_session = self._planner_session()
@@ -168,10 +184,17 @@ class DailyActionsApiTestCase(unittest.TestCase):
             "app.planner_api.generate_preparation_answer", return_value=answer
         ), patch("app.planner_api.run_review_preparation_answer", return_value=feedback):
             generated = self.client.post(f"/api/preparation-tasks/{task_id}/answer")
+            self.assertEqual(generated.json()["practice_status"], "answer")
+            self.drain_practice()
+            generated = self.client.get(f"/api/preparation-tasks/{task_id}")
             reviewed = self.client.post(
                 f"/api/preparation-tasks/{task_id}/review",
                 json={"user_answer": "我会先看错误率和日志，再缩小范围。"},
             )
+
+            self.assertEqual(reviewed.json()["practice_status"], "review")
+            self.drain_practice()
+            reviewed = self.client.get(f"/api/preparation-tasks/{task_id}")
 
         self.assertEqual(generated.status_code, 200, generated.text)
         self.assertEqual(generated.json()["answer_payload"]["question"], "如何排查线上故障？")
@@ -306,6 +329,44 @@ class DailyActionsApiTestCase(unittest.TestCase):
         self.assertEqual(visible["total"], 1)
         all_tasks = self.client.get("/api/preparation-tasks?status=待处理&include_deferred=true").json()
         self.assertEqual(all_tasks["total"], 2)
+
+    def test_session_filter_does_not_drop_tasks_behind_another_plan(self):
+        first = self._planner_session()
+        second = self._planner_session()
+        materialize_planner_actions(self.session, first)
+        materialize_planner_actions(self.session, second, [0])
+        self.session.commit()
+        result = self.client.get(f"/api/preparation-tasks?planner_session_id={second.id}&include_deferred=true").json()
+        self.assertEqual(result["total"], 1)
+        self.assertEqual(result["items"][0]["planner_session_id"], second.id)
+
+    def test_timeline_cannot_bypass_review_and_skip_synchronizes_task(self):
+        planner = self._planner_session()
+        node = TimelineNode(application_id=self.application_id, node_type="其他", status="待处理")
+        self.session.add(node)
+        self.session.flush()
+        task = PreparationTask(planner_session_id=planner.id, application_id=self.application_id, title="练习", timeline_node_id=node.id)
+        self.session.add(task)
+        self.session.commit()
+        self.assertEqual(self.client.patch(f"/api/timeline/{node.id}/status", json={"status": "已完成"}).status_code, 409)
+        skipped = self.client.patch(f"/api/timeline/{node.id}/status", json={"status": "已取消"})
+        self.assertEqual(skipped.status_code, 200, skipped.text)
+        self.assertEqual(self.client.get(f"/api/preparation-tasks/{task.id}").json()["status"], "已跳过")
+
+    def test_practice_failure_keeps_answer_and_allows_durable_retry(self):
+        planner = self._planner_session()
+        materialize_planner_actions(self.session, planner, [0])
+        self.session.commit()
+        task_id = self.session.query(PreparationTask).first().id
+        queued = self.client.post(f"/api/preparation-tasks/{task_id}/answer")
+        self.assertEqual(queued.json()["practice_status"], "answer")
+        self.assertEqual(self.client.post(f"/api/preparation-tasks/{task_id}/answer").status_code, 409)
+        with patch("app.planner_api.config_from_snapshot", side_effect=RuntimeError("sk-secret-do-not-save")):
+            self.drain_practice()
+        failed = self.client.get(f"/api/preparation-tasks/{task_id}").json()
+        self.assertEqual(failed["practice_status"], "failed")
+        self.assertNotIn("sk-secret", failed["practice_error"])
+        self.assertEqual(self.client.post(f"/api/preparation-tasks/{task_id}/answer").status_code, 200)
 
 
 if __name__ == "__main__":

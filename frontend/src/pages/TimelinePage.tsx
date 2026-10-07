@@ -192,6 +192,7 @@ export function TimelinePage() {
     try {
       await api.timeline.transition(node.id, status);
       setRevision((value) => value + 1);
+      window.dispatchEvent(new Event("preparation-task-updated"));
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "状态更新失败");
     } finally {

@@ -11,7 +11,7 @@ from sqlalchemy import func, select
 
 from app.config import settings
 from app.db import SessionLocal
-from app.models import AgentRun, IntelChatMessage, IntelSession, ParseSession, PlannerSession, Position, TaskDispatch
+from app.models import AgentRun, IntelChatMessage, IntelSession, ParseSession, PlannerSession, Position, PreparationTask, TaskDispatch
 
 logger = logging.getLogger(__name__)
 _active_dispatch = ContextVar("active_dispatch", default=None)
@@ -83,7 +83,13 @@ def publish_dispatch(job_id: str) -> None:
 
 
 def _reset_domain(db, job) -> None:
-    if job.task_name == "careerpilot.intel_chat":
+    if job.task_name == "careerpilot.practice":
+        task = db.get(PreparationTask, job.args[0])
+        if task is None or task.practice_status == "idle":
+            return False
+        task.practice_status = job.args[1]
+        task.practice_error = None
+    elif job.task_name == "careerpilot.intel_chat":
         message = db.get(IntelChatMessage, job.args[0])
         run = db.scalar(select(AgentRun).where(AgentRun.assistant_message_id == job.args[0]).with_for_update())
         if message is not None and run is not None:
@@ -115,7 +121,11 @@ def _reset_domain(db, job) -> None:
 
 
 def _domain_failure(db, job):
-    if job.task_name == "careerpilot.intel_chat":
+    if job.task_name == "careerpilot.practice":
+        task = db.get(PreparationTask, job.args[0])
+        if task is not None and task.practice_status == "failed":
+            return task.practice_error or "练习生成失败", False
+    elif job.task_name == "careerpilot.intel_chat":
         run = db.scalar(select(AgentRun).where(AgentRun.assistant_message_id == job.args[0]))
         if run is not None and run.status == "failed":
             return run.error_message or "问答执行失败", run.last_error_kind in {"timeout", "unavailable", "rate_limit", "search_timeout", "search_failed"}
@@ -197,7 +207,12 @@ def recover_legacy_sessions() -> None:
 
 
 def _mark_interrupted(db, job) -> None:
-    if job.task_name == "careerpilot.intel_chat":
+    if job.task_name == "careerpilot.practice":
+        task = db.get(PreparationTask, job.args[0])
+        if task is not None and task.practice_status in {"answer", "review"}:
+            task.practice_status = "failed"
+            task.practice_error = job.error_message
+    elif job.task_name == "careerpilot.intel_chat":
         message = db.get(IntelChatMessage, job.args[0])
         run = db.scalar(select(AgentRun).where(AgentRun.assistant_message_id == job.args[0]))
         if message is not None and message.status == "生成中":
@@ -251,7 +266,10 @@ def execute_job(job_id: str) -> None:
     heartbeat.start()
     error = None
     try:
-        if task_name == "careerpilot.intel_chat":
+        if task_name == "careerpilot.practice":
+            from app.planner_api import _run_practice
+            _run_practice(*args)
+        elif task_name == "careerpilot.intel_chat":
             from app.intel_api import _run_intel_chat
             _run_intel_chat(*args)
         elif task_name == "careerpilot.intel_session":

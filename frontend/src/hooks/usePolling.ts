@@ -2,13 +2,14 @@ import { useEffect, useRef } from "react";
 
 interface UsePollingOptions {
   enabled: boolean;
+  resourceKey?: unknown;
   interval: number;
   maxAttempts: number;
-  poll: () => Promise<void>;
+  poll: (signal: AbortSignal) => Promise<void>;
   onError?: (reason: unknown) => void;
 }
 
-export function usePolling({ enabled, interval, maxAttempts, poll, onError }: UsePollingOptions) {
+export function usePolling({ enabled, resourceKey, interval, maxAttempts, poll, onError }: UsePollingOptions) {
   const pollRef = useRef(poll);
   const onErrorRef = useRef(onError);
 
@@ -20,13 +21,14 @@ export function usePolling({ enabled, interval, maxAttempts, poll, onError }: Us
   useEffect(() => {
     if (!enabled) return;
     let cancelled = false;
+    const controller = new AbortController();
     let timer: number | undefined;
     let attempts = 0;
     const run = async () => {
       if (cancelled || attempts >= maxAttempts) return;
       attempts += 1;
       try {
-        await pollRef.current();
+        await pollRef.current(controller.signal);
       } catch (reason) {
         if (!cancelled) onErrorRef.current?.(reason);
         return;
@@ -37,7 +39,8 @@ export function usePolling({ enabled, interval, maxAttempts, poll, onError }: Us
     void run();
     return () => {
       cancelled = true;
+      controller.abort();
       if (timer !== undefined) window.clearTimeout(timer);
     };
-  }, [enabled, interval, maxAttempts]);
+  }, [enabled, resourceKey, interval, maxAttempts]);
 }

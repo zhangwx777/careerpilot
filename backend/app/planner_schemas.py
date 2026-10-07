@@ -208,6 +208,8 @@ class PreparationTaskRead(BaseModel):
     answer_payload: dict | None
     user_answer: str | None
     feedback_payload: dict | None
+    practice_status: str = "idle"
+    practice_error: str | None = None
     created_at: datetime
 
 

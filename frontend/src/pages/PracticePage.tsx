@@ -3,11 +3,16 @@ import { useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 
 import { api } from "../api";
+import { clearDraft, loadDraft, saveDraft } from "../drafts";
+import { usePolling } from "../hooks/usePolling";
+import { useRequestScope } from "../hooks/useRequestScope";
 import type { PlannerSession, PreparationTask } from "../types";
 
 export function PracticePage() {
   const { taskId } = useParams();
   const id = Number(taskId);
+  const draftKey = `careerpilot:practice-answer:${id}`;
+  const captureRequest = useRequestScope(id);
   const [task, setTask] = useState<PreparationTask | null>(null);
   const [session, setSession] = useState<PlannerSession | null>(null);
   const [answer, setAnswer] = useState("");
@@ -15,8 +20,18 @@ export function PracticePage() {
   const [answerLoading, setAnswerLoading] = useState(false);
   const [reviewLoading, setReviewLoading] = useState(false);
   const [error, setError] = useState("");
+  const [deferredUntil, setDeferredUntil] = useState("");
+  const [loadedId, setLoadedId] = useState<number | null>(null);
 
   useEffect(() => {
+    setLoading(true);
+    setTask(null);
+    setSession(null);
+    setLoadedId(null);
+    setAnswerLoading(false);
+    setReviewLoading(false);
+    setDeferredUntil("");
+    setError("");
     if (!Number.isInteger(id) || id <= 0) {
       setError("行动不存在");
       setLoading(false);
@@ -28,34 +43,69 @@ export function PracticePage() {
         if (cancelled) return;
         setTask(taskValue);
         setSession(sessionValue);
-        setAnswer(taskValue.user_answer ?? "");
+        setAnswer(loadDraft(window.localStorage, draftKey, { answer: taskValue.user_answer ?? "" }).answer);
+        setLoadedId(id);
       })
       .catch((reason: Error) => { if (!cancelled) setError(reason.message); })
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
   }, [id]);
 
+  useEffect(() => {
+    if (loadedId === id) saveDraft(window.localStorage, draftKey, { answer });
+  }, [answer, draftKey, id, loadedId]);
+
+  usePolling({
+    resourceKey: id,
+    enabled: task?.practice_status === "answer" || task?.practice_status === "review",
+    interval: 1200,
+    maxAttempts: 300,
+    poll: async (signal) => {
+      const next = await api.planner.task(id, signal);
+      if (signal.aborted) return;
+      setTask(next);
+      if (next.practice_status === "idle") {
+        if (next.status === "已完成") clearDraft(window.localStorage, draftKey);
+        window.dispatchEvent(new Event("preparation-task-updated"));
+      }
+    },
+    onError: (reason) => setError(reason instanceof Error ? reason.message : "练习状态读取失败"),
+  });
+
   async function generateAnswer() {
+    const isCurrent = captureRequest();
     if (!task) return;
     setAnswerLoading(true); setError("");
-    try { setTask(await api.planner.generateAnswer(task.id)); window.dispatchEvent(new Event("preparation-task-updated")); }
-    catch (reason) { setError(reason instanceof Error ? reason.message : "答案生成失败"); }
-    finally { setAnswerLoading(false); }
+    try { const next = await api.planner.generateAnswer(task.id); if (isCurrent()) setTask(next); }
+    catch (reason) { if (isCurrent()) setError(reason instanceof Error ? reason.message : "答案生成失败"); }
+    finally { if (isCurrent()) setAnswerLoading(false); }
   }
 
   async function reviewAnswer() {
+    const isCurrent = captureRequest();
     if (!task || !answer.trim()) { setError("请先写下自己的回答"); return; }
     setReviewLoading(true); setError("");
-    try { setTask(await api.planner.reviewAnswer(task.id, answer.trim())); window.dispatchEvent(new Event("preparation-task-updated")); }
-    catch (reason) { setError(reason instanceof Error ? reason.message : "自答点评失败"); }
-    finally { setReviewLoading(false); }
+    try { const next = await api.planner.reviewAnswer(task.id, answer.trim()); if (isCurrent()) setTask(next); }
+    catch (reason) { if (isCurrent()) setError(reason instanceof Error ? reason.message : "自答点评失败"); }
+    finally { if (isCurrent()) setReviewLoading(false); }
   }
 
   async function updateStatus(status: PreparationTask["status"]) {
+    const isCurrent = captureRequest();
     if (!task) return;
     setError("");
-    try { setTask(await api.planner.updateTask(task.id, { status })); window.dispatchEvent(new Event("preparation-task-updated")); }
-    catch (reason) { setError(reason instanceof Error ? reason.message : "行动状态更新失败"); }
+    try { const next = await api.planner.updateTask(task.id, { status }); if (isCurrent()) setTask(next); window.dispatchEvent(new Event("preparation-task-updated")); }
+    catch (reason) { if (isCurrent()) setError(reason instanceof Error ? reason.message : "行动状态更新失败"); }
+  }
+
+  async function defer(until: string | null) {
+    if (!task) return;
+    const isCurrent = captureRequest();
+    try {
+      const next = await api.planner.updateTask(task.id, { deferred_until: until });
+      if (isCurrent()) setTask(next);
+      window.dispatchEvent(new Event("preparation-task-updated"));
+    } catch (reason) { if (isCurrent()) setError(reason instanceof Error ? reason.message : "延期失败"); }
   }
 
   if (loading) return <section className="panel practice-page loading-state"><span className="skeleton" /><span className="skeleton" /><span className="skeleton" /></section>;
@@ -86,13 +136,21 @@ export function PracticePage() {
           </div>
           {task.detail && <p className="practice-detail">{task.detail}</p>}
           {task.gap && <p className="practice-gap">关联差距：{task.gap}</p>}
+          {task.practice_status === "answer" && <p role="status">正在生成参考答案，可离开页面稍后查看。</p>}
+          {task.practice_status === "review" && <p role="status">正在点评，自答已保存，可离开页面稍后查看。</p>}
+          {task.practice_error && <p className="notice error" role="alert">{task.practice_error}，请重新点击生成或提交。</p>}
+          {task.status === "待处理" && <div className="practice-actions">
+            <label>推迟到<input aria-label="延期时间" type="datetime-local" value={deferredUntil} onChange={(event) => setDeferredUntil(event.target.value)} /></label>
+            <button className="button ghost" disabled={!deferredUntil} onClick={() => void defer(new Date(deferredUntil).toISOString())}>确认延期</button>
+            {task.deferred_until && <><span>已延期至 {new Date(task.deferred_until).toLocaleString()}</span><button className="button ghost" onClick={() => void defer(null)}>取消延期</button></>}
+          </div>}
 
           {!task.answer_payload && task.status === "待处理" && (
             <div className="practice-empty-answer">
               <Sparkle size={32} weight="duotone" />
               <strong>先生成这道行动的参考答案</strong>
               <span>答案会结合当前岗位、简历和已确认的面经资料生成。</span>
-              <button className="button primary" type="button" disabled={answerLoading} onClick={() => void generateAnswer()}>{answerLoading ? "生成中…" : "生成参考答案"}</button>
+              <button className="button primary" type="button" disabled={answerLoading || task.practice_status === "answer"} onClick={() => void generateAnswer()}>{answerLoading || task.practice_status === "answer" ? "生成中…" : "生成参考答案"}</button>
             </div>
           )}
 
@@ -109,8 +167,8 @@ export function PracticePage() {
                 <section className="practice-review">
                   <label>写下自己的回答<textarea rows={8} value={answer} onChange={(event) => setAnswer(event.target.value)} placeholder="先用自己的话回答，再提交给 AI 点评" /></label>
                   <div className="practice-actions">
-                    <button className="button primary" type="button" disabled={reviewLoading} onClick={() => void reviewAnswer()}>{reviewLoading ? "点评中…" : "提交自答并完成"}</button>
-                    <button className="button ghost" type="button" onClick={() => void updateStatus("已跳过")}>跳过</button>
+                    <button className="button primary" type="button" disabled={reviewLoading || task.practice_status === "review"} onClick={() => void reviewAnswer()}>{reviewLoading || task.practice_status === "review" ? "点评中…" : "提交自答并完成"}</button>
+                    <button className="button ghost" type="button" disabled={task.practice_status === "review"} onClick={() => void updateStatus("已跳过")}>跳过</button>
                   </div>
                 </section>
               )}

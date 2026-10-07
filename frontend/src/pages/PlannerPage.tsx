@@ -3,6 +3,8 @@ import { useEffect, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 
 import { api } from "../api";
+import { allPages } from "../requests";
+import { useRequestScope } from "../hooks/useRequestScope";
 import { ConfirmDialog } from "../components/ConfirmDialog";
 import { loadDraft, loadSessionId, saveDraft, saveSessionId, clearDraft } from "../drafts";
 import { formatDateTime } from "../format";
@@ -44,20 +46,24 @@ export function PlannerPage() {
   const [confirmingResumeDelete, setConfirmingResumeDelete] = useState(false);
   const [deletingSession, setDeletingSession] = useState<PlannerSession | null>(null);
   const [error, setError] = useState("");
+  const captureRequest = useRequestScope(`${sessionId}:${applicationId}`);
+  useEffect(() => { setLoading(false); setUploading(false); setError(""); }, [sessionId, applicationId]);
   const [selectedActionIndexes, setSelectedActionIndexes] = useState<number[]>([]);
 
   useEffect(() => {
     let cancelled = false;
-    api.applications.list({ page_size: 100 }).then((result) => { if (!cancelled) setApplications(result.items); }).catch((reason: Error) => { if (!cancelled) setError(reason.message); });
+    allPages((page) => api.applications.list({ page, page_size: 100 })).then((result) => { if (!cancelled) setApplications(result); }).catch((reason: Error) => { if (!cancelled) setError(reason.message); });
     api.planner.resume().then((result) => { if (!cancelled) { setProfile(result); setFileName(result.file_name ?? ""); } }).catch(() => { if (!cancelled) { setProfile(null); setFileName(""); } });
     return () => { cancelled = true; };
   }, []);
   useEffect(() => { saveDraft(window.localStorage, plannerDraftKey, { applicationId, fileName }); }, [applicationId, fileName]);
   useEffect(() => {
+    let cancelled = false;
     if (!sessionId) {
       setSession(null);
       const active = loadSessionId(window.localStorage, activePlannerSessionKey);
       api.planner.sessions().then((items) => {
+        if (cancelled) return;
         setHistory(items);
         const isResumable = (item: PlannerSession) => item.status === "生成中" || item.status === "待确认";
         const resumable = items.find((item) => item.id === active && isResumable(item)) ?? items.find(isResumable);
@@ -67,11 +73,10 @@ export function PlannerPage() {
         } else {
           clearDraft(window.localStorage, activePlannerSessionKey);
         }
-      }).catch((reason: Error) => setError(reason.message));
-      return;
+      }).catch((reason: Error) => { if (!cancelled) setError(reason.message); });
+      return () => { cancelled = true; };
     }
     setSession(null);
-    let cancelled = false;
     const refresh = () => api.planner.session(sessionId).then((result) => {
       if (cancelled) return;
       setSession(result);
@@ -90,10 +95,10 @@ export function PlannerPage() {
       return;
     }
     let cancelled = false;
-    const refreshTasks = () => api.planner.tasks({ application_id: session.application_id, page_size: 100, include_deferred: true })
+    const refreshTasks = () => allPages((page) => api.planner.tasks({ planner_session_id: sessionId, page, page_size: 100, include_deferred: true }))
       .then((result) => {
         if (cancelled) return;
-        const tasks = result.items.filter((task) => task.planner_session_id === sessionId);
+        const tasks = result;
         setSessionTasks(tasks);
         setSelectedActionIndexes([]);
       })
@@ -110,12 +115,14 @@ export function PlannerPage() {
   }, [sessionTasks.length]);
 
   usePolling({
+    resourceKey: sessionId,
     enabled: Boolean(sessionId && session?.status === "生成中"),
     interval: 1200,
     maxAttempts: 150,
-    poll: async () => {
+    poll: async (signal) => {
       if (!sessionId) return;
-      const result = await api.planner.session(sessionId);
+      const result = await api.planner.session(sessionId, signal);
+      if (signal.aborted) return;
       setSession(result);
       setApplicationId(result.application_id);
       if (result.status === "生成中") saveSessionId(window.localStorage, activePlannerSessionKey, result.id);
@@ -124,104 +131,105 @@ export function PlannerPage() {
     onError: (reason) => setError(reason instanceof Error ? reason.message : "备战状态读取失败"),
   });
 
-  async function uploadResume(event: React.ChangeEvent<HTMLInputElement>) {
+  async function uploadResume(event: React.ChangeEvent<HTMLInputElement>) { const isCurrent = captureRequest();
     const file = event.target.files?.[0];
     event.target.value = "";
     if (!file) return;
     setUploading(true); setError("");
-    try { const result = await api.planner.uploadResume(file); setProfile(result); setFileName(result.file_name ?? file.name); }
+    try { const result = await api.planner.uploadResume(file); if (!isCurrent()) return; setProfile(result); setFileName(result.file_name ?? file.name); }
     catch (reason) { setError(reason instanceof Error ? reason.message : "简历解析失败"); }
-    finally { setUploading(false); }
+    finally { if (isCurrent()) setUploading(false); }
   }
 
-  async function deleteResume() {
+  async function deleteResume() { const isCurrent = captureRequest();
     setLoading(true); setError("");
     try {
-      await api.planner.deleteResume();
+      await api.planner.deleteResume(); if (!isCurrent()) return;
       setProfile(null);
       setFileName("");
       setConfirmingResumeDelete(false);
-    } catch (reason) {
+    } catch (reason) { if (!isCurrent()) return;
       setError(reason instanceof Error ? reason.message : "简历删除失败");
     } finally {
-      setLoading(false);
+      if (isCurrent()) setLoading(false);
     }
   }
 
-  async function generate() {
+  async function generate() { const isCurrent = captureRequest();
     if (!applicationId) return setError("请选择目标投递");
     if (!profile?.resume_text.trim()) return setError("请先上传可提取文字的 PDF 或 DOCX 简历");
     const application = applications.find((item) => item.id === applicationId);
     if (!application) return setError("投递记录不存在");
     if (!application.position.jd_text?.trim()) return setError("目标投递缺少 JD，请先在投递台账补充");
     setLoading(true); setError("");
-    try { const created = await api.planner.create({ application_id: applicationId }); setSession(created); saveSessionId(window.localStorage, activePlannerSessionKey, created.id); navigate(`/planner/${created.id}`, { replace: true }); }
+    try { const created = await api.planner.create({ application_id: applicationId }); if (!isCurrent()) return; setSession(created); saveSessionId(window.localStorage, activePlannerSessionKey, created.id); navigate(`/planner/${created.id}`, { replace: true }); }
     catch (reason) { setError(reason instanceof Error ? reason.message : "备战分析失败"); }
-    finally { setLoading(false); }
+    finally { if (isCurrent()) setLoading(false); }
   }
 
-  async function retrySession() {
+  async function retrySession() { const isCurrent = captureRequest();
     if (!sessionId) return;
     setLoading(true); setError("");
     try {
-      const next = await api.planner.retry(sessionId);
+      const next = await api.planner.retry(sessionId); if (!isCurrent()) return;
       setSession(next);
       saveSessionId(window.localStorage, activePlannerSessionKey, next.id);
-    } catch (reason) {
+    } catch (reason) { if (!isCurrent()) return;
       setError(reason instanceof Error ? reason.message : "重试失败");
     } finally {
-      setLoading(false);
+      if (isCurrent()) setLoading(false);
     }
   }
 
-  async function updateAction(task: PreparationTask, input: { status?: PreparationTask["status"]; category?: PreparationCategory }) {
+  async function updateAction(task: PreparationTask, input: { status?: PreparationTask["status"]; category?: PreparationCategory }) { const isCurrent = captureRequest();
     try {
-      const updated = await api.planner.updateTask(task.id, input);
+      const updated = await api.planner.updateTask(task.id, input); if (!isCurrent()) return;
       setSessionTasks((current) => current.map((item) => item.id === updated.id ? updated : item));
       window.dispatchEvent(new Event("preparation-task-updated"));
-    } catch (reason) {
+    } catch (reason) { if (!isCurrent()) return;
       setError(reason instanceof Error ? reason.message : "行动状态更新失败");
     }
   }
 
-  async function materializeActions() {
+  async function materializeActions() { const isCurrent = captureRequest();
     if (!sessionId) return;
     if (!selectedActionIndexes.length) return setError("请至少选择一项准备行动");
     try {
-      const updated = await api.planner.materializeActions(sessionId, selectedActionIndexes);
+      const updated = await api.planner.materializeActions(sessionId, selectedActionIndexes); if (!isCurrent()) return;
       setSession(updated);
-      const result = await api.planner.tasks({ application_id: updated.application_id, page_size: 100, include_deferred: true });
-      setSessionTasks(result.items.filter((task) => task.planner_session_id === sessionId));
+      const result = await allPages((page) => api.planner.tasks({ planner_session_id: sessionId, page, page_size: 100, include_deferred: true }));
+      if (!isCurrent()) return;
+      setSessionTasks(result);
       setSelectedActionIndexes([]);
       window.dispatchEvent(new Event("preparation-plan-updated"));
-    } catch (reason) {
+    } catch (reason) { if (!isCurrent()) return;
       setError(reason instanceof Error ? reason.message : "准备行动生成失败");
     }
   }
 
-  async function removeAction(task: PreparationTask) {
+  async function removeAction(task: PreparationTask) { const isCurrent = captureRequest();
     try {
-      await api.planner.removeTask(task.id);
+      await api.planner.removeTask(task.id); if (!isCurrent()) return;
       setSessionTasks((current) => current.filter((item) => item.id !== task.id));
       window.dispatchEvent(new Event("preparation-plan-updated"));
-    } catch (reason) {
+    } catch (reason) { if (!isCurrent()) return;
       setError(reason instanceof Error ? reason.message : "移出学习计划失败");
     }
   }
 
-  async function deleteSession() {
+  async function deleteSession() { const isCurrent = captureRequest();
     if (!deletingSession) return;
     const target = deletingSession;
     setError("");
     try {
-      await api.planner.remove(target.id);
+      await api.planner.remove(target.id); if (!isCurrent()) return;
       setHistory((current) => current.filter((item) => item.id !== target.id));
       if (sessionId === target.id) {
         clearDraft(window.localStorage, activePlannerSessionKey);
         navigate("/planner", { replace: true });
       }
       setDeletingSession(null);
-    } catch (reason) {
+    } catch (reason) { if (!isCurrent()) return;
       setError(reason instanceof Error ? reason.message : "历史分析删除失败");
     }
   }

@@ -10,6 +10,8 @@ import { type FormEvent, useCallback, useEffect, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 
 import { api } from "../api";
+import { allPages } from "../requests";
+import { useRequestScope } from "../hooks/useRequestScope";
 import { clearDraft, loadDraft, loadSessionId, saveDraft, saveSessionId } from "../drafts";
 import { toApiDate, toLocalInput } from "../format";
 import { usePolling } from "../hooks/usePolling";
@@ -74,6 +76,8 @@ export function SmartEntryPage() {
   const [creatingApplication, setCreatingApplication] = useState(false);
   const [discardingPendingId, setDiscardingPendingId] = useState<number | null>(null);
   const [error, setError] = useState("");
+  const captureRequest = useRequestScope(sessionId);
+  useEffect(() => { setParsing(false); setResolving(false); setCreatingApplication(false); setDiscardingPendingId(null); }, [sessionId]);
 
   const applySession = useCallback((value: ParseSession) => {
     setSession(value);
@@ -164,12 +168,14 @@ export function SmartEntryPage() {
   }, [applySession, navigate, sessionId]);
 
   usePolling({
+    resourceKey: sessionId,
     enabled: Boolean(sessionId && session?.status === "解析中"),
     interval: 1200,
     maxAttempts: 150,
-    poll: async () => {
+    poll: async (signal) => {
       if (!sessionId) return;
       const value = await api.parseSessions.get(sessionId);
+      if (signal.aborted) return;
       applySession(value);
       if (value.status !== "解析中") loadPending();
     },
@@ -197,6 +203,7 @@ export function SmartEntryPage() {
   }, [applicationId, applicationQuery, companyName, deadlineWorkdays, endsAt, nodeType, positionTitle, scheduledAt, session, source, timeMode]);
 
   async function parse(event: FormEvent) {
+    const isCurrent = captureRequest();
     event.preventDefault();
     if (!rawText.trim()) {
       setError("请先粘贴一段招聘通知");
@@ -206,34 +213,37 @@ export function SmartEntryPage() {
     setError("");
     try {
       const created = await api.parseSessions.create(rawText.trim(), provider || undefined);
+      if (!isCurrent()) return;
       clearDraft(window.localStorage, noticeDraftKey);
       applySession(created);
       loadPending();
       navigate(`/smart-entry/${created.id}`, { replace: true });
     } catch (reason) {
+      if (!isCurrent()) return;
       setError(reason instanceof Error ? reason.message : "解析失败，请重新提交");
     } finally {
-      setParsing(false);
+      if (isCurrent()) setParsing(false);
     }
   }
 
   async function findApplications() {
+    const isCurrent = captureRequest();
     setError("");
     try {
-      const result = await api.applications.list({
-        q: applicationQuery.trim(),
-        page_size: 50,
-      });
-      setApplications(result.items);
-      if (!result.items.some((item) => item.id === applicationId)) {
+      const result = await allPages((page) => api.applications.list({ page, q: applicationQuery.trim(), page_size: 100 }));
+      if (!isCurrent()) return;
+      setApplications(result);
+      if (!result.some((item) => item.id === applicationId)) {
         setApplicationId(0);
       }
     } catch (reason) {
+      if (!isCurrent()) return;
       setError(reason instanceof Error ? reason.message : "投递查询失败");
     }
   }
 
   async function createApplication() {
+    const isCurrent = captureRequest();
     if (!session) return;
     if (!companyName.trim() || !positionTitle.trim()) {
       setError(`请填写${[
@@ -249,8 +259,10 @@ export function SmartEntryPage() {
         company_name: companyName.trim(),
         position_title: positionTitle.trim(),
       });
+      if (!isCurrent()) return;
       if (!nodeType) {
         await api.parseSessions.discard(session.id);
+      if (!isCurrent()) return;
         clearDraft(window.localStorage, noticeSessionDraftKey(session.id));
         loadPending();
         navigate("/applications", { replace: true });
@@ -264,13 +276,15 @@ export function SmartEntryPage() {
       setApplicationId(application.id);
       setApplicationQuery(applicationLabel(application));
     } catch (reason) {
+      if (!isCurrent()) return;
       setError(reason instanceof Error ? reason.message : "创建投递失败");
     } finally {
-      setCreatingApplication(false);
+      if (isCurrent()) setCreatingApplication(false);
     }
   }
 
   async function confirm(event: FormEvent) {
+    const isCurrent = captureRequest();
     event.preventDefault();
     if (!session) return;
     if (!applicationId) {
@@ -296,24 +310,28 @@ export function SmartEntryPage() {
         ends_at: toApiDate(endsAt),
         source: source.trim() || null,
       });
+      if (!isCurrent()) return;
       clearDraft(window.localStorage, noticeSessionDraftKey(session.id));
       clearDraft(window.localStorage, activeNoticeSessionKey);
       navigate(
         `/timeline?focus=${confirmed.timeline_node_id}&date=${(timeMode === "截止窗口" ? endsAt : scheduledAt).slice(0, 10)}`,
       );
     } catch (reason) {
+      if (!isCurrent()) return;
       setError(reason instanceof Error ? reason.message : "确认失败");
     } finally {
-      setResolving(false);
+      if (isCurrent()) setResolving(false);
     }
   }
 
   async function discard() {
+    const isCurrent = captureRequest();
     if (!session) return;
     setResolving(true);
     setError("");
     try {
       await api.parseSessions.discard(session.id);
+      if (!isCurrent()) return;
       clearDraft(window.localStorage, noticeSessionDraftKey(session.id));
       clearDraft(window.localStorage, noticeDraftKey);
       clearDraft(window.localStorage, activeNoticeSessionKey);
@@ -322,17 +340,20 @@ export function SmartEntryPage() {
       loadPending();
       navigate("/smart-entry", { replace: true });
     } catch (reason) {
+      if (!isCurrent()) return;
       setError(reason instanceof Error ? reason.message : "丢弃失败");
     } finally {
-      setResolving(false);
+      if (isCurrent()) setResolving(false);
     }
   }
 
   async function discardPending(id: number) {
+    const isCurrent = captureRequest();
     setDiscardingPendingId(id);
     setError("");
     try {
       await api.parseSessions.discard(id);
+      if (!isCurrent()) return;
       setPendingSessions((current) => current.filter((item) => item.id !== id));
       if (session?.id === id) {
         clearDraft(window.localStorage, activeNoticeSessionKey);
@@ -341,9 +362,10 @@ export function SmartEntryPage() {
         navigate("/smart-entry", { replace: true });
       }
     } catch (reason) {
+      if (!isCurrent()) return;
       setError(reason instanceof Error ? reason.message : "删除待确认通知失败");
     } finally {
-      setDiscardingPendingId(null);
+      if (isCurrent()) setDiscardingPendingId(null);
     }
   }
 

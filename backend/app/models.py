@@ -422,6 +422,8 @@ class PreparationTask(Base):
     answer_payload: Mapped[dict | None] = mapped_column(PortableJSON)
     user_answer: Mapped[str | None] = mapped_column(Text)
     feedback_payload: Mapped[dict | None] = mapped_column(PortableJSON)
+    practice_status: Mapped[str] = mapped_column(String(20), default="idle", nullable=False)
+    practice_error: Mapped[str | None] = mapped_column(Text)
     status: Mapped[str] = mapped_column(
         Enum(*PREPARATION_TASK_STATUS, name="preparation_task_status"),
         nullable=False,

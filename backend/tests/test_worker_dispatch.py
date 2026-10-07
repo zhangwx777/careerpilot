@@ -17,7 +17,7 @@ from sqlalchemy.engine import make_url
 from sqlalchemy.orm import sessionmaker
 
 from app.db import Base
-from app.models import Application, Company, IntelSession, InterviewIntel, PlannerSession, Position, TaskDispatch
+from app.models import Application, Company, IntelSession, InterviewIntel, PlannerSession, Position, PreparationTask, TaskDispatch
 from fastapi import BackgroundTasks, HTTPException
 from app.task_execution import prepare_dispatch, publish_dispatch, recover_dispatches
 from app.task_queue import celery_app, execute_dispatch
@@ -149,6 +149,50 @@ class WorkerDispatchTests(unittest.TestCase):
             db.flush()
             identifier = item.id
         self.assert_concurrent_retry_is_single_dispatch(retry_intel, identifier, "careerpilot.intel_session")
+
+    def test_concurrent_materialization_is_idempotent(self):
+        from app.planner_api import materialize_planner_actions
+        with self.sessions.begin() as db:
+            item = db.get(PlannerSession, self.session_id)
+            item.status = "已完成"
+            item.draft_payload = {"actions": [{"title": "事务复习", "priority": 1}]}
+        barrier = Barrier(2)
+
+        def materialize():
+            with self.sessions.begin() as db:
+                item = db.get(PlannerSession, self.session_id)
+                barrier.wait(timeout=5)
+                return materialize_planner_actions(db, item, [0])
+
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            counts = list(pool.map(lambda _: materialize(), range(2)))
+        self.assertEqual(sorted(counts), [0, 1])
+        with self.sessions() as db:
+            self.assertEqual(db.scalar(select(func.count()).select_from(PreparationTask)), 1)
+
+    def test_practice_worker_loss_recovers_without_losing_saved_answer(self):
+        with self.sessions.begin() as db:
+            session = db.get(PlannerSession, self.session_id)
+            task = PreparationTask(planner_session_id=session.id, application_id=session.application_id, title="练习", user_answer="保留草稿", practice_status="answer")
+            db.add(task)
+            db.flush()
+            task_id = task.id
+            self.job_id = prepare_dispatch(db, SimpleNamespace(name="careerpilot.practice"), task_id, "answer").id
+        worker = self.start_worker("5")
+        publish_dispatch(self.job_id)
+        self.wait_for("running")
+        worker.kill()
+        worker.wait(timeout=10)
+        with self.sessions.begin() as db:
+            db.get(TaskDispatch, self.job_id).heartbeat_at = datetime.now(timezone.utc) - timedelta(seconds=120)
+        recover_dispatches()
+        self.start_worker()
+        self.assertEqual(self.wait_for("completed"), 2)
+        with self.sessions() as db:
+            task = db.get(PreparationTask, task_id)
+            self.assertEqual(task.user_answer, "保留草稿")
+            self.assertEqual(task.practice_status, "idle")
+            self.assertEqual(task.answer_payload["question"], "测试题")
 
     def test_material_delete_waits_for_new_material_before_deciding_empty(self):
         from app.intel_api import delete_intel_material

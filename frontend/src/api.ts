@@ -70,7 +70,8 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
       headers: options?.body instanceof FormData ? undefined : { "Content-Type": "application/json" },
       ...options,
     });
-  } catch {
+  } catch (reason) {
+    if (options?.signal?.aborted) throw reason;
     throw new ApiError("无法连接后端服务，请确认服务已启动。", 0, "network");
   }
   if (!response.ok) {
@@ -205,16 +206,16 @@ export const api = {
     create: (input: { application_id: number; provider?: string; round_type: import("./types").IntelRoundType; user_paste: string | null; image_texts: { name: string; text: string }[] }) => request<import("./types").IntelSession>("/api/intel", { method: "POST", body: JSON.stringify(input) }),
     list: (params: { page?: number; page_size?: number; application_id?: number; q?: string } = {}) => request<Page<import("./types").InterviewIntel>>(`/api/intel${queryString(params)}`),
     sessions: () => request<import("./types").IntelSession[]>("/api/intel-sessions"),
-    session: (id: number) => request<import("./types").IntelSession>(`/api/intel-sessions/${id}`),
+    session: (id: number, signal?: AbortSignal) => request<import("./types").IntelSession>(`/api/intel-sessions/${id}`, { signal }),
     resolve: (id: number, resolutions: Record<string, string>) => request<import("./types").IntelSession>(`/api/intel-sessions/${id}/resolve`, { method: "POST", body: JSON.stringify({ resolutions }) }),
     discard: (id: number) => request<import("./types").IntelSession>(`/api/intel-sessions/${id}/discard`, { method: "POST" }),
     retry: (id: number) => request<import("./types").IntelSession>(`/api/intel-sessions/${id}/retry`, { method: "POST" }),
     extractImages: (input: { provider?: string; images: { name: string; mime_type: string; data_url: string }[] }) => request<{ images: { name: string; text: string }[]; combined_text: string }>("/api/intel/images/extract", { method: "POST", body: JSON.stringify(input) }),
-    dossier: (application_id: number) => request<import("./types").IntelDossier>(`/api/intel/dossier${queryString({ application_id })}`),
+    dossier: (application_id: number, signal?: AbortSignal) => request<import("./types").IntelDossier>(`/api/intel/dossier${queryString({ application_id })}`, { signal }),
     rebuildDossier: (input: { application_id: number; provider?: string }) => request<import("./types").IntelDossier>("/api/intel/dossier/rebuild", { method: "POST", body: JSON.stringify(input) }),
     deleteMaterial: (id: number) => request<{ deleted: number }>(`/api/intel/materials/${id}`, { method: "DELETE" }),
     chat: (input: { application_id: number; provider?: string; question: string }) => request<{ message: import("./types").IntelChatMessage; source_ids: string[] }>("/api/intel/chat", { method: "POST", body: JSON.stringify(input) }),
-    chatHistory: (application_id: number) => request<import("./types").IntelChatMessage[]>(`/api/intel/chat${queryString({ application_id })}`),
+    chatHistory: (application_id: number, signal?: AbortSignal) => request<import("./types").IntelChatMessage[]>(`/api/intel/chat${queryString({ application_id })}`, { signal }),
     retryChat: (application_id: number, message_id: number) => request<{ message: import("./types").IntelChatMessage; source_ids: string[] }>(`/api/intel/chat/${message_id}/retry${queryString({ application_id })}`, { method: "POST" }),
     deleteChatTurn: (application_id: number, user_message_id: number, assistant_message_id: number) => request<{ deleted: number[] }>(`/api/intel/chat/${assistant_message_id}${queryString({ application_id, user_message_id })}`, { method: "DELETE" }),
     clearChatHistory: (application_id: number) => request<{ deleted_count: number }>(`/api/intel/chat${queryString({ application_id })}`, { method: "DELETE" }),
@@ -226,15 +227,15 @@ export const api = {
     deleteResume: () => request<void>("/api/resume-profile", { method: "DELETE" }),
     create: (input: { application_id: number; provider?: string }) => request<PlannerSession>("/api/planner-sessions", { method: "POST", body: JSON.stringify(input) }),
     sessions: () => request<PlannerSession[]>("/api/planner-sessions"),
-    session: (id: number) => request<PlannerSession>(`/api/planner-sessions/${id}`),
+    session: (id: number, signal?: AbortSignal) => request<PlannerSession>(`/api/planner-sessions/${id}`, { signal }),
     remove: (id: number) => request<void>(`/api/planner-sessions/${id}`, { method: "DELETE" }),
     materializeActions: (id: number, action_indexes: number[]) => request<PlannerSession>(`/api/planner-sessions/${id}/materialize-actions`, { method: "POST", body: JSON.stringify({ action_indexes }) }),
     confirm: (id: number, tasks: ScheduledTask[]) => request<PlannerSession>(`/api/planner-sessions/${id}/confirm`, { method: "POST", body: JSON.stringify({ tasks }) }),
     discard: (id: number) => request<PlannerSession>(`/api/planner-sessions/${id}/discard`, { method: "POST" }),
     retry: (id: number) => request<PlannerSession>(`/api/planner-sessions/${id}/retry`, { method: "POST" }),
-    tasks: (params: { page?: number; page_size?: number; application_id?: number; status?: PreparationTask["status"]; include_deferred?: boolean } = {}) => request<Page<PreparationTask>>(`/api/preparation-tasks${queryString(params)}`),
-    task: (id: number) => request<PreparationTask>(`/api/preparation-tasks/${id}`),
-    updateTask: (id: number, input: { status?: PreparationTask["status"]; category?: import("./types").PreparationCategory }) => request<PreparationTask>(`/api/preparation-tasks/${id}/status`, { method: "PATCH", body: JSON.stringify(input) }),
+    tasks: (params: { page?: number; page_size?: number; application_id?: number; planner_session_id?: number; status?: PreparationTask["status"]; include_deferred?: boolean } = {}) => request<Page<PreparationTask>>(`/api/preparation-tasks${queryString(params)}`),
+    task: (id: number, signal?: AbortSignal) => request<PreparationTask>(`/api/preparation-tasks/${id}`, { signal }),
+    updateTask: (id: number, input: { status?: PreparationTask["status"]; category?: import("./types").PreparationCategory; deferred_until?: string | null }) => request<PreparationTask>(`/api/preparation-tasks/${id}/status`, { method: "PATCH", body: JSON.stringify(input) }),
     removeTask: (id: number) => request<void>(`/api/preparation-tasks/${id}`, { method: "DELETE" }),
     generateAnswer: (id: number) => request<PreparationTask>(`/api/preparation-tasks/${id}/answer`, { method: "POST" }),
     reviewAnswer: (id: number, user_answer: string) => request<PreparationTask>(`/api/preparation-tasks/${id}/review`, { method: "POST", body: JSON.stringify({ user_answer }) }),

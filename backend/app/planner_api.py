@@ -30,8 +30,9 @@ from app.planner_schemas import (
     ResumeProfileUpdate,
 )
 from app.planner_coach import generate_preparation_answer, review_preparation_answer as run_review_preparation_answer
-from app.task_queue import TaskQueueUnavailable, enqueue, run_planner_session_task, rebuild_insight_task
+from app.task_queue import TaskQueueUnavailable, enqueue, run_planner_session_task, rebuild_insight_task, run_practice_task
 from app.task_execution import TaskLeaseLost, assert_dispatch_owner, submit_task
+from app.preparation import transition_task
 
 router = APIRouter(prefix="/api")
 DbSession = Annotated[Session, Depends(get_db)]
@@ -45,6 +46,7 @@ def materialize_planner_actions(
 ) -> int:
     """Persist only the selected planner actions, idempotently."""
 
+    item = db.scalar(select(PlannerSession).where(PlannerSession.id == item.id).with_for_update().execution_options(populate_existing=True))
     actions = (item.draft_payload or {}).get("actions")
     if not isinstance(actions, list):
         return 0
@@ -364,12 +366,15 @@ def list_preparation_tasks(
     page: Page = 1,
     page_size: PageSize = 20,
     application_id: int | None = Query(default=None, gt=0),
+    planner_session_id: int | None = Query(default=None, gt=0),
     task_status: PreparationTaskStatus | None = Query(default=None, alias="status"),
     include_deferred: bool = Query(default=False),
 ):
     filters = []
     if application_id is not None:
         filters.append(PreparationTask.application_id == application_id)
+    if planner_session_id is not None:
+        filters.append(PreparationTask.planner_session_id == planner_session_id)
     if task_status is not None:
         filters.append(PreparationTask.status == task_status)
     if not include_deferred:
@@ -405,13 +410,11 @@ def get_preparation_task(task_id: int, db: DbSession):
 
 @router.patch("/preparation-tasks/{task_id}/status", response_model=PreparationTaskRead)
 def update_preparation_task_status(task_id: int, payload: PreparationTaskStatusUpdate, db: DbSession):
-    task = db.get(PreparationTask, task_id)
+    task = db.scalar(select(PreparationTask).where(PreparationTask.id == task_id).with_for_update())
     if task is None:
         raise HTTPException(404, "备战任务不存在")
-    if payload.status == "已完成" and not task.feedback_payload:
-        raise HTTPException(409, "请先提交自答并完成点评")
     if payload.status is not None:
-        task.status = payload.status
+        transition_task(db, task, payload.status)
     if payload.status is not None and payload.status != "待处理":
         task.deferred_until = None
     elif "deferred_until" in payload.model_fields_set:
@@ -420,10 +423,6 @@ def update_preparation_task_status(task_id: int, payload: PreparationTaskStatusU
         task.deferred_until = payload.deferred_until
     if payload.category is not None:
         task.category = payload.category
-    if payload.status is not None and task.timeline_node_id is not None:
-        node = db.get(TimelineNode, task.timeline_node_id)
-        if node is not None:
-            node.status = {"待处理": "待处理", "已完成": "已完成", "已跳过": "已取消"}[payload.status]
     db.commit()
     db.refresh(task)
     return task
@@ -434,7 +433,7 @@ def remove_preparation_task(task_id: int, db: DbSession):
     task = db.get(PreparationTask, task_id)
     if task is None:
         raise HTTPException(404, "备战任务不存在")
-    if task.status != "待处理" or task.answer_payload or task.user_answer or task.feedback_payload:
+    if task.practice_status in {"answer", "review"} or task.status != "待处理" or task.answer_payload or task.user_answer or task.feedback_payload:
         raise HTTPException(409, "已有学习记录的任务不能移出计划")
     db.delete(task)
     db.commit()
@@ -443,51 +442,62 @@ def remove_preparation_task(task_id: int, db: DbSession):
 
 @router.post("/preparation-tasks/{task_id}/answer", response_model=PreparationTaskRead)
 def create_preparation_answer(task_id: int, db: DbSession):
-    task = db.scalar(
-        select(PreparationTask)
-        .options(joinedload(PreparationTask.planner_session))
-        .where(PreparationTask.id == task_id)
-    )
+    task = db.scalar(select(PreparationTask).where(PreparationTask.id == task_id).with_for_update())
     if task is None:
         raise HTTPException(404, "备战任务不存在")
-    try:
-        task.answer_payload = generate_preparation_answer(
-            task,
-            task.planner_session,
-            config_from_snapshot(task.planner_session.llm_snapshot, db, task.planner_session.provider),
-        ).model_dump(mode="json")
-    except Exception as exc:
-        logger.exception("备战任务 %s 答案生成失败", task_id)
-        raise HTTPException(503, "答案生成失败，请稍后重试") from exc
-    db.commit()
+    if task.practice_status in {"answer", "review"}:
+        raise HTTPException(409, "练习正在生成")
+    if task.answer_payload:
+        return task
+    if task.status != "待处理":
+        raise HTTPException(409, "请先恢复练习")
+    task.practice_status = "answer"
+    task.practice_error = None
+    submit_task(db, run_practice_task, task.id, "answer")
     db.refresh(task)
     return task
 
 
 @router.post("/preparation-tasks/{task_id}/review", response_model=PreparationTaskRead)
 def review_preparation_answer(task_id: int, payload: PreparationReview, db: DbSession):
-    task = db.scalar(
-        select(PreparationTask)
-        .options(joinedload(PreparationTask.planner_session))
-        .where(PreparationTask.id == task_id)
-    )
+    task = db.scalar(select(PreparationTask).where(PreparationTask.id == task_id).with_for_update())
     if task is None:
         raise HTTPException(404, "备战任务不存在")
     if not task.answer_payload:
         raise HTTPException(409, "请先生成参考答案")
-    try:
-        feedback = run_review_preparation_answer(
-            task,
-            task.planner_session,
-            payload.user_answer,
-            config_from_snapshot(task.planner_session.llm_snapshot, db, task.planner_session.provider),
-        )
-    except Exception as exc:
-        logger.exception("备战任务 %s 自答点评失败", task_id)
-        raise HTTPException(503, "自答点评失败，请稍后重试") from exc
+    if task.practice_status in {"answer", "review"} or task.status != "待处理":
+        raise HTTPException(409, "当前练习不能提交点评")
     task.user_answer = payload.user_answer
-    task.feedback_payload = feedback.model_dump(mode="json")
-    task.status = "已完成"
-    db.commit()
+    task.practice_status = "review"
+    task.practice_error = None
+    submit_task(db, run_practice_task, task.id, "review")
     db.refresh(task)
     return task
+
+
+def _run_practice(task_id: int, mode: str):
+    with SessionLocal() as db:
+        assert_dispatch_owner(db)
+        task = db.get(PreparationTask, task_id)
+        if task is None or task.practice_status != mode:
+            return
+        session = task.planner_session
+        config = config_from_snapshot(session.llm_snapshot, db, session.provider)
+        db.commit()
+        if mode == "answer":
+            result = generate_preparation_answer(task, session, config)
+        else:
+            result = run_review_preparation_answer(task, session, task.user_answer, config)
+        assert_dispatch_owner(db)
+        task = db.scalar(select(PreparationTask).where(PreparationTask.id == task_id).with_for_update().execution_options(populate_existing=True))
+        if task is None or task.practice_status != mode:
+            return
+        if mode == "answer":
+            task.answer_payload = result.model_dump(mode="json")
+        else:
+            task.feedback_payload = result.model_dump(mode="json")
+            task.practice_status = "idle"
+            transition_task(db, task, "已完成")
+        task.practice_status = "idle"
+        task.practice_error = None
+        db.commit()

@@ -115,6 +115,13 @@ def execute_dispatch(job_id: str) -> None:
     execute_job(job_id)
 
 
+@celery_app.task(name="careerpilot.practice")
+def run_practice_task(task_id: int, mode: str) -> None:
+    from app.planner_api import _run_practice
+
+    _run_practice(task_id, mode)
+
+
 @celery_app.task(name="careerpilot.parse_session")
 def run_parse_session_task(session_id: int, thread_id: str, raw_text: str, provider: str, requested_at: str) -> None:
     from datetime import datetime

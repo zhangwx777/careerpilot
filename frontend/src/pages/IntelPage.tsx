@@ -4,6 +4,8 @@ import { createPortal } from "react-dom";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 
 import { api } from "../api";
+import { allPages } from "../requests";
+import { useRequestScope } from "../hooks/useRequestScope";
 import { ConfirmDialog } from "../components/ConfirmDialog";
 import { ContextBar, StatusBadge } from "../components/DesignPrimitives";
 import { clearDraft, loadDraft, loadSessionId, saveDraft, saveSessionId } from "../drafts";
@@ -87,6 +89,8 @@ export function IntelPage() {
   const [imagesRecognized, setImagesRecognized] = useState(imageTexts.length > 0);
   const [insightVersion, setInsightVersion] = useState(0);
   const [error, setError] = useState("");
+  const captureRequest = useRequestScope(`${sessionId}:${applicationId}`);
+  useEffect(() => { setLoading(false); setUploading(false); setError(""); }, [sessionId, applicationId]);
   const [confirmation, setConfirmation] = useState<Confirmation | null>(null);
   const chatLauncherRef = useRef<HTMLButtonElement>(null);
   const chatQuestionRef = useRef<HTMLTextAreaElement>(null);
@@ -125,7 +129,7 @@ export function IntelPage() {
     imagePreviewUrls.current.clear();
   }, []);
 
-  useEffect(() => { let cancelled = false; api.applications.list({ page_size: 100 }).then((result) => { if (!cancelled) setApplications(result.items); }).catch((reason: Error) => { if (!cancelled) setError(reason.message); }); api.search.get().then((result) => { if (!cancelled) setSearchConfigured(result.configured); }).catch(() => undefined); return () => { cancelled = true; }; }, []);
+  useEffect(() => { let cancelled = false; allPages((page) => api.applications.list({ page, page_size: 100 })).then((result) => { if (!cancelled) setApplications(result); }).catch((reason: Error) => { if (!cancelled) setError(reason.message); }); api.search.get().then((result) => { if (!cancelled) setSearchConfigured(result.configured); }).catch(() => undefined); return () => { cancelled = true; }; }, []);
   useEffect(() => { saveDraft(window.localStorage, intelDraftKey, { applicationId, roundType, paste, imageTexts }); }, [applicationId, roundType, paste, imageTexts]);
   useEffect(() => { if (sessionId) return; const active = loadSessionId(window.localStorage, activeIntelSessionKey); if (active) { navigate(`/intel/${active}`, { replace: true }); return; } api.intel.sessions().then((items) => { if (items[0]) navigate(`/intel/${items[0].id}`, { replace: true }); }).catch(() => undefined); }, [navigate, sessionId]);
   useEffect(() => {
@@ -134,6 +138,7 @@ export function IntelPage() {
       setChat([]);
       return;
     }
+    setDossier(null);
     let cancelled = false;
     api.intel.dossier(applicationId)
       .then((next) => { if (!cancelled) setDossier(next); })
@@ -141,17 +146,20 @@ export function IntelPage() {
     return () => { cancelled = true; };
   }, [applicationId, session?.status, insightVersion]);
   usePolling({
+    resourceKey: applicationId,
     enabled: Boolean(applicationId && dossier?.insight.status === "生成中"),
     interval: 1000,
     maxAttempts: 150,
-    poll: async () => {
+    poll: async (signal) => {
       if (!applicationId) return;
-      setDossier(await api.intel.dossier(applicationId));
+      const next = await api.intel.dossier(applicationId, signal);
+      if (!signal.aborted) setDossier(next);
     },
     onError: (reason) => setError(reason instanceof Error ? reason.message : "岗位洞察读取失败"),
   });
   useEffect(() => {
     if (!applicationId) return;
+    setChat([]);
     let cancelled = false;
     api.intel.chatHistory(applicationId)
       .then((history) => { if (!cancelled) setChat(history); })
@@ -159,12 +167,14 @@ export function IntelPage() {
     return () => { cancelled = true; };
   }, [applicationId]);
   usePolling({
+    resourceKey: applicationId,
     enabled: Boolean(applicationId && chat.some((item) => item.status === "生成中")),
     interval: 700,
     maxAttempts: 300,
-    poll: async () => {
+    poll: async (signal) => {
       if (!applicationId) return;
-      setChat(await api.intel.chatHistory(applicationId));
+      const next = await api.intel.chatHistory(applicationId, signal);
+      if (!signal.aborted) setChat(next);
     },
     onError: (reason) => setError(reason instanceof Error ? reason.message : "问答状态读取失败"),
   });
@@ -191,12 +201,14 @@ export function IntelPage() {
     return () => { cancelled = true; };
   }, [navigate, sessionId]);
   usePolling({
+    resourceKey: sessionId,
     enabled: Boolean(sessionId && (session?.status === "聚合中" || session?.status === "待裁决")),
     interval: 1200,
     maxAttempts: 150,
-    poll: async () => {
+    poll: async (signal) => {
       if (!sessionId) return;
-      const value = await api.intel.session(sessionId);
+      const value = await api.intel.session(sessionId, signal);
+      if (signal.aborted) return;
       if (value.status === "已丢弃") {
         clearDraft(window.localStorage, activeIntelSessionKey);
         setSession(null);
@@ -213,10 +225,10 @@ export function IntelPage() {
   });
   useEffect(() => { const handler = (event: Event) => { selectTab("input"); openChat(String((event as CustomEvent<string>).detail)); }; window.addEventListener("intel-question", handler); return () => window.removeEventListener("intel-question", handler); });
 
-  async function extractImages() {
+  async function extractImages() { const isCurrent = captureRequest();
     if (!imageFiles.length) return;
     setUploading(true); setError("");
-    try { const result = await api.intel.extractImages({ images: await Promise.all(imageFiles.map(({ file }) => readImage(file))) }); setImageTexts(result.images); setImagesRecognized(true); } catch (reason) { setError(reason instanceof Error ? reason.message : "图片识别失败"); } finally { setUploading(false); }
+    try { const result = await api.intel.extractImages({ images: await Promise.all(imageFiles.map(({ file }) => readImage(file))) }); if (!isCurrent()) return; setImageTexts(result.images); setImagesRecognized(true); } catch (reason) { if (!isCurrent()) return; setError(reason instanceof Error ? reason.message : "图片识别失败"); } finally { if (isCurrent()) setUploading(false); }
   }
   function addImageFiles(files: File[]) {
     if (!files.length) return;
@@ -258,48 +270,48 @@ export function IntelPage() {
     setImageTexts((current) => current.filter((_, textIndex) => textIndex !== index));
     setImagesRecognized(false);
   }
-  async function submit() {
+  async function submit() { const isCurrent = captureRequest();
     if (!applicationId) { setError("请选择投递"); return; }
     if (!roundType) { setError("请选择这份资料所属轮次"); return; }
     if (imageFiles.length && !imagesRecognized) { setError("请先点击“识别截图”，确认识别结果后再开始分析"); return; }
     if (!paste.trim() && !imageTexts.some((item) => item.text.trim()) && !searchConfigured) { setError("请粘贴面经或识别截图，或先在模型设置中配置公开检索 Key"); return; }
     setLoading(true); setError("");
-    try { const created = await api.intel.create({ application_id: applicationId, round_type: roundType, user_paste: paste.trim() || null, image_texts: imageTexts.filter((item) => item.text.trim()) }); setSession(created); saveSessionId(window.localStorage, activeIntelSessionKey, created.id); navigate(`/intel/${created.id}?tab=input`, { replace: true }); } catch (reason) { setError(reason instanceof Error ? reason.message : "聚合失败"); } finally { setLoading(false); }
+    try { const created = await api.intel.create({ application_id: applicationId, round_type: roundType, user_paste: paste.trim() || null, image_texts: imageTexts.filter((item) => item.text.trim()) }); if (!isCurrent()) return; setSession(created); saveSessionId(window.localStorage, activeIntelSessionKey, created.id); navigate(`/intel/${created.id}?tab=input`, { replace: true }); } catch (reason) { if (!isCurrent()) return; setError(reason instanceof Error ? reason.message : "聚合失败"); } finally { if (isCurrent()) setLoading(false); }
   }
-  async function resolve() { if (!session || (session.conflicts ?? []).some((item) => !choices[item.field])) { setError("请为每项冲突选择一个候选结论"); return; } setLoading(true); setError(""); try { const done = await api.intel.resolve(session.id, choices); clearDraft(window.localStorage, activeIntelSessionKey); setSession(done); } catch (reason) { setError(reason instanceof Error ? reason.message : "裁决失败"); } finally { setLoading(false); } }
-  async function discard() { if (!session) return; setLoading(true); setError(""); try { await api.intel.discard(session.id); clearDraft(window.localStorage, activeIntelSessionKey); setSession(null); navigate("/intel?tab=input", { replace: true }); } catch (reason) { setError(reason instanceof Error ? reason.message : "舍弃失败"); } finally { setLoading(false); } }
-  async function retrySession() { if (!session) return; setLoading(true); setError(""); try { const next = await api.intel.retry(session.id); setSession(next); saveSessionId(window.localStorage, activeIntelSessionKey, next.id); } catch (reason) { setError(reason instanceof Error ? reason.message : "重试失败"); } finally { setLoading(false); } }
-  async function rebuildInsight() { if (!applicationId) return; setLoading(true); setError(""); try { setDossier(await api.intel.rebuildDossier({ application_id: applicationId })); } catch (reason) { setError(reason instanceof Error ? reason.message : "洞察生成失败"); } finally { setLoading(false); } }
-  async function deleteMaterial(item: InterviewIntel) { setLoading(true); setError(""); try { await api.intel.deleteMaterial(item.id); setInsightVersion((current) => current + 1); } catch (reason) { setError(reason instanceof Error ? reason.message : "删除失败"); } finally { setLoading(false); } }
+  async function resolve() { const isCurrent = captureRequest(); if (!session || (session.conflicts ?? []).some((item) => !choices[item.field])) { setError("请为每项冲突选择一个候选结论"); return; } setLoading(true); setError(""); try { const done = await api.intel.resolve(session.id, choices); if (!isCurrent()) return; clearDraft(window.localStorage, activeIntelSessionKey); setSession(done); } catch (reason) { if (!isCurrent()) return; setError(reason instanceof Error ? reason.message : "裁决失败"); } finally { if (isCurrent()) setLoading(false); } }
+  async function discard() { const isCurrent = captureRequest(); if (!session) return; setLoading(true); setError(""); try { await api.intel.discard(session.id); if (!isCurrent()) return; clearDraft(window.localStorage, activeIntelSessionKey); setSession(null); navigate("/intel?tab=input", { replace: true }); } catch (reason) { if (!isCurrent()) return; setError(reason instanceof Error ? reason.message : "舍弃失败"); } finally { if (isCurrent()) setLoading(false); } }
+  async function retrySession() { const isCurrent = captureRequest(); if (!session) return; setLoading(true); setError(""); try { const next = await api.intel.retry(session.id); if (!isCurrent()) return; setSession(next); saveSessionId(window.localStorage, activeIntelSessionKey, next.id); } catch (reason) { if (!isCurrent()) return; setError(reason instanceof Error ? reason.message : "重试失败"); } finally { if (isCurrent()) setLoading(false); } }
+  async function rebuildInsight() { const isCurrent = captureRequest(); if (!applicationId) return; setLoading(true); setError(""); try { const next = await api.intel.rebuildDossier({ application_id: applicationId }); if (!isCurrent()) return; setDossier(next); } catch (reason) { if (!isCurrent()) return; setError(reason instanceof Error ? reason.message : "洞察生成失败"); } finally { if (isCurrent()) setLoading(false); } }
+  async function deleteMaterial(item: InterviewIntel) { const isCurrent = captureRequest(); setLoading(true); setError(""); try { await api.intel.deleteMaterial(item.id); if (!isCurrent()) return; setInsightVersion((current) => current + 1); } catch (reason) { if (!isCurrent()) return; setError(reason instanceof Error ? reason.message : "删除失败"); } finally { if (isCurrent()) setLoading(false); } }
   function askDiscard() { setConfirmation({ title: "舍弃此次面经分析？", description: "舍弃后不会写入岗位资料库。", confirmLabel: "舍弃此次分析", onConfirm: () => { setConfirmation(null); void discard(); } }); }
   function askDeleteMaterial(item: InterviewIntel) { setConfirmation({ title: "删除这份面经材料？", description: `删除“${item.title}”后会重新生成岗位洞察。`, confirmLabel: "删除材料", onConfirm: () => { setConfirmation(null); void deleteMaterial(item); } }); }
-  async function ask() { if (!applicationId || !question.trim()) return; setLoading(true); setError(""); const asked = question.trim(); try { const result = await api.intel.chat({ application_id: applicationId, question: asked }); setChat((current) => [...current, { id: result.message.user_message_id ?? Date.now(), role: "user", content: asked, status: "已完成", source_ids: [], created_at: new Date().toISOString() }, result.message]); setQuestion(""); } catch (reason) { setError(reason instanceof Error ? reason.message : "问答失败"); } finally { setLoading(false); } }
+  async function ask() { const isCurrent = captureRequest(); if (!applicationId || !question.trim()) return; setLoading(true); setError(""); const asked = question.trim(); try { const result = await api.intel.chat({ application_id: applicationId, question: asked }); if (!isCurrent()) return; setChat((current) => [...current, { id: result.message.user_message_id ?? Date.now(), role: "user", content: asked, status: "已完成", source_ids: [], created_at: new Date().toISOString() }, result.message]); setQuestion(""); } catch (reason) { if (!isCurrent()) return; setError(reason instanceof Error ? reason.message : "问答失败"); } finally { if (isCurrent()) setLoading(false); } }
 
-  async function retryChat(messageId: number) {
+  async function retryChat(messageId: number) { const isCurrent = captureRequest();
     if (!applicationId) return;
     setLoading(true); setError("");
     try {
-      const result = await api.intel.retryChat(applicationId, messageId);
+      const result = await api.intel.retryChat(applicationId, messageId); if (!isCurrent()) return;
       setChat((current) => current.map((message) => message.id === result.message.id ? result.message : message));
-    } catch (reason) { setError(reason instanceof Error ? reason.message : "问答重试失败"); }
-    finally { setLoading(false); }
+    } catch (reason) { if (!isCurrent()) return; setError(reason instanceof Error ? reason.message : "问答重试失败"); }
+    finally { if (isCurrent()) setLoading(false); }
   }
-  async function copyAnswer(answer: IntelChatMessage) { try { await navigator.clipboard.writeText(answer.content); setCopiedMessageId(answer.id); } catch { setError("复制失败，请检查浏览器剪贴板权限"); } }
-  async function deleteChatTurn(turn: ChatTurn) {
+  async function copyAnswer(answer: IntelChatMessage) { const isCurrent = captureRequest(); try { await navigator.clipboard.writeText(answer.content); setCopiedMessageId(answer.id); } catch { setError("复制失败，请检查浏览器剪贴板权限"); } }
+  async function deleteChatTurn(turn: ChatTurn) { const isCurrent = captureRequest();
     if (!applicationId || !turn.user || !turn.assistant || turn.assistant.status === "生成中") return;
     setLoading(true); setError("");
     try {
-      await api.intel.deleteChatTurn(applicationId, turn.user.id, turn.assistant.id);
+      await api.intel.deleteChatTurn(applicationId, turn.user.id, turn.assistant.id); if (!isCurrent()) return;
       setChat((current) => current.filter((message) => message.id !== turn.user?.id && message.id !== turn.assistant?.id));
-    } catch (reason) { setError(reason instanceof Error ? reason.message : "删除问答失败"); }
-    finally { setLoading(false); }
+    } catch (reason) { if (!isCurrent()) return; setError(reason instanceof Error ? reason.message : "删除问答失败"); }
+    finally { if (isCurrent()) setLoading(false); }
   }
-  async function clearChatHistory() {
+  async function clearChatHistory() { const isCurrent = captureRequest();
     if (!applicationId) return;
     setLoading(true); setError("");
-    try { await api.intel.clearChatHistory(applicationId); setChat([]); }
+    try { await api.intel.clearChatHistory(applicationId); if (!isCurrent()) return; setChat([]); }
     catch (reason) { setError(reason instanceof Error ? reason.message : "清空问答历史失败"); }
-    finally { setLoading(false); }
+    finally { if (isCurrent()) setLoading(false); }
   }
   function askDeleteChatTurn(turn: ChatTurn) {
     setConfirmation({

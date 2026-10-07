@@ -17,6 +17,8 @@ def initialize_database(database_url: str) -> None:
     try:
         Base.metadata.create_all(target_engine)
         with target_engine.begin() as connection:
+            connection.execute(text("ALTER TABLE preparation_task ADD COLUMN IF NOT EXISTS practice_status VARCHAR(20) NOT NULL DEFAULT 'idle'"))
+            connection.execute(text("ALTER TABLE preparation_task ADD COLUMN IF NOT EXISTS practice_error TEXT"))
             connection.execute(text("ALTER TABLE position ADD COLUMN IF NOT EXISTS intel_revision INTEGER NOT NULL DEFAULT 0"))
             connection.execute(text("ALTER TABLE agent_run ADD COLUMN IF NOT EXISTS user_message_id INTEGER REFERENCES intel_chat_message(id) ON DELETE CASCADE"))
             connection.execute(
