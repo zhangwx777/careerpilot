@@ -43,12 +43,26 @@ from pathlib import Path
 
 def main() -> None:
     app_root = os.environ.get("CAREERPILOT_APP_ROOT")
+    if not app_root and getattr(sys, "frozen", False):
+        install_root = Path(sys.executable).resolve().parents[2]
+        packaged_root = install_root / "app"
+        if (packaged_root / "backend" / "packaged_server.py").is_file():
+            app_root = str(packaged_root)
     if not app_root:
         raise SystemExit("未设置 CAREERPILOT_APP_ROOT，无法定位后端源码。")
+    os.environ.setdefault("CAREERPILOT_APP_ROOT", app_root)
     backend_src = Path(app_root) / "backend"
     if not (backend_src / "packaged_server.py").is_file():
         raise SystemExit(f"未找到后端源码：{backend_src}")
     sys.path.insert(0, str(backend_src))
+    if sys.argv[1:2] and sys.argv[1] in {"backup", "restore"}:
+        local_app_data = os.environ.get("LOCALAPPDATA")
+        if local_app_data and not os.environ.get("CAREERPILOT_DATA_DIR"):
+            os.environ["CAREERPILOT_DATA_DIR"] = str(
+                Path(local_app_data) / "CareerPilot"
+            )
+        runpy.run_module("scripts.backup_database", run_name="__main__")
+        return
     if os.environ.get("CAREERPILOT_WORKER") == "1":
         from app.task_queue import celery_app
 

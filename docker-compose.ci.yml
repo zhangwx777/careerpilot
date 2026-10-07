@@ -33,6 +33,7 @@ services:
       PYTHONPYCACHEPREFIX: /tmp/bytecode
     volumes:
       - frontend-build:/workspace/frontend/dist:ro
+      - ./packaging:/workspace/packaging:ro
     command: ["sh", "-c", "python -m pytest -p no:cacheprovider --junitxml=/tmp/tests.xml && python -m scripts.check_test_results /tmp/tests.xml"]
     depends_on:
       postgres:

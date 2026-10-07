@@ -45,6 +45,7 @@ CONFIG_SECRET_FILE = (
     if os.environ.get("CAREERPILOT_DATA_DIR")
     else Path(__file__).resolve().parents[3] / ".llm_config_secret"
 )
+CONFIG_SECRET_KEYRING_DIR = CONFIG_SECRET_FILE.parent / ".llm_config_legacy_keys"
 _packaged_app_root = os.environ.get("CAREERPILOT_APP_ROOT")
 LEGACY_CONFIG_SECRET_FILES = tuple(
     candidate
@@ -55,7 +56,7 @@ LEGACY_CONFIG_SECRET_FILES = tuple(
         Path(__file__).resolve().parents[3] / ".llm_config_secret",
     )
     if candidate is not None and candidate != CONFIG_SECRET_FILE
-)
+) + tuple(sorted(CONFIG_SECRET_KEYRING_DIR.glob("*.key")))
 
 
 @dataclass(frozen=True)
