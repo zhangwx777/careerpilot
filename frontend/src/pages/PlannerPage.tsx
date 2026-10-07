@@ -137,7 +137,7 @@ export function PlannerPage() {
     if (!file) return;
     setUploading(true); setError("");
     try { const result = await api.planner.uploadResume(file); if (!isCurrent()) return; setProfile(result); setFileName(result.file_name ?? file.name); }
-    catch (reason) { setError(reason instanceof Error ? reason.message : "简历解析失败"); }
+    catch (reason) { if (!isCurrent()) return; setError(reason instanceof Error ? reason.message : "简历解析失败"); }
     finally { if (isCurrent()) setUploading(false); }
   }
 
@@ -163,7 +163,7 @@ export function PlannerPage() {
     if (!application.position.jd_text?.trim()) return setError("目标投递缺少 JD，请先在投递台账补充");
     setLoading(true); setError("");
     try { const created = await api.planner.create({ application_id: applicationId }); if (!isCurrent()) return; setSession(created); saveSessionId(window.localStorage, activePlannerSessionKey, created.id); navigate(`/planner/${created.id}`, { replace: true }); }
-    catch (reason) { setError(reason instanceof Error ? reason.message : "备战分析失败"); }
+    catch (reason) { if (!isCurrent()) return; setError(reason instanceof Error ? reason.message : "备战分析失败"); }
     finally { if (isCurrent()) setLoading(false); }
   }
 

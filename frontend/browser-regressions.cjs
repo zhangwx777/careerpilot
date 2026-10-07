@@ -70,6 +70,15 @@ async (page) => {
   await select.selectOption("2");
   await page.waitForTimeout(1100);
   if (!page.url().endsWith("/planner") || await select.inputValue() !== "2") throw Error("旧岗位响应覆盖新选择");
+  await page.route("**/api/planner-sessions", async (route) => {
+    if (route.request().method() === "POST") { await new Promise((r) => setTimeout(r, 800)); await route.fulfill({ status: 503, json: { detail: "旧岗位失败" } }); }
+    else await route.fallback();
+  });
+  await select.selectOption("1");
+  await page.getByRole("button", { name: "开始备战分析" }).click();
+  await select.selectOption("2");
+  await page.waitForTimeout(1100);
+  if (await page.getByText("旧岗位失败").count()) throw Error("旧岗位失败污染新页面");
   await page.goto(`${origin}/planner/1`);
   await page.getByRole("checkbox").first().check();
   delayTasks = true;
@@ -81,5 +90,5 @@ async (page) => {
   await page.locator('a[href="/practice/2"]').waitFor();
   await page.waitForTimeout(1100);
   if (await page.locator('a[href="/practice/2"]').count() === 0) throw Error("旧行动覆盖新会话");
-  return { passed: 5, journeys: ["练习草稿刷新恢复", "延期与取消", "练习切换隔离及忙状态复位", "205条投递与岗位生成隔离", "加入行动的第二次请求隔离"] };
+  return { passed: 6, journeys: ["练习草稿刷新恢复", "延期与取消", "练习切换隔离及忙状态复位", "205条投递与岗位生成隔离", "加入行动的第二次请求隔离", "旧岗位失败隔离"] };
 }

@@ -310,7 +310,7 @@ export function IntelPage() {
     if (!applicationId) return;
     setLoading(true); setError("");
     try { await api.intel.clearChatHistory(applicationId); if (!isCurrent()) return; setChat([]); }
-    catch (reason) { setError(reason instanceof Error ? reason.message : "清空问答历史失败"); }
+    catch (reason) { if (!isCurrent()) return; setError(reason instanceof Error ? reason.message : "清空问答历史失败"); }
     finally { if (isCurrent()) setLoading(false); }
   }
   function askDeleteChatTurn(turn: ChatTurn) {
