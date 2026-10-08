@@ -29,6 +29,7 @@ services:
       retries: 20
 
   backend:
+    image: careerpilot-backend:local
     build:
       context: ./backend
       dockerfile: Dockerfile
@@ -55,6 +56,7 @@ services:
         condition: service_healthy
 
   worker:
+    image: careerpilot-backend:local
     build:
       context: ./backend
       dockerfile: Dockerfile
@@ -78,6 +80,7 @@ services:
         condition: service_healthy
 
   frontend:
+    image: careerpilot-frontend:local
     build:
       context: ./frontend
       dockerfile: Dockerfile

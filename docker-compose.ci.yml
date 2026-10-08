@@ -22,6 +22,7 @@ services:
       retries: 30
 
   backend:
+    image: careerpilot-backend:local
     build: ./backend
     working_dir: /workspace/backend
     environment:
@@ -43,6 +44,7 @@ services:
         condition: service_healthy
 
   frontend:
+    image: careerpilot-frontend:local
     build: ./frontend
     volumes:
       - frontend-build:/workspace/dist
