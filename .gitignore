@@ -1,6 +1,8 @@
 # 环境与密钥
 .env
 .llm_config_secret
+.llm_config_legacy_keys/
+config_secret_keys/
 
 # Python
 __pycache__/
@@ -24,6 +26,10 @@ dist/
 build/
 .pnpm-store/
 .codegraph/
+
+# 浏览器检查临时产物
+.playwright-cli/
+output/playwright/
 
 # 本地 agent skill 缓存
 .agents/
