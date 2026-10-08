@@ -1,0 +1,90 @@
+[
+  {
+    "id": "sourced-valid-citation",
+    "available_source_ids": ["resume:current", "timeline-7"],
+    "response": {
+      "answer": "简历中列出了 Python 项目经历。",
+      "source_ids": ["resume:current"],
+      "answer_mode": "sourced",
+      "search_status": "not_used"
+    },
+    "accepted": true
+  },
+  {
+    "id": "sourced-requires-citation",
+    "available_source_ids": ["resume:current"],
+    "response": {
+      "answer": "简历列出了 Python 项目经历。",
+      "source_ids": [],
+      "answer_mode": "sourced",
+      "search_status": "not_used"
+    },
+    "accepted": false
+  },
+  {
+    "id": "unknown-citation-rejected",
+    "available_source_ids": ["resume:current"],
+    "response": {
+      "answer": "简历列出了 Python 项目经历。",
+      "source_ids": ["resume:deleted"],
+      "answer_mode": "sourced",
+      "search_status": "not_used"
+    },
+    "accepted": false
+  },
+  {
+    "id": "general-answer-without-citation",
+    "available_source_ids": [],
+    "response": {
+      "answer": "Python 是一种编程语言。",
+      "source_ids": [],
+      "answer_mode": "general",
+      "search_status": "not_used"
+    },
+    "accepted": true
+  },
+  {
+    "id": "mixed-answer-with-valid-citation",
+    "available_source_ids": ["material-4:source-1"],
+    "response": {
+      "answer": "已有面经提到系统设计，同时可以补充通用准备建议。",
+      "source_ids": ["material-4:source-1"],
+      "answer_mode": "mixed",
+      "search_status": "not_used"
+    },
+    "accepted": true
+  },
+  {
+    "id": "failed-search-must-be-disclosed",
+    "available_source_ids": [],
+    "response": {
+      "answer": "可以从公开资料整理该主题。",
+      "source_ids": [],
+      "answer_mode": "general",
+      "search_status": "failed"
+    },
+    "accepted": false
+  },
+  {
+    "id": "failed-search-disclosed",
+    "available_source_ids": [],
+    "response": {
+      "answer": "公开检索失败，以下是通用建议。",
+      "source_ids": [],
+      "answer_mode": "general",
+      "search_status": "failed"
+    },
+    "accepted": true
+  },
+  {
+    "id": "malformed-response-rejected",
+    "available_source_ids": [],
+    "response": {
+      "answer": "",
+      "source_ids": [],
+      "answer_mode": "general",
+      "search_status": "not_used"
+    },
+    "accepted": false
+  }
+]
