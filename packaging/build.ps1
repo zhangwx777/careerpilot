@@ -53,7 +53,8 @@ function Write-InstallerArtifacts {
     if (Test-Path -LiteralPath $artifact) { Remove-Item -LiteralPath $artifact -Force }
     $inno = @(
         (Join-Path ${env:ProgramFiles(x86)} 'Inno Setup 6\ISCC.exe'),
-        (Join-Path $env:ProgramFiles 'Inno Setup 6\ISCC.exe')
+        (Join-Path $env:ProgramFiles 'Inno Setup 6\ISCC.exe'),
+        (Join-Path $env:LOCALAPPDATA 'Programs\Inno Setup 6\ISCC.exe')
     ) | Where-Object { Test-Path -LiteralPath $_ } | Select-Object -First 1
     if (-not $inno) { throw '未找到 Inno Setup 6 的 ISCC.exe。' }
     $iss = Join-Path $PSScriptRoot 'installer\CareerPilot.iss'

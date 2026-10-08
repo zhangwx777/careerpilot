@@ -1,6 +1,6 @@
 [project]
 name = "qiuzhao-agent-backend"
-version = "0.1.3"
+version = "0.1.4"
 description = "求职作战台 - 后端"
 requires-python = ">=3.12"
 dependencies = [
@@ -25,6 +25,9 @@ dependencies = [
 test = [
     "pytest>=9.1.1",
     "httpx>=0.28.1",
+]
+desktop-build = [
+    "pyinstaller>=6.0",
 ]
 
 [build-system]
