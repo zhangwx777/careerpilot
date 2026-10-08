@@ -125,7 +125,7 @@ def _finalize(
 def _bounded_chat(function):
     @wraps(function)
     def run(*args, **kwargs):
-        budget = kwargs.get("budget", args[5] if len(args) > 5 else DEFAULT_BUDGET)
+        budget = kwargs.get("budget", DEFAULT_BUDGET)
         with execution_budget(budget.max_model_calls, budget.max_duration_seconds):
             return function(*args, **kwargs)
     return run
