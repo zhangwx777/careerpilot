@@ -26,7 +26,7 @@ $python = Join-Path $root 'backend\.venv\Scripts\python.exe'
 $desktopPackage = Get-Content (Join-Path $root 'desktop\package.json') -Raw | ConvertFrom-Json
 $appVersion = $desktopPackage.version
 
-if (-not (Test-Path -LiteralPath $python)) { throw '缺少后端 Python 虚拟环境。' }
+if (-not $AppOnly -and -not (Test-Path -LiteralPath $python)) { throw '缺少后端 Python 虚拟环境。' }
 if (-not $AppOnly -and -not (Test-Path -LiteralPath $pgHome)) { throw '未找到 PostgreSQL 18 安装。' }
 if ($AppOnly -and -not (Test-Path -LiteralPath $payloadRoot)) { throw '-AppOnly 需要已有完整构建的 payload，请先完整构建一次。' }
 
