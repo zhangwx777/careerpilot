@@ -63,6 +63,39 @@ function Write-InstallerArtifacts {
     if (-not (Test-Path -LiteralPath $artifact)) { throw '安装器生成失败。' }
 }
 
+function Write-UpdateManifest {
+    $installer = Get-Item -LiteralPath $artifact
+    $sha256 = (Get-FileHash -LiteralPath $artifact -Algorithm SHA256).Hash.ToLowerInvariant()
+    $manifest = [ordered]@{
+        tag_name = "v$appVersion"
+        assets = @(
+            [ordered]@{
+                name = 'CareerPilotSetup.exe'
+                size = [long]$installer.Length
+                digest = "sha256:$sha256"
+                browser_download_url = "https://github.com/zhangwx777/careerpilot/releases/download/v$appVersion/CareerPilotSetup.exe"
+            }
+        )
+    }
+    $manifestPath = Join-Path (Split-Path $artifact) 'update-manifest.json'
+    $manifestJson = $manifest | ConvertTo-Json -Depth 4
+    [System.IO.File]::WriteAllText($manifestPath, $manifestJson, [System.Text.UTF8Encoding]::new($false))
+}
+
+function Write-ReleaseChecksums {
+    $releaseFiles = @(
+        $artifact,
+        $portableArtifact,
+        (Join-Path (Split-Path $artifact) 'update-manifest.json')
+    )
+    $lines = foreach ($releaseFile in $releaseFiles) {
+        $hash = (Get-FileHash -LiteralPath $releaseFile -Algorithm SHA256).Hash.ToLowerInvariant()
+        "$hash  $(Split-Path -Leaf $releaseFile)"
+    }
+    $checksumPath = Join-Path (Split-Path $artifact) 'SHA256SUMS.txt'
+    [System.IO.File]::WriteAllLines($checksumPath, [string[]]$lines, [System.Text.UTF8Encoding]::new($false))
+}
+
 function Build-ElectronShell {
     $electronSource = Join-Path $root 'desktop'
     Push-Location (Join-Path $root 'frontend')
@@ -140,9 +173,13 @@ if ($AppOnly) {
     Build-ElectronShell
     Copy-ThirdPartyLicenses
     Write-InstallerArtifacts
+    Write-UpdateManifest
+    Write-ReleaseChecksums
     [pscustomobject]@{
         Artifact = $artifact
+        UpdateManifest = (Join-Path (Split-Path $artifact) 'update-manifest.json')
         PortableArtifact = $portableArtifact
+        Checksums = (Join-Path (Split-Path $artifact) 'SHA256SUMS.txt')
         SizeMB = [math]::Round((Get-Item $artifact).Length / 1MB, 1)
         PortableSizeMB = [math]::Round((Get-Item $portableArtifact).Length / 1MB, 1)
     } | Format-List
@@ -218,10 +255,14 @@ Build-ElectronShell
 Copy-ThirdPartyLicenses
 
 Write-InstallerArtifacts
+Write-UpdateManifest
+Write-ReleaseChecksums
 
 [pscustomobject]@{
     Artifact = $artifact
+    UpdateManifest = (Join-Path (Split-Path $artifact) 'update-manifest.json')
     PortableArtifact = $portableArtifact
+    Checksums = (Join-Path (Split-Path $artifact) 'SHA256SUMS.txt')
     SizeMB = [math]::Round((Get-Item $artifact).Length / 1MB, 1)
     PortableSizeMB = [math]::Round((Get-Item $portableArtifact).Length / 1MB, 1)
 } | Format-List

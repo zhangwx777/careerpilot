@@ -2,6 +2,13 @@ import { ArrowClockwise, DownloadSimple } from "@phosphor-icons/react";
 import { useEffect, useState } from "react";
 
 type UpdateCheck = { currentVersion: string; latestVersion: string; updateAvailable: boolean; installerAvailable: boolean };
+type UpdateProgress = {
+  percent: number | null;
+  receivedBytes: number;
+  totalBytes: number;
+  bytesPerSecond: number;
+  source: "mirror" | "github";
+};
 
 declare global {
   interface Window {
@@ -9,19 +16,29 @@ declare global {
       version: () => Promise<string>;
       check: () => Promise<UpdateCheck>;
       install: () => Promise<void>;
-      onProgress: (listener: (percent: number | null) => void) => () => void;
+      onProgress: (listener: (progress: UpdateProgress) => void) => () => void;
     };
   }
 }
 
 type Phase = "idle" | "checking" | "latest" | "available" | "downloading" | "error";
 
+function formatBytes(bytes: number) {
+  if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function formatSpeed(bytesPerSecond: number) {
+  if (bytesPerSecond < 1024 * 1024) return `${Math.round(bytesPerSecond / 1024)} KB/s`;
+  return `${(bytesPerSecond / (1024 * 1024)).toFixed(1)} MB/s`;
+}
+
 export function UpdateBadge() {
   const bridge = window.careerPilotUpdates;
   const [version, setVersion] = useState("");
   const [latest, setLatest] = useState("");
   const [phase, setPhase] = useState<Phase>("idle");
-  const [percent, setPercent] = useState<number | null>(null);
+  const [progress, setProgress] = useState<UpdateProgress | null>(null);
   const [hint, setHint] = useState("");
 
   useEffect(() => {
@@ -74,9 +91,9 @@ export function UpdateBadge() {
   async function download() {
     if (!window.confirm(`下载并安装 v${latest}？安装器启动后当前程序会关闭。`)) return;
     setPhase("downloading");
-    setPercent(null);
+    setProgress(null);
     setHint("");
-    const stop = bridge!.onProgress((value) => setPercent(value));
+    const stop = bridge!.onProgress((value) => setProgress(value));
     try {
       await bridge!.install();
     } catch (reason) {
@@ -95,9 +112,20 @@ export function UpdateBadge() {
     );
   }
   if (phase === "downloading") {
+    const source = progress?.source === "mirror" ? "镜像" : "GitHub";
+    const transferred = progress ? formatBytes(progress.receivedBytes) : "等待连接";
+    const total = progress?.totalBytes ? ` / ${formatBytes(progress.totalBytes)}` : "";
+    const details = progress
+      ? `${source} · ${transferred}${total} · ${formatSpeed(progress.bytesPerSecond)}`
+      : "正在连接下载源。";
+    const status = !progress || progress.receivedBytes === 0
+      ? "连接中…"
+      : progress.percent === 0
+        ? "<1%"
+        : `${progress.percent ?? "…"}%`;
     return (
-      <span className="update-badge downloading" role="status">
-        下载中{percent === null ? "…" : ` ${percent}%`}
+      <span className="update-badge downloading" role="status" title={details} aria-label={`正在下载，${details}`}>
+        下载中 {status}
       </span>
     );
   }
