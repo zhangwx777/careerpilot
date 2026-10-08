@@ -34,9 +34,11 @@ CareerPilot 不自动投递，也不替用户做求职决定。通知解析、�
 
 源码环境使用 Docker Compose，适合本机开发或受信任网络中的个人使用。需要 Git 和 Docker Desktop（含 Docker Compose v2），宿主机不需要安装 Python、Node.js、PostgreSQL 或 Redis。
 
-进入项目根目录后，在 PowerShell 中执行：
+在 PowerShell 中执行：
 
 ```powershell
+git clone https://github.com/zhangwx777/careerpilot.git
+cd careerpilot
 docker compose up --build
 ```
 
