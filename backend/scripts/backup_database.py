@@ -64,6 +64,10 @@ def _legacy_config_secret_paths(primary_secret: Path) -> tuple[Path, ...]:
     candidates.extend(
         sorted((primary_secret.parent / _SECRET_KEYRING_DIR).glob("*.key"))
     )
+    if app_root:
+        candidates.extend(
+            sorted((Path(app_root) / _SECRET_KEYRING_DIR).glob("*.key"))
+        )
     unique = {}
     for candidate in candidates:
         resolved = candidate.resolve()

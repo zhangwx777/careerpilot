@@ -34,21 +34,9 @@ CareerPilot 不自动投递，也不替用户做求职决定。通知解析、�
 
 源码环境使用 Docker Compose，适合本机开发或受信任网络中的个人使用。需要 Git 和 Docker Desktop（含 Docker Compose v2），宿主机不需要安装 Python、Node.js、PostgreSQL 或 Redis。
 
-在 PowerShell 中执行：
+进入项目根目录后，在 PowerShell 中执行：
 
 ```powershell
-git clone https://github.com/zhangwx777/careerpilot.git
-cd careerpilot
-if (-not (Test-Path .env)) { Copy-Item .env.example .env }
-if (-not (Test-Path .llm_config_secret)) {
-  $rng = [System.Security.Cryptography.RandomNumberGenerator]::Create()
-  $bytes = New-Object byte[] 32
-  try {
-    $rng.GetBytes($bytes)
-    $key = [Convert]::ToBase64String($bytes).Replace('+', '-').Replace('/', '_')
-    [IO.File]::WriteAllText((Join-Path $PWD.Path '.llm_config_secret'), $key)
-  } finally { $rng.Dispose() }
-}
 docker compose up --build
 ```
 
@@ -68,11 +56,11 @@ docker compose logs -f backend worker
 docker compose down
 ```
 
-`docker compose down` 会停止并移除容器，但保留 PostgreSQL 和 Redis 数据卷。删除或重建数据卷会清除本机开发数据。Compose 端口仅绑定本机地址；此配置运行 Vite 开发服务器，不提供公网生产部署所需的 TLS、反向代理或多用户隔离。
+`docker compose down` 会停止并移除容器，但保留 PostgreSQL、Redis 和模型配置密钥数据卷。删除数据卷会清除本机开发数据及已保存的模型配置。Compose 端口仅绑定本机地址；此配置运行 Vite 开发服务器，不提供公网生产部署所需的 TLS、反向代理或多用户隔离。
 
-模型 Provider、API Key 和公开检索设置在应用“模型设置”页面保存，不写入 `.env`。`.env.example` 中的数据库凭据只供本机开发使用，不可用于公网或生产服务。
+模型 Provider、API Key 和公开检索设置在应用“模型设置”页面保存，不写入 `.env`。Compose 内置的数据库凭据只供本机开发使用，不可用于公网或生产服务。
 
-`.llm_config_secret` 是本机模型配置的加密根密钥，Compose 将它只读挂载给应用。`.env` 和 `.llm_config_secret` 都已加入 Git 忽略规则；不要提交、覆盖或删除它们。丢失加密根密钥后，已保存的 API Key 无法解密，需要重新填写。
+Compose 会在首次保存模型 API Key 时自动生成加密根密钥，并保存在 `careerpilot-config` 数据卷中；无需手动创建密钥文件或 `.env`。已有的 `.llm_config_secret` 和 `.llm_config_legacy_keys` 会作为旧密钥迁移来源。备份或迁移数据时一并保留配置密钥；丢失密钥后，已保存的 API Key 无法解密，需要重新填写。
 
 ## 自动化验证
 

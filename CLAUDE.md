@@ -57,7 +57,6 @@ CareerPilot 是个人本地求职工作台，面向 Windows 桌面用户。Windo
 在仓库根目录用 PowerShell 启动源码环境：
 
 ```powershell
-# 首次克隆时按 README 的“从源码启动”章节初始化 .env 和加密密钥。
 docker compose up --build
 ```
 
@@ -70,9 +69,9 @@ docker compose restart backend worker
 docker compose down
 ```
 
-`docker compose down` 保留本机 PostgreSQL 和 Redis 数据卷。日常开发时不要删除这些卷；只有用户明确要求清除本机开发数据时才使用带 `-v` 的清理命令。Compose 端口绑定到 `127.0.0.1`，不要将后端端口改为公网绑定。
+`docker compose down` 保留本机 PostgreSQL、Redis 和配置数据卷。日常开发时不要删除这些卷；只有用户明确要求清除本机开发数据时才使用带 `-v` 的清理命令。Compose 端口绑定到 `127.0.0.1`，不要将后端端口改为公网绑定。
 
-`.llm_config_secret` 是 Provider API Key 的本机 Fernet 根密钥。Compose 将它只读挂载；首次运行前必须存在有效密钥。已有数据库中的凭据依赖该密钥，迁移或清理时保留原文件，并通过应用备份流程一起保存数据库和密钥。
+Compose 将 Provider API Key 的 Fernet 根密钥保存在持久化的 `careerpilot-config` 数据卷中，并在首次保存模型配置时自动生成。根目录旧 `.llm_config_secret` 与 `.llm_config_legacy_keys` 只用于兼容已有本机数据；密钥迁移、备份和恢复时同时保留数据库与加密密钥。删除 Compose 数据卷会删除两者。
 
 需要初始化主库或独立测试库时：
 

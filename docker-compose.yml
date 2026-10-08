@@ -33,14 +33,17 @@ services:
     build:
       context: ./backend
       dockerfile: Dockerfile
-    env_file:
-      - .env
     environment:
       DATABASE_URL: postgresql+psycopg://qiuzhao_app:qiuzhao_dev@postgres:5432/qiuzhao
       TEST_DATABASE_URL: postgresql+psycopg://qiuzhao_app:qiuzhao_dev@postgres:5432/qiuzhao_test
       CELERY_BROKER_URL: redis://redis:6379/0
       CELERY_RESULT_BACKEND: redis://redis:6379/0
+      CELERY_TASK_TIMEOUT: ${CELERY_TASK_TIMEOUT:-180}
+      CELERY_MAX_RETRIES: ${CELERY_MAX_RETRIES:-2}
+      CELERY_QUEUE: ${CELERY_QUEUE:-celery}
+      CELERY_TASK_ALWAYS_EAGER: ${CELERY_TASK_ALWAYS_EAGER:-false}
       CAREERPILOT_APP_ROOT: /workspace
+      CAREERPILOT_DATA_DIR: /careerpilot-data
       CAREERPILOT_BACKEND_HOST: 0.0.0.0
       CAREERPILOT_BACKEND_PORT: 8000
     command: ["python", "/workspace/backend/packaged_server.py"]
@@ -49,6 +52,8 @@ services:
     volumes:
       - ./backend:/workspace/backend
       - ./.llm_config_secret:/workspace/.llm_config_secret:ro
+      - ./.llm_config_legacy_keys:/workspace/.llm_config_legacy_keys:ro
+      - careerpilot-config:/careerpilot-data
     depends_on:
       postgres:
         condition: service_healthy
@@ -60,19 +65,24 @@ services:
     build:
       context: ./backend
       dockerfile: Dockerfile
-    env_file:
-      - .env
     environment:
       DATABASE_URL: postgresql+psycopg://qiuzhao_app:qiuzhao_dev@postgres:5432/qiuzhao
       TEST_DATABASE_URL: postgresql+psycopg://qiuzhao_app:qiuzhao_dev@postgres:5432/qiuzhao_test
       CELERY_BROKER_URL: redis://redis:6379/0
       CELERY_RESULT_BACKEND: redis://redis:6379/0
+      CELERY_TASK_TIMEOUT: ${CELERY_TASK_TIMEOUT:-180}
+      CELERY_MAX_RETRIES: ${CELERY_MAX_RETRIES:-2}
+      CELERY_QUEUE: ${CELERY_QUEUE:-celery}
+      CELERY_TASK_ALWAYS_EAGER: ${CELERY_TASK_ALWAYS_EAGER:-false}
       CAREERPILOT_APP_ROOT: /workspace
+      CAREERPILOT_DATA_DIR: /careerpilot-data
     command: ["celery", "-A", "app.task_queue.celery_app", "worker", "--loglevel=INFO", "--pool=solo"]
     working_dir: /workspace/backend
     volumes:
       - ./backend:/workspace/backend
       - ./.llm_config_secret:/workspace/.llm_config_secret:ro
+      - ./.llm_config_legacy_keys:/workspace/.llm_config_legacy_keys:ro
+      - careerpilot-config:/careerpilot-data
     depends_on:
       postgres:
         condition: service_healthy
@@ -100,3 +110,4 @@ volumes:
   careerpilot-postgres:
   careerpilot-redis:
   careerpilot-frontend-node-modules:
+  careerpilot-config:
