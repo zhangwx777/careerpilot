@@ -8,7 +8,7 @@ Versions 1 and 2 establish the current tables and adopt the compatibility change
 
 ## Create a backup
 
-For a source or Docker deployment, run the command from `backend` with `DATABASE_URL` configured and PostgreSQL client tools (`pg_dump` and `pg_restore`) on `PATH`:
+For a source or Docker deployment, run the command from `backend` with `DATABASE_URL` configured and PostgreSQL 18 client tools (`pg_dump` and `pg_restore`) on `PATH`. The backend Docker image includes these clients:
 
 ```powershell
 python -m scripts.backup_database backup --output "$env:LOCALAPPDATA\CareerPilot\backups\careerpilot-20261008"
@@ -41,4 +41,4 @@ Restore recreates the backed-up objects in the target database in one PostgreSQL
 
 ## Verification
 
-The migration integration tests check initialization idempotence, legacy-schema adoption, preserved rows, and fail-closed handling of unknown versions. Backup tests verify checksums, credential handling, restrictive permissions, failure cleanup, current and legacy Fernet key recovery, and packaged command routing. Full PostgreSQL backup/restore checks should use a disposable database; never point restore tests at a user's active database.
+The migration integration tests check initialization idempotence, legacy-schema adoption, preserved rows, and fail-closed handling of unknown versions. Backup unit tests verify checksums, credential handling, restrictive permissions, failure cleanup, current and legacy Fernet key recovery, and packaged command routing. The Docker CI suite also runs a real `pg_dump`/`pg_restore` round-trip against two uniquely named disposable databases, then starts a fresh process to decrypt a value written with a historical Fernet key. It drops both databases during cleanup; never point restore tests at a user's active database.

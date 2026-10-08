@@ -38,13 +38,25 @@ Compose 统一启动 frontend、backend、worker、PostgreSQL 和 Redis。需要
 
 ## 桌面包构建
 
-构建机需要项目后端虚拟环境、PostgreSQL 18 和 Inno Setup 6。运行：
+构建机需要项目后端虚拟环境、PostgreSQL 18 和 Inno Setup 6。首次准备后端虚拟环境时，在 `backend` 目录安装桌面打包依赖：
+
+```powershell
+Push-Location backend
+.\.venv\Scripts\python.exe -m pip install -e ".[desktop-build]"
+Pop-Location
+```
+
+然后运行：
 
 ```powershell
 .\packaging\build.ps1
 ```
 
 脚本会下载固定版本的任务队列运行时和 .NET Runtime 并内置到桌面包，输出 `dist\CareerPilotSetup.exe` 和 `dist\CareerPilot-portable.zip`。这些运行时只属于桌面包，开发环境不使用它们；终端用户不需要安装 Python、Node.js、pnpm、PostgreSQL、Redis、Docker 或 .NET。
+
+## 版本与发布
+
+桌面发行版本以 `desktop/package.json` 的 `version` 为准，`packaging/build.ps1` 会将该值传给 Inno Setup。修改发行版本时，同步更新 `frontend/package.json`、`backend/pyproject.toml` 和 `packaging/installer/CareerPilot.iss` 的默认版本。Git tag 和 GitHub Release 使用 `v<version>` 格式（例如 `v0.1.4`）。发布后确认 Release 已公开，并且 `CareerPilotSetup.exe` 与 `CareerPilot-portable.zip` 两个附件均已上传。README 下载入口应指向 GitHub 的 `/releases/latest`，避免把版本号写死。
 
 ## 配置
 

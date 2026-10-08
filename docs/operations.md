@@ -44,7 +44,7 @@ Compose 固定提供以下服务：
 4. `worker`：Celery worker；
 5. `frontend`：Vite 开发服务器。
 
-前端地址为 `http://127.0.0.1:5173`，API 地址为 `http://127.0.0.1:8000`。使用 `docker compose down` 停止容器；不带 `-v` 时保留 PostgreSQL 和 Redis 数据卷。
+前端地址为 `http://127.0.0.1:5173`，API 地址为 `http://127.0.0.1:8000`，Compose PostgreSQL 映射到宿主机 `127.0.0.1:5433`（容器内仍为 5432）。使用 `docker compose down` 停止容器；不带 `-v` 时保留 PostgreSQL 和 Redis 数据卷。
 
 ## 健康检查与队列
 
@@ -54,8 +54,8 @@ Compose 固定提供以下服务：
 
 Provider、API Key、Base URL 和默认模型只在“模型设置”页配置。API Key 使用 Fernet 加密写入本地数据库，接口只返回掩码；加密根密钥保存在 `.llm_config_secret`（桌面包位于用户数据目录）。
 
-- `.env`、API Key、密码和 `.llm_config_secret` 不提交 Git。
-- 迁移数据库时必须同时安全备份对应的 `.llm_config_secret`。
+- `.env`、API Key、密码、`.llm_config_secret` 和 `.llm_config_legacy_keys/` 不提交 Git；仓库忽略规则覆盖这些本地密钥。
+- 迁移数据库必须使用应用备份命令，以同时保存数据库、当前密钥和旧版 Fernet 密钥；不要只手工复制主密钥。
 - 密钥丢失时设置页仍可打开，但已保存的 Provider 需要重新填写 API Key。
 - Base URL 只允许 `http/https`，不要填写账号、密码、query、fragment 或完整 `/chat/completions` 路径。
 
@@ -65,23 +65,16 @@ Provider、API Key、Base URL 和默认模型只在“模型设置”页配置�
 
 ## 数据备份与迁移
 
-代码用 Git 同步，数据库不进 Git。换机或迁移时：
+代码用 Git 同步，数据库不进 Git。换机或迁移请按[数据库迁移与备份操作说明](database-migrations-backups.md)运行应用备份命令。该命令同时备份数据库、当前密钥和历史密钥环；Docker 后端镜像内置与 PostgreSQL 18 兼容的客户端工具，桌面版使用安装包携带的 PostgreSQL 客户端。
 
-使用 PostgreSQL 客户端工具导出和恢复数据库（将示例中的连接参数替换为实际主机、端口、数据库、用户和密码）：
-
-```powershell
-pg_dump --host 127.0.0.1 --port 5432 --username qiuzhao_app --format=custom --file careerpilot.dump qiuzhao
-pg_restore --host 127.0.0.1 --port 5432 --username qiuzhao_app --dbname qiuzhao careerpilot.dump
-```
-
-在目标机器重新创建 `.env`，恢复数据库后再恢复同一数据目录中的 `.llm_config_secret`。不要把密钥写进仓库或聊天记录。
+不要只手动恢复 `database.dump` 并复制 `.llm_config_secret`：这会遗漏历史加密快照使用的旧密钥。备份目录包含明文密钥，应存放在私有且受保护的位置，不要提交 Git 或发到聊天记录。
 
 ## 常见故障
 
 - **PostgreSQL 连接失败**：检查服务、数据库名、账号和 `.env`；先运行 `python -m scripts.init_db`。
 - **Redis 不可用**：执行 `docker compose ps` 和 `docker compose logs redis worker`；不要在宿主机另起一套 Redis。
 - **容器构建失败**：执行 `docker compose build --no-cache`，确认 Docker Desktop 有足够磁盘空间。
-- **端口冲突**：释放宿主机的 5173、8000、5432 或 6379 后重新启动；Compose 不再顺延端口。
+- **端口冲突**：释放宿主机的 5173、8000、5433 或 6379 后重新启动；Compose 不再顺延端口。
 - **模型目录或 Agent 能力验证失败**：检查 Base URL 是否为 API 根路径；普通文本/JSON 模型可用于固定 Workflow，但未验证工具能力的模型不能用于岗位问答 Agent。
 - **集成测试被跳过**：设置独立 `TEST_DATABASE_URL` 并初始化测试库；skip 不算通过。
 
