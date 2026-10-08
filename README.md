@@ -1,5 +1,7 @@
 # 职航 CareerPilot
 
+[![Verify](https://github.com/zhangwx777/careerpilot/actions/workflows/verify.yml/badge.svg?branch=main)](https://github.com/zhangwx777/careerpilot/actions/workflows/verify.yml)
+
 职航 CareerPilot 是面向秋招、春招等校园招聘场景的个人求职决策工作台。它把投递记录、招聘节点、岗位面经和备战练习集中到一个本地应用中，回答同一个问题：现在该处理什么，面试前该练什么。
 
 CareerPilot 不自动投递，也不代替用户做求职决策；它优先使用用户保存的 JD、简历和面经，公开网页检索只是可选补充。数据保存在本机，模型使用你自己配置的 API Key。
@@ -60,8 +62,17 @@ docker compose -f docker-compose.ci.yml down --volumes --remove-orphans
 - [开发手册](docs/development.md)
 - [部署与运维](docs/operations.md)
 - [当前路线图](docs/roadmap.md)
+- [贡献指南](CONTRIBUTING.md)
+- [安全策略](SECURITY.md)
+- [行为准则](CODE_OF_CONDUCT.md)
+- [更新日志](CHANGELOG.md)
+- [第三方许可说明](THIRD_PARTY_NOTICES.md)
 
 编码 Agent 的工作规则位于 [CLAUDE.md](CLAUDE.md)。
+
+## 参与项目
+
+欢迎提交问题报告和改进建议。请先阅读[贡献指南](CONTRIBUTING.md)；安全问题请按[安全策略](SECURITY.md)私下报告，不要在公开 Issue 中披露利用细节。
 
 ## 许可证
 

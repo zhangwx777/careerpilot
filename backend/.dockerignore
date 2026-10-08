@@ -7,3 +7,12 @@ __pycache__
 dist
 build
 
+.env
+.env.*
+.llm_config_secret
+.llm_config_legacy_keys
+config_secret_keys
+backups
+*.dump
+*.backup
+

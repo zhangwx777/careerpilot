@@ -13,4 +13,10 @@ backend/.pytest_cache
 **/.pytest_cache
 .mypy_cache
 .env
+.env.*
 .llm_config_secret
+.llm_config_legacy_keys
+config_secret_keys
+backups
+*.dump
+*.backup

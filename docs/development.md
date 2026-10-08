@@ -68,7 +68,7 @@ Pop-Location
 
 ## 版本与发布
 
-桌面发行版本以 `desktop/package.json` 的 `version` 为准，`packaging/build.ps1` 会将该值传给 Inno Setup。修改发行版本时，同步更新 `frontend/package.json`、`backend/pyproject.toml` 和 `packaging/installer/CareerPilot.iss` 的默认版本。Git tag 和 GitHub Release 使用 `v<version>` 格式（例如 `v0.1.4`）。发布后确认 Release 已公开，并且 `CareerPilotSetup.exe` 与 `CareerPilot-portable.zip` 两个附件均已上传。README 下载入口应指向 GitHub 的 `/releases/latest`，避免把版本号写死。
+桌面发行版本以 `desktop/package.json` 的 `version` 为准，`packaging/build.ps1` 会将该值传给 Inno Setup。修改发行版本时，同步更新 `frontend/package.json`、`backend/pyproject.toml` 和 `packaging/installer/CareerPilot.iss` 的默认版本，并在 [更新日志](../CHANGELOG.md) 记录用户可见变化。Git tag 和 GitHub Release 使用 `v<version>` 格式。已公开的版本号和 tag 不复用；每次发行都从目标 `main` 提交构建，并确认安装器、便携包和校验和文件已上传。README 下载入口应指向 GitHub 的 `/releases/latest`，避免把版本号写死。
 
 ## 配置
 

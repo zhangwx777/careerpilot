@@ -1,4 +1,4 @@
-﻿param(
+param(
     [switch]$AppOnly
 )
 
@@ -77,6 +77,42 @@ function Build-ElectronShell {
     Copy-Item -LiteralPath (Join-Path $root 'frontend\public\brand-mark.png') -Destination (Join-Path $payloadRoot 'brand-mark.png') -Force
 }
 
+function Copy-ThirdPartyLicenses {
+    $licenseRoot = Join-Path $payloadRoot 'licenses'
+    $garnetLicenseRoot = Join-Path $licenseRoot 'garnet'
+    $postgresLicenseRoot = Join-Path $licenseRoot 'postgresql'
+    $frontendLicenseRoot = Join-Path $licenseRoot 'frontend'
+    New-Item -ItemType Directory -Force -Path $garnetLicenseRoot, $postgresLicenseRoot, $frontendLicenseRoot | Out-Null
+
+    Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'licenses\Garnet-LICENSE.txt') `
+        -Destination (Join-Path $garnetLicenseRoot 'Garnet-LICENSE.txt') -Force
+
+    foreach ($licenseName in @('server_license.txt', 'commandlinetools_3rd_party_licenses.txt')) {
+        $source = Join-Path $pgHome $licenseName
+        $destination = Join-Path $postgresLicenseRoot $licenseName
+        if (Test-Path -LiteralPath $source) {
+            Copy-Item -LiteralPath $source -Destination $destination -Force
+        } elseif (-not (Test-Path -LiteralPath $destination)) {
+            throw "PostgreSQL 许可文件不存在于安装目录或现有 payload：$licenseName"
+        }
+    }
+
+    $pnpmRoot = Join-Path $root 'frontend\node_modules\.pnpm'
+    if (-not (Test-Path -LiteralPath $pnpmRoot)) { throw '找不到前端 pnpm 依赖目录，无法收集许可文件。' }
+    $licenseFiles = Get-ChildItem -Path $pnpmRoot -Recurse -File | Where-Object {
+        $_.Name -match '^(LICENSE|COPYING|NOTICE|COPYRIGHT)(\..*)?$'
+    }
+    if (-not $licenseFiles) { throw '前端依赖目录中没有找到许可文件。' }
+    foreach ($licenseFile in $licenseFiles) {
+        $relativePath = $licenseFile.FullName.Substring($pnpmRoot.Length).TrimStart([char[]]@('\', '/'))
+        $destination = Join-Path $frontendLicenseRoot $relativePath
+        New-Item -ItemType Directory -Force -Path (Split-Path -Parent $destination) | Out-Null
+        Copy-Item -LiteralPath $licenseFile.FullName -Destination $destination -Force
+    }
+
+    Copy-Item -LiteralPath (Join-Path $root 'THIRD_PARTY_NOTICES.md') -Destination $payloadRoot -Force
+}
+
 # --- 应用层：前端 dist ---
 Push-Location (Join-Path $root 'frontend')
 try {
@@ -102,6 +138,7 @@ Get-ChildItem -Path $appBackend -Recurse -Directory -Filter '__pycache__' | Remo
 if ($AppOnly) {
     Write-Host '应用层与 Electron 壳已刷新（-AppOnly）。运行时层保持不变。'
     Build-ElectronShell
+    Copy-ThirdPartyLicenses
     Write-InstallerArtifacts
     [pscustomobject]@{
         Artifact = $artifact
@@ -178,6 +215,7 @@ try {
 }
 
 Build-ElectronShell
+Copy-ThirdPartyLicenses
 
 Write-InstallerArtifacts
 

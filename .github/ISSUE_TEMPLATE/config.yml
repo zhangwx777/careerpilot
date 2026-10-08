@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: 安全漏洞报告
+    url: https://github.com/zhangwx777/careerpilot/security/advisories/new
+    about: 请通过私密渠道报告，不要在公开 Issue 中披露漏洞细节。
+  - name: 使用和开发文档
+    url: https://github.com/zhangwx777/careerpilot/tree/main/docs
+    about: 请先查看 README、开发手册和运维手册。

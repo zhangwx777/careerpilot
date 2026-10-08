@@ -25,7 +25,7 @@
 
 快速构建会重新生成前端、后端应用层和 Electron 壳，再生成 `dist\CareerPilotSetup.exe` 与 `dist\CareerPilot-portable.zip`；PostgreSQL、Garnet、.NET 和冻结的 Python 运行时沿用已有 payload。没有完整 payload 时先运行一次完整构建。修改上述运行时、桌面依赖或安装器配置后应运行完整构建。
 
-桌面版本号取自 `desktop/package.json`。发布时使用对应的 `v<版本号>` GitHub Release 标签，并将安装器以精确文件名 `CareerPilotSetup.exe` 上传。客户端“模型设置 → 软件更新”会检查最新 Release；发现更高版本后可下载并启动该安装器。用户数据位于 `%LOCALAPPDATA%\CareerPilot`，由安装器更新时保留。
+桌面版本号取自 `desktop/package.json`。发布时同步更新全部版本声明和 [更新日志](../CHANGELOG.md)，从 `main` 的目标提交构建，使用新的 `v<版本号>` GitHub Release 标签，并上传 `CareerPilotSetup.exe`、`CareerPilot-portable.zip` 和 `SHA256SUMS.txt`。发行包包含 [第三方许可说明](../THIRD_PARTY_NOTICES.md)及依赖许可文件。发布后校验附件名称、版本号与 SHA-256。客户端“模型设置 → 软件更新”会检查最新 Release；发现更高版本后可下载并启动该安装器。用户数据位于 `%LOCALAPPDATA%\CareerPilot`，由安装器更新时保留。
 
 ## Docker 本地开发与私有自托管
 

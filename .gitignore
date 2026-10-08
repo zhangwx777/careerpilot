@@ -1,8 +1,16 @@
 # 环境与密钥
 .env
+.env.*
+!.env.example
 .llm_config_secret
 .llm_config_legacy_keys/
 config_secret_keys/
+backups/
+*.dump
+*.backup
+*.sqlite
+*.sqlite3
+*.db
 
 # Python
 __pycache__/
