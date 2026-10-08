@@ -34,9 +34,11 @@ CareerPilot 不自动投递，也不替用户做求职决定。通知解析、�
 
 源码环境使用 Docker Compose，适合本机开发或受信任网络中的个人使用。需要 Git 和 Docker Desktop（含 Docker Compose v2），宿主机不需要安装 Python、Node.js、PostgreSQL 或 Redis。
 
-进入项目根目录后，在 PowerShell 中执行：
+在 PowerShell 中执行：
 
 ```powershell
+git clone https://github.com/zhangwx777/careerpilot.git
+cd careerpilot
 docker compose up --build
 ```
 
@@ -87,3 +89,4 @@ docker compose -f docker-compose.ci.yml down --volumes --remove-orphans
 前端使用 React、Vite 和 TypeScript；后端使用 FastAPI、SQLAlchemy 和 PostgreSQL；后台任务使用 Celery 与 Redis；LangGraph 管理可恢复流程，LiteLLM 统一模型调用；Windows 桌面壳使用 Electron。
 
 CareerPilot 使用 MIT 许可证，详见 [LICENSE](LICENSE)。桌面发行包中的第三方组件仍按各自许可证发布，详见[第三方组件许可说明](THIRD_PARTY_NOTICES.md)。
+
