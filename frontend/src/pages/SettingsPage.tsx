@@ -36,6 +36,22 @@ function sourceLabel(item: ProviderOption) {
   return item.source === "database" ? "已保存" : "默认";
 }
 
+const KNOWN_PROVIDER_HOSTS: Record<string, string[]> = {
+  openai: ["api.openai.com"],
+  anthropic: ["api.anthropic.com"],
+  deepseek: ["api.deepseek.com"],
+  qwen: ["dashscope.aliyuncs.com", "dashscope-intl.aliyuncs.com"],
+};
+
+function providerForBaseUrl(baseUrl: string): string | null {
+  try {
+    const hostname = new URL(baseUrl).hostname.toLowerCase();
+    return Object.entries(KNOWN_PROVIDER_HOSTS).find(([, hosts]) => hosts.includes(hostname))?.[0] ?? null;
+  } catch {
+    return null;
+  }
+}
+
 export function SettingsPage() {
   const [providers, setProviders] = useState<ProviderOption[]>([]);
   const [selected, setSelected] = useState("openai");
@@ -60,6 +76,8 @@ export function SettingsPage() {
     () => providers.find((item) => item.name === selected) ?? providers[0],
     [providers, selected],
   );
+  const configuredProviders = useMemo(() => providers.filter((item) => item.configured), [providers]);
+  const endpointProvider = useMemo(() => providerForBaseUrl(form.base_url), [form.base_url]);
 
   function applyProviders(items: ProviderOption[]) {
     setProviders(items);
@@ -222,60 +240,76 @@ export function SettingsPage() {
             </div>
           </section>
         </details>}
-        <div className="panel provider-index" aria-label="模型连接配置">
+        {selectedProvider && <section className="panel provider-settings" aria-label="模型连接配置">
           <div className="settings-toolbar">
-            <div><span className="eyebrow">连接清单</span><h2>选择要编辑的模型</h2></div>
-            <span className="settings-toolbar-hint">可同时保存多家</span>
+            <div><span className="eyebrow">模型连接</span><h2>供应商与连接参数</h2></div>
+            <span className="settings-toolbar-hint">可保存多个模型配置</span>
           </div>
-          <div className="provider-table" role="list">
-            {providers.map((item) => (
-              <button key={item.name} className={`provider-row${item.name === selectedProvider?.name ? " active" : ""}`} onClick={() => chooseProvider(item.name)} type="button" role="listitem">
-                <span className={`provider-status-dot ${item.configured ? "ready" : ""}`} aria-hidden="true" />
-                <span className="provider-row-name"><strong>{item.label}</strong><small>{item.model || "未填写模型"}</small></span>
-                <span className="provider-row-source">{sourceLabel(item)}</span>
-                <span className={`provider-row-status ${item.configured ? "ready" : ""}`}>{statusLabel(item)}</span>
-                {item.is_default && <Star size={16} weight="fill" aria-label="默认模型" />}
-              </button>
-            ))}
+          <div className="provider-select-row">
+            <label className="field-block"><span>供应商</span><select value={selectedProvider.name} onChange={(event) => chooseProvider(event.target.value)} aria-label="选择模型供应商">{providers.map((item) => <option key={item.name} value={item.name}>{item.label}{item.configured ? ` · ${item.model}` : " · 未配置"}</option>)}</select></label>
+            <p>供应商决定请求所用的接口协议；Base URL 可选，用来覆盖默认服务地址。</p>
           </div>
-        </div>
 
-        {selectedProvider && (
-          <div className="panel provider-editor">
-            <div className="provider-editor-heading">
-              <div><span className="eyebrow">{selectedProvider.label}</span><h2>连接参数</h2></div>
-              <StatusBadge tone={selectedProvider.configured ? "ready" : "warning"}>
-                {selectedProvider.validation_status === "已验证" ? <CheckCircle size={15} weight="fill" /> : <WarningCircle size={15} weight="fill" />}
-                {statusLabel(selectedProvider)}
-              </StatusBadge>
+          <div className="configured-provider-list" aria-label="已配置模型">
+            <div className="configured-provider-list-heading">
+              <strong>已配置 {configuredProviders.length} 个</strong>
+              <span>选择一项即可切换编辑</span>
             </div>
-
-            <div className="provider-meta-strip">
-              <span>来源：{sourceLabel(selectedProvider)}</span>
-              <span>{selectedProvider.api_key_masked ? `密钥 ${selectedProvider.api_key_masked}` : "未保存密钥"}</span>
-              <span>文本：{selectedProvider.configured ? "可用" : "未配置"}</span>
-              <span>工具：{selectedProvider.supports_tools === true ? "可用" : selectedProvider.supports_tools === false ? "不支持" : "未检测"}</span>
-              <span>图片：{selectedProvider.supports_vision === true ? "可用" : selectedProvider.supports_vision === false ? "不支持" : "未检测"}</span>
-              {selectedProvider.last_tested_at && <span>测试于 {new Date(selectedProvider.last_tested_at).toLocaleString("zh-CN")}</span>}
-              {selectedProvider.validation_message && <span>{selectedProvider.validation_message}</span>}
-            </div>
-
-            <div className="settings-fields">
-              <label className="field-block"><span>API Key</span><div className="secret-input"><input type={showKey ? "text" : "password"} value={form.api_key} onChange={(event) => input("api_key", event.target.value)} placeholder={selectedProvider.api_key_masked ? "留空以继续使用已保存的密钥" : "粘贴 API Key"} autoComplete="new-password" /><button type="button" onClick={() => setShowKey((value) => !value)} aria-label={showKey ? "隐藏 API Key" : "显示 API Key"}>{showKey ? <EyeSlash size={18} /> : <Eye size={18} />}</button></div><small>保存后不会再次读取完整密钥。</small></label>
-              <label className="field-block"><span>Model</span><div className="model-picker"><select value={form.model} onChange={(event) => input("model", event.target.value)} disabled={loadingModels} required><option value="">{availableModels.length ? "选择可用模型" : "先读取可用模型"}</option>{form.model && !availableModels.includes(form.model) && <option value={form.model}>{form.model}</option>}{availableModels.map((model) => <option key={model} value={model}>{model}</option>)}</select><button className="button ghost" type="button" onClick={() => void loadModels()} disabled={loadingModels || saving || testing}><ArrowClockwise size={16} />{loadingModels ? "读取中…" : "读取模型"}</button></div><small>根据当前 API Key 和 Base URL 从供应商读取。</small></label>
-              <label className="field-block"><span>Base URL <em>可选</em></span><input value={form.base_url} onChange={(event) => input("base_url", event.target.value)} placeholder="例如：https://api.example.com/v1" inputMode="url" /><small>填写 API 根路径，不要填 /chat/completions。</small></label>
-            </div>
-
-            <div className="provider-actions">
-              <button className="button" type="button" onClick={() => void test()} disabled={testing || saving}><PlugsConnected size={17} />{testing ? "测试中…" : "测试连接"}</button>
-              <button className="button primary" type="button" onClick={() => void save()} disabled={saving || testing || !form.model.trim()}><FloppyDisk size={17} />{saving ? "保存中…" : "保存配置"}</button>
-            </div>
-            <div className="provider-secondary-actions">
-              <button className="button ghost" type="button" onClick={() => void setDefault()} disabled={!selectedProvider.configured || selectedProvider.is_default}><Star size={16} />{selectedProvider.is_default ? "当前默认模型" : "设为默认"}</button>
-              {selectedProvider.source === "database" && <button className="button ghost danger-button" type="button" onClick={() => void remove()}><Trash size={16} />删除已保存配置</button>}
-            </div>
+            {configuredProviders.length ? (
+              <div className="configured-provider-chips">
+                {configuredProviders.map((item) => (
+                  <button
+                    key={item.name}
+                    type="button"
+                    className={`configured-provider-chip${item.name === selectedProvider.name ? " active" : ""}`}
+                    onClick={() => chooseProvider(item.name)}
+                    aria-pressed={item.name === selectedProvider.name}
+                  >
+                    <span>
+                      <strong>{item.label}</strong>
+                      {item.is_default && <Star size={13} weight="fill" aria-label="默认模型" />}
+                    </span>
+                    <small>{item.model || "未填写模型"} · {statusLabel(item)}</small>
+                  </button>
+                ))}
+              </div>
+            ) : <p className="configured-provider-empty">保存后，已配置的供应商和模型会显示在这里。</p>}
           </div>
-        )}
+
+          <div className="provider-editor-heading">
+            <div><span className="eyebrow">{selectedProvider.label}</span><h2>连接参数</h2></div>
+            <StatusBadge tone={selectedProvider.configured ? "ready" : "warning"}>
+              {selectedProvider.validation_status === "已验证" ? <CheckCircle size={15} weight="fill" /> : <WarningCircle size={15} weight="fill" />}
+              {statusLabel(selectedProvider)}
+            </StatusBadge>
+          </div>
+
+          <div className="provider-meta-strip">
+            <span>来源：{sourceLabel(selectedProvider)}</span>
+            <span>{selectedProvider.api_key_masked ? `密钥 ${selectedProvider.api_key_masked}` : "未保存密钥"}</span>
+            <span>文本：{selectedProvider.configured ? "可用" : "未配置"}</span>
+            <span>工具：{selectedProvider.supports_tools === true ? "可用" : selectedProvider.supports_tools === false ? "不支持" : "未检测"}</span>
+            <span>图片：{selectedProvider.supports_vision === true ? "可用" : selectedProvider.supports_vision === false ? "不支持" : "未检测"}</span>
+            {selectedProvider.last_tested_at && <span>测试于 {new Date(selectedProvider.last_tested_at).toLocaleString("zh-CN")}</span>}
+            {selectedProvider.validation_message && <span>{selectedProvider.validation_message}</span>}
+          </div>
+
+          <div className="settings-fields">
+            <label className="field-block"><span>API Key</span><div className="secret-input"><input type={showKey ? "text" : "password"} value={form.api_key} onChange={(event) => input("api_key", event.target.value)} placeholder={selectedProvider.api_key_masked ? "留空以继续使用已保存的密钥" : "粘贴 API Key"} autoComplete="new-password" /><button type="button" onClick={() => setShowKey((value) => !value)} aria-label={showKey ? "隐藏 API Key" : "显示 API Key"}>{showKey ? <EyeSlash size={18} /> : <Eye size={18} />}</button></div><small>保存后不会再次读取完整密钥。</small></label>
+            <label className="field-block"><span>Model</span><div className="model-picker"><select value={form.model} onChange={(event) => input("model", event.target.value)} disabled={loadingModels} required><option value="">{availableModels.length ? "选择可用模型" : "先读取可用模型"}</option>{form.model && !availableModels.includes(form.model) && <option value={form.model}>{form.model}</option>}{availableModels.map((model) => <option key={model} value={model}>{model}</option>)}</select><button className="button ghost" type="button" onClick={() => void loadModels()} disabled={loadingModels || saving || testing}><ArrowClockwise size={16} />{loadingModels ? "读取中…" : "读取模型"}</button></div><small>根据当前 API Key 和 Base URL 从供应商读取。</small></label>
+            <label className="field-block"><span>Base URL <em>可选</em></span><input value={form.base_url} onChange={(event) => input("base_url", event.target.value)} placeholder="留空使用所选供应商的默认地址" inputMode="url" /><small>自定义地址按所选供应商的接口协议调用；填写 API 根路径，不要填 /chat/completions。</small>{endpointProvider && endpointProvider !== selectedProvider.name && <small className="provider-endpoint-note" role="status">该地址属于 {providers.find((item) => item.name === endpointProvider)?.label ?? endpointProvider}。当前仍按 {selectedProvider.label} 的接口协议调用；如果地址提供兼容接口，可以继续使用。</small>}</label>
+          </div>
+
+          <p className="provider-test-help">连接测试会发送真实模型请求，并继续探测工具调用和流式能力。成功表示当前地址可按所选协议调用，不代表域名属于该供应商。</p>
+          <div className="provider-actions">
+            <button className="button" type="button" onClick={() => void test()} disabled={testing || saving}><PlugsConnected size={17} />{testing ? "测试中…" : "测试连接"}</button>
+            <button className="button primary" type="button" onClick={() => void save()} disabled={saving || testing || !form.model.trim()}><FloppyDisk size={17} />{saving ? "保存中…" : "保存配置"}</button>
+          </div>
+          <div className="provider-secondary-actions">
+            <button className="button ghost" type="button" onClick={() => void setDefault()} disabled={!selectedProvider.configured || selectedProvider.is_default}><Star size={16} />{selectedProvider.is_default ? "当前默认模型" : "设为默认"}</button>
+            {selectedProvider.source === "database" && <button className="button ghost danger-button" type="button" onClick={() => void remove()}><Trash size={16} />删除已保存配置</button>}
+          </div>
+        </section>}
       </div>
 
       <details className="panel settings-disclosure search-settings-disclosure">
