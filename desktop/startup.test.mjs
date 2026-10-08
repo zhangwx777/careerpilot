@@ -103,9 +103,33 @@ test("default Electron menu bar is removed", () => {
 
 test("installer download reports progress and version is exposed", () => {
   const preload = readFileSync(new URL("./preload.cjs", import.meta.url), "utf8");
-  const install = source.slice(source.indexOf('ipcMain.handle("updates:install"'), source.indexOf("function sleep("));
-  assert.match(install, /content-length/);
-  assert.match(install, /sender\.send\("updates:progress"/);
+  const progressStart = source.indexOf("function updateProgress(");
+  const progressEnd = source.indexOf("async function installerMatches(", progressStart);
+  const updateProgress = vm.runInNewContext(`(${source.slice(progressStart, progressEnd).trim()})`, {
+    Date: { now: () => 5000 },
+  });
+  const sent = [];
+  updateProgress(
+    { sender: { send: (channel, payload) => sent.push([channel, { ...payload }]) } },
+    25,
+    100,
+    4000,
+    "github",
+    50,
+  );
+  assert.deepEqual(sent, [["updates:progress", {
+    percent: 25,
+    receivedBytes: 25,
+    totalBytes: 100,
+    bytesPerSecond: 50,
+    source: "github",
+  }]]);
+
+  const downloadStart = source.indexOf("async function downloadFromSource(");
+  const downloadEnd = source.indexOf("async function downloadInstaller(", downloadStart);
+  const download = source.slice(downloadStart, downloadEnd);
+  assert.match(download, /updateProgress\(event, receivedBytes, installer\.size/);
+  assert.match(download, /body\.on\("data"/);
   assert.match(source, /ipcMain\.handle\("updates:version"/);
   assert.match(preload, /version: \(\) => ipcRenderer\.invoke\("updates:version"\)/);
   assert.match(preload, /onProgress:/);
