@@ -47,6 +47,15 @@ CONFIG_SECRET_FILE = (
 )
 CONFIG_SECRET_KEYRING_DIR = CONFIG_SECRET_FILE.parent / ".llm_config_legacy_keys"
 _packaged_app_root = os.environ.get("CAREERPILOT_APP_ROOT")
+LEGACY_CONFIG_SECRET_KEYRING_DIRS = (
+    CONFIG_SECRET_KEYRING_DIR,
+    *(
+        (Path(_packaged_app_root) / ".llm_config_legacy_keys",)
+        if _packaged_app_root
+        else ()
+    ),
+    Path(__file__).resolve().parents[3] / ".llm_config_legacy_keys",
+)
 LEGACY_CONFIG_SECRET_FILES = tuple(
     candidate
     for candidate in (
@@ -56,7 +65,15 @@ LEGACY_CONFIG_SECRET_FILES = tuple(
         Path(__file__).resolve().parents[3] / ".llm_config_secret",
     )
     if candidate is not None and candidate != CONFIG_SECRET_FILE
-) + tuple(sorted(CONFIG_SECRET_KEYRING_DIR.glob("*.key")))
+) + tuple(
+    sorted(
+        {
+            path
+            for directory in LEGACY_CONFIG_SECRET_KEYRING_DIRS
+            for path in directory.glob("*.key")
+        }
+    )
+)
 
 
 @dataclass(frozen=True)
@@ -94,7 +111,7 @@ def validate_base_url(value: str | None) -> str | None:
 def _read_fernet(path: Path) -> Fernet | None:
     try:
         secret = path.read_text(encoding="ascii").strip()
-    except FileNotFoundError:
+    except OSError:
         return None
     try:
         return Fernet(secret.encode("ascii"))
