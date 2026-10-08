@@ -30,6 +30,37 @@ build/
 .pnpm-store/
 .codegraph/
 
+# Electron app-only 构建在仓库根目录生成的运行时文件
+/app/
+/locales/
+/resources/
+/runtime/
+/CareerPilot.exe
+/LICENSE.Electron.txt
+/LICENSES.chromium.html
+/brand-mark.ico
+/brand-mark.png
+/chrome_100_percent.pak
+/chrome_200_percent.pak
+/d3dcompiler_47.dll
+/dxcompiler.dll
+/dxil.dll
+/ffmpeg.dll
+/icudtl.dat
+/install.ps1
+/libEGL.dll
+/libGLESv2.dll
+/resources.pak
+/rtr*.tmp
+/snapshot_blob.bin
+/stop.ps1
+/uninstall.ps1
+/v8_context_snapshot.bin
+/version
+/vk_swiftshader.dll
+/vk_swiftshader_icd.json
+/vulkan-1.dll
+
 # 浏览器检查临时产物
 .playwright-cli/
 output/playwright/
