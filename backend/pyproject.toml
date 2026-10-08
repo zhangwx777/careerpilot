@@ -1,6 +1,6 @@
 [project]
 name = "careerpilot-backend"
-version = "0.1.6"
+version = "0.1.7"
 description = "求职作战台 - 后端"
 requires-python = ">=3.12"
 dependencies = [
