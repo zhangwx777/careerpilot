@@ -14,8 +14,8 @@ assert.match(compose, /CELERY_BROKER_URL: redis:\/\/redis:6379\/0/)
 assert.match(compose, /DATABASE_URL: postgresql\+psycopg:\/\/qiuzhao_app:qiuzhao_dev@postgres:5432\/qiuzhao/)
 assert.match(compose, /VITE_API_TARGET: http:\/\/backend:8000/)
 assert.match(compose, /condition: service_healthy/)
-for (const port of [5432, 6379, 8000, 5173]) {
-  assert.ok(compose.includes(`"127.0.0.1:${port}:${port}"`), `端口 ${port} 只能绑定到本机`)
+for (const [hostPort, containerPort] of [[5433, 5432], [6379, 6379], [8000, 8000], [5173, 5173]]) {
+  assert.ok(compose.includes(`"127.0.0.1:${hostPort}:${containerPort}"`), `端口 ${hostPort} 只能绑定到本机`)
 }
 assert.match(backendDockerfile, /python:3\.12-slim/)
 assert.match(backendDockerfile, /pip install --no-cache-dir -r \/workspace\/backend\/requirements\.lock/)
