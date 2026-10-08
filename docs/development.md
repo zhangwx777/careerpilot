@@ -25,16 +25,28 @@
 - `frontend/src/`：页面、组件、API 客户端和前端类型。
 - `packaging/`、`desktop/`：桌面打包和安装器。
 
-## Docker 开发环境
+## 启动环境
 
-开发机只需要 Git、Docker Desktop 和项目配置文件：
+项目有三个运行场景，依赖边界如下：
+
+| 场景 | 入口 | 需要安装的环境 | 数据与用途 |
+|---|---|---|---|
+| Windows 用户使用 | `CareerPilotSetup.exe` 或便携包 | 无需安装开发工具 | 桌面包管理自己的数据库和任务队列，数据保存在 `%LOCALAPPDATA%\CareerPilot` |
+| 本地开发或私有自托管 | 根目录 `docker-compose.yml` | Git、Docker Desktop（或 Docker Engine 与 Compose 插件）、`.env` | 启动前端、API、worker、PostgreSQL 和 Redis；数据库与 Redis 使用持久化卷 |
+| 自动化验证 | `docker-compose.ci.yml` | Docker 与 Compose 插件 | 使用独立数据库、Redis、临时前端构建卷和无宿主机端口的测试网络 |
+
+当前 Compose 是单用户源码环境：前端运行 Vite 开发服务器，后端和前端挂载工作区源码，服务端口只绑定到本机回环地址。它适合本机开发或受信任网络中的个人使用，不提供公网生产所需的反向代理、TLS 和多用户隔离。
+
+本地开发只需 Git、Docker Desktop 和项目配置文件：
 
 ```powershell
 Copy-Item .env.example .env
 docker compose up --build
 ```
 
-Compose 统一启动 frontend、backend、worker、PostgreSQL 和 Redis。需要更新镜像时执行 `docker compose up --build`，停止使用 `docker compose down`，数据卷默认保留。启动完成后访问 `http://127.0.0.1:5173`。backend 和 worker 共同挂载根目录 `.llm_config_secret`，确保数据库中的模型配置可以被后台任务解密。桌面版关闭窗口时会自动清理随包启动的 backend、worker、队列和 PostgreSQL；普通浏览器关闭不会停止开发服务，以避免误停其他标签页或用户正在使用的服务。
+Compose 统一启动 frontend、backend、worker、PostgreSQL 和 Redis。启动完成后访问 `http://127.0.0.1:5173`。backend 和 worker 共同挂载根目录 `.llm_config_secret`，确保数据库中的模型配置可以被后台任务解密。
+
+`docker compose build` 只构建镜像，不会启动服务；日常开发用 `docker compose up --build` 一步完成构建和启动。需要后台运行时加 `-d`，查看日志用 `docker compose logs -f`。`docker compose down` 保留 PostgreSQL 和 Redis 数据卷；不要对日常开发环境执行 `down --volumes`，除非确实要删除本地数据库和队列数据。
 
 ## 桌面包构建
 
@@ -69,18 +81,9 @@ Pop-Location
 
 模型 Provider、API Key、Base URL 和默认模型只通过网页设置保存到数据库，不写入 `.env`。
 
-## 测试与构建
+## 自动化验证
 
-```powershell
-docker compose run --rm backend python -m scripts.init_db --test
-docker compose run --rm backend pytest -p no:cacheprovider
-docker compose run --rm frontend pnpm test
-docker compose run --rm frontend pnpm build
-```
-
-没有 `TEST_DATABASE_URL` 时，依赖 PostgreSQL/LangGraph 的测试会跳过。跳过不等于通过；需要在独立测试库上运行并确认 0 skipped。默认测试应 mock LLM、MCP 和外网调用。
-
-完整验证使用独立 Compose 项目，不读取开发 `.env`、密钥或数据卷，不对宿主机开放端口：
+完整验证使用 `docker-compose.ci.yml`，不读取开发 `.env`、密钥或数据卷，不对宿主机开放端口，并使用新建的测试数据库和 Redis：
 
 ```powershell
 docker compose -f docker-compose.ci.yml build
@@ -90,7 +93,9 @@ node --test docker-compose.test.mjs desktop/port-selection.test.mjs desktop/star
 docker compose -f docker-compose.ci.yml down --volumes --remove-orphans
 ```
 
-前端必须先执行，以便将真实构建产物写入测试专用卷，后端只读挂载该卷以验证桌面包的静态页面。仅上面的 `careerpilot-ci` 测试项目允许删除测试卷，开发项目的数据卷必须保留。完整后端验证会检查 JUnit 结果，存在 skipped 或未收集到测试时返回失败。GitHub Actions 使用相同入口。
+先运行前端以便将真实构建产物写入测试专用卷；后端随后只读挂载该卷，验证桌面包静态页面。完整后端验证会检查 JUnit 结果，存在 skipped 或未收集到测试时返回失败。GitHub Actions 使用相同入口。
+
+验证 Compose 与日常 Compose 共用 `careerpilot-backend:local` 和 `careerpilot-frontend:local` 两个镜像标签及同一组 Dockerfile；测试配置只改变命令、环境变量、网络和卷，不会另建测试专用镜像。清理命令会删除测试容器和临时卷，并保留这两个可供日常开发复用的应用镜像。请勿把该清理命令改为删除日常开发 Compose 的数据卷。
 
 容器后端通过 `requirements.lock` 锁定 Python 3.12/Linux 的运行与测试依赖；桌面构建仍使用 Windows 环境。更新依赖时，在 Python 3.12 容器中用 `pip-tools==7.6.2` 执行 `pip-compile --extra=test --strip-extras --no-header --no-emit-index-url --output-file=requirements.lock pyproject.toml`，再完成完整验证。不要仅修改版本下限而遗漏锁文件。
 

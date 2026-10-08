@@ -27,9 +27,9 @@
 
 桌面版本号取自 `desktop/package.json`。发布时使用对应的 `v<版本号>` GitHub Release 标签，并将安装器以精确文件名 `CareerPilotSetup.exe` 上传。客户端“模型设置 → 软件更新”会检查最新 Release；发现更高版本后可下载并启动该安装器。用户数据位于 `%LOCALAPPDATA%\CareerPilot`，由安装器更新时保留。
 
-## Docker 源码部署
+## Docker 本地开发与私有自托管
 
-开发和服务器部署需要 Docker Desktop 或 Docker Engine。复制 `.env.example` 为 `.env` 后运行：
+当前 Docker Compose 配置用于本地开发或受信任网络中的单用户自托管，需要 Docker Desktop 或 Docker Engine。它使用 Vite 开发服务器并挂载源码，不提供公网生产所需的反向代理、TLS 和多用户隔离。复制 `.env.example` 为 `.env` 后运行：
 
 ```powershell
 Copy-Item .env.example .env

@@ -27,9 +27,9 @@ Windows x64 用户从 [Releases 页面](https://github.com/zhangwx777/careerpilo
 
 桌面包数据保存在 `%LOCALAPPDATA%\CareerPilot`。不要把用户数据目录或 `.env` 提交到 Git。
 
-### Docker 开发/服务器环境
+### Docker 源码环境
 
-开发和服务器运行统一由 Docker Compose 管理，不再要求宿主机安装 Python、Node.js、PostgreSQL 或 Redis：
+本地开发或受信任网络中的单用户自托管由 Docker Compose 管理，不要求宿主机安装 Python、Node.js、PostgreSQL 或 Redis：
 
 ```powershell
 git clone https://github.com/zhangwx777/careerpilot.git
@@ -39,18 +39,19 @@ Copy-Item .env.example .env
 docker compose up --build
 ```
 
-启动后访问 `http://127.0.0.1:5173`。Compose 会固定管理 frontend、backend、worker、PostgreSQL 和 Redis；按 `Ctrl+C` 停止前台服务，使用 `docker compose down` 关闭服务。完整说明见 [开发文档](docs/development.md) 和 [运维文档](docs/operations.md)。
+启动后访问 `http://127.0.0.1:5173`。Compose 会固定管理 frontend、backend、worker、PostgreSQL 和 Redis；按 `Ctrl+C` 停止前台服务，使用 `docker compose down` 关闭服务并保留数据卷。该配置运行 Vite 开发服务器并挂载源码，不是公网生产部署配置。完整说明见 [开发文档](docs/development.md) 和 [运维文档](docs/operations.md)。
 
 ## 验证
 
 ```powershell
-docker compose run --rm backend pytest -p no:cacheprovider
-
-docker compose run --rm frontend pnpm test
-docker compose run --rm frontend pnpm build
+docker compose -f docker-compose.ci.yml build
+docker compose -f docker-compose.ci.yml run --rm frontend
+docker compose -f docker-compose.ci.yml run --rm backend
+node --test docker-compose.test.mjs desktop/port-selection.test.mjs desktop/startup.test.mjs
+docker compose -f docker-compose.ci.yml down --volumes --remove-orphans
 ```
 
-连接 PostgreSQL 的集成测试需要设置独立的 `TEST_DATABASE_URL`；未设置时相关测试会跳过，跳过不代表通过。
+这套验证环境使用独立的 PostgreSQL、Redis 和临时卷，不会读取开发数据；它与日常 Compose 复用相同的应用镜像和 Dockerfile。先运行前端生成桌面静态资源，再运行后端和真实 PostgreSQL 集成测试。清理命令只删除 CI 测试数据，不删除日常开发环境的数据卷。完整说明见[开发手册](docs/development.md)。
 
 ## 文档入口
 

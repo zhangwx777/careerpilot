@@ -4,10 +4,10 @@
 
 ## 系统边界
 
-CareerPilot 是本地单用户应用，分为两条明确的运行链路：Docker Compose 负责开发/服务器环境，Electron 安装包负责 Windows 桌面环境。两条链路共享应用代码和数据契约，但不共享启动脚本。React/Vite 前端通过 FastAPI 后端访问 PostgreSQL；Celery 执行耗时任务；LangGraph 管理需要恢复和人工确认的固定流程；LiteLLM 统一模型调用。
+CareerPilot 是本地单用户应用，分为两条明确的运行链路：Docker Compose 负责开发和私有自托管环境，Electron 安装包负责 Windows 桌面环境。两条链路共享应用代码和数据契约，但不共享启动脚本。React/Vite 前端通过 FastAPI 后端访问 PostgreSQL；Celery 执行耗时任务；LangGraph 管理需要恢复和人工确认的固定流程；LiteLLM 统一模型调用。
 
 ```text
-Docker Compose（开发/服务器）
+Docker Compose（开发/私有自托管）
   frontend ── HTTP ── backend ── SQLAlchemy ── postgres
                            │
                            ├── LiteLLM / provider layer
@@ -84,7 +84,7 @@ worker 只能认领 pending/dispatched 记录，认领后生成 lease token，�
 
 ## 启动与发行边界
 
-- Docker Compose 只属于开发/服务器入口，负责启动 frontend、backend、worker、PostgreSQL 和 Redis。
+- Docker Compose 只属于开发/私有自托管入口，负责启动 frontend、backend、worker、PostgreSQL 和 Redis；当前配置不是公网生产部署方案。
 - `desktop/main.cjs` 只属于已安装桌面应用，负责启动随包 PostgreSQL、任务队列、API 和 worker。
 - Inno Setup 只负责安装桌面运行时和创建快捷方式，不调用开发启动脚本。
 - 桌面包不依赖宿主机的 Python、Node.js、pnpm、PostgreSQL、Redis 或 Docker。
