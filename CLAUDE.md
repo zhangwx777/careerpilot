@@ -132,3 +132,17 @@ node --test desktop/port-selection.test.mjs desktop/startup.test.mjs
 5. 结束前检查 diff、README 本地链接、密钥/用户数据误入版本控制的风险，并明确报告已执行、未执行或 skip 的验证。
 
 常用依赖、目录和命令应以 `package.json`、`pyproject.toml`、锁文件、Compose 配置、CI 工作流和实际源码为准；代码与本文件不一致时先核实实现，再更新本文件。
+
+## Agent skills
+
+### Issue tracker
+
+Track work and PRDs in this repository's GitHub Issues. Use the `gh` CLI. See `docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+Map the five canonical triage roles to this repository's labels as listed in `docs/agents/triage-labels.md`.
+
+### Domain docs
+
+This is a single-context repository. Read the root `CONTEXT.md` and relevant decisions in `docs/adr/` when present. See `docs/agents/domain.md`.
