@@ -27,7 +27,7 @@ CareerPilot 不自动投递，也不替用户做求职决定。通知解析、�
 
 首次启动后，打开“模型设置”，配置模型服务、API Key、Base URL 和默认模型。内置 Provider 包括 OpenAI、Anthropic、DeepSeek 和 Qwen；面经、备战、简报和图片识别也可以分别指定模型。公开检索在“模型设置”中单独配置。
 
-桌面版可在“模型设置 → 软件更新”中检查并获取最新发行版。
+桌面版可在“模型设置 → 软件更新”中检查并获取最新发行版。新版更新器使用 Windows 系统代理，支持断点续传与安装包校验；发行版配置镜像后会优先从镜像下载，失败时回退到 GitHub。
 桌面数据保存在当前 Windows 用户的 %LOCALAPPDATA%\CareerPilot 目录。覆盖安装和应用内更新会保留该目录。
 
 ## 从源码启动
@@ -89,4 +89,3 @@ docker compose -f docker-compose.ci.yml down --volumes --remove-orphans
 前端使用 React、Vite 和 TypeScript；后端使用 FastAPI、SQLAlchemy 和 PostgreSQL；后台任务使用 Celery 与 Redis；LangGraph 管理可恢复流程，LiteLLM 统一模型调用；Windows 桌面壳使用 Electron。
 
 CareerPilot 使用 MIT 许可证，详见 [LICENSE](LICENSE)。桌面发行包中的第三方组件仍按各自许可证发布，详见[第三方组件许可说明](THIRD_PARTY_NOTICES.md)。
-

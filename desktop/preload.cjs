@@ -5,7 +5,7 @@ contextBridge.exposeInMainWorld("careerPilotUpdates", {
   check: () => ipcRenderer.invoke("updates:check"),
   install: () => ipcRenderer.invoke("updates:install"),
   onProgress: (listener) => {
-    const handler = (_event, percent) => listener(percent);
+    const handler = (_event, progress) => listener(progress);
     ipcRenderer.on("updates:progress", handler);
     return () => ipcRenderer.removeListener("updates:progress", handler);
   },
