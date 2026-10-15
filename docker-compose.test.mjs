@@ -16,8 +16,8 @@ assert.match(compose, /DATABASE_URL: postgresql\+psycopg:\/\/qiuzhao_app:qiuzhao
 assert.match(compose, /VITE_API_TARGET: http:\/\/backend:8000/)
 assert.match(compose, /^    image: careerpilot-backend:local$/m)
 assert.match(compose, /^    image: careerpilot-frontend:local$/m)
-assert.match(ciCompose, /^  backend:\n    image: careerpilot-backend:local$/m)
-assert.match(ciCompose, /^  frontend:\n    image: careerpilot-frontend:local$/m)
+assert.match(ciCompose, /^  backend:\r?\n    image: careerpilot-backend:local$/m)
+assert.match(ciCompose, /^  frontend:\r?\n    image: careerpilot-frontend:local$/m)
 assert.match(compose, /condition: service_healthy/)
 for (const [hostPort, containerPort] of [[5433, 5432], [6379, 6379], [8000, 8000], [5173, 5173]]) {
   assert.ok(compose.includes(`"127.0.0.1:${hostPort}:${containerPort}"`), `端口 ${hostPort} 只能绑定到本机`)

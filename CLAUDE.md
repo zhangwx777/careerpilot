@@ -121,7 +121,7 @@ node --test desktop/port-selection.test.mjs desktop/startup.test.mjs
 - Electron 启动入口在 `desktop/main.cjs`；已安装应用管理随包服务和本机数据，不通过 Docker Compose 启动。
 - Windows 构建入口为 `packaging/build.ps1`，完整构建需要后端虚拟环境、PostgreSQL 18 和 Inno Setup 6，产物写入 `dist/`。`-AppOnly` 仅在已有完整 payload 时使用。
 - 桌面版本以 `desktop/package.json` 为准。发行版本变更时同步 `frontend/package.json`、`backend/pyproject.toml` 和 `packaging/installer/CareerPilot.iss`；已公开的版本号和 tag 不复用。
-- 版本发布从目标 `main` 提交构建，确认安装器、便携包和 `SHA256SUMS.txt` 均已上传并校验。README 下载链接使用 `/releases/latest`，不固定具体版本。
+- 版本发布从目标 `main` 提交构建，确认安装器、`update-manifest.json` 和 `SHA256SUMS.txt` 均已上传并校验。README 下载链接使用 `/releases/latest`，不固定具体版本。
 
 ## Agent 工作流程与文件维护
 

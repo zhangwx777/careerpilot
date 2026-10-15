@@ -5,7 +5,7 @@ import { Link, useNavigate, useParams } from "react-router-dom";
 import { api } from "../api";
 import { StatusRail } from "../components/StatusRail";
 import { clearDraft, loadDraft, saveDraft } from "../drafts";
-import { toApiDate, toLocalInput } from "../format";
+import { toApiDate, toShanghaiInput } from "../format";
 import {
   APPLICATION_STATUSES,
   type ApplicationStatus,
@@ -48,7 +48,7 @@ export function ApplicationFormPage() {
         setCompanyName(application.position.company.name);
         setPositionTitle(application.position.title);
         setStatus(application.status);
-        setAppliedAt(toLocalInput(application.applied_at));
+        setAppliedAt(toShanghaiInput(application.applied_at));
         setNote(application.note ?? "");
         setJdText(application.position.jd_text ?? "");
       })

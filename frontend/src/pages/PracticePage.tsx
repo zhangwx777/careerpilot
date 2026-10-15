@@ -6,6 +6,7 @@ import { api } from "../api";
 import { clearDraft, loadDraft, saveDraft } from "../drafts";
 import { usePolling } from "../hooks/usePolling";
 import { useRequestScope } from "../hooks/useRequestScope";
+import { formatDateTime, toApiDate } from "../format";
 import type { PlannerSession, PreparationTask } from "../types";
 
 export function PracticePage() {
@@ -128,7 +129,7 @@ export function PracticePage() {
       {error && <div className="notice error" role="alert">{error}</div>}
 
       <div className="practice-layout">
-        <main className="panel practice-content">
+        <section className="panel practice-content">
           <div className="practice-meta">
             <span className="planner-category">{task.category}</span>
             <span className={`planner-priority planner-priority-${Math.min(Math.max(task.priority, 1), 3)}`}>{priorityLabel}</span>
@@ -141,8 +142,8 @@ export function PracticePage() {
           {task.practice_error && <p className="notice error" role="alert">{task.practice_error}，请重新点击生成或提交。</p>}
           {task.status === "待处理" && <div className="practice-actions">
             <label>推迟到<input aria-label="延期时间" type="datetime-local" value={deferredUntil} onChange={(event) => setDeferredUntil(event.target.value)} /></label>
-            <button className="button ghost" disabled={!deferredUntil} onClick={() => void defer(new Date(deferredUntil).toISOString())}>确认延期</button>
-            {task.deferred_until && <><span>已延期至 {new Date(task.deferred_until).toLocaleString()}</span><button className="button ghost" onClick={() => void defer(null)}>取消延期</button></>}
+            <button className="button ghost" disabled={!deferredUntil} onClick={() => void defer(toApiDate(deferredUntil))}>确认延期</button>
+            {task.deferred_until && <><span>已延期至 {formatDateTime(task.deferred_until)}</span><button className="button ghost" onClick={() => void defer(null)}>取消延期</button></>}
           </div>}
 
           {!task.answer_payload && task.status === "待处理" && (
@@ -185,7 +186,7 @@ export function PracticePage() {
 
           {task.status === "已跳过" && <div className="practice-skipped"><span>这个行动已跳过</span><button className="button ghost" type="button" onClick={() => void updateStatus("待处理")}>恢复练习</button></div>}
           {task.status === "已完成" && <div className="practice-complete"><CheckCircle size={20} weight="duotone" />已完成这次自答练习</div>}
-        </main>
+        </section>
       </div>
     </section>
   );

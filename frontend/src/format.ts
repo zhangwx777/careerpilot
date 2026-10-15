@@ -11,26 +11,37 @@ export function formatDate(value: string | null): string {
 export function formatDateTime(value: string | null): string {
   if (!value) return "时间待补充";
   const date = new Date(value);
-  const weekday = new Intl.DateTimeFormat("zh-CN", {
+  const dateTimeParts = new Intl.DateTimeFormat("zh-CN", {
     timeZone: "Asia/Shanghai",
+    month: "numeric",
+    day: "numeric",
     weekday: "short",
-  }).format(date);
-  const time = new Intl.DateTimeFormat("zh-CN", {
-    timeZone: "Asia/Shanghai",
     hour: "2-digit",
     minute: "2-digit",
-    hour12: false,
-  }).format(date);
-  return `${date.getMonth() + 1}月${date.getDate()}日 ${weekday} ${time}`;
+    hourCycle: "h23",
+  }).formatToParts(date);
+  const part = (type: string) => dateTimeParts.find((item) => item.type === type)?.value ?? "";
+  return part("month") + "月" + part("day") + "日 " + part("weekday") + " " + part("hour") + ":" + part("minute");
 }
 
-export function toLocalInput(value: string | null): string {
+export function toShanghaiInput(value: string | null): string {
   if (!value) return "";
   const date = new Date(value);
-  const offset = date.getTimezoneOffset() * 60_000;
-  return new Date(date.getTime() - offset).toISOString().slice(0, 16);
+  const parts = new Intl.DateTimeFormat("en-GB", {
+    timeZone: "Asia/Shanghai",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23",
+  }).formatToParts(date);
+  const part = (type: string) => parts.find((item) => item.type === type)?.value ?? "";
+  return part("year") + "-" + part("month") + "-" + part("day") + "T" + part("hour") + ":" + part("minute");
 }
 
 export function toApiDate(value: string): string | null {
-  return value ? new Date(value).toISOString() : null;
+  if (!value) return null;
+  const hasTimezone = /(?:Z|[+-]\d{2}:?\d{2})$/i.test(value);
+  return new Date(hasTimezone ? value : value + "+08:00").toISOString();
 }

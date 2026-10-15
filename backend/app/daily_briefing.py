@@ -2,7 +2,7 @@ from datetime import date, datetime, time, timedelta
 import logging
 from zoneinfo import ZoneInfo
 
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, joinedload
 
@@ -41,21 +41,35 @@ def run_daily_briefing(db: Session, now: datetime, search_fn=None) -> DailyBrief
         db.scalars(
             select(TimelineNode).where(
                 TimelineNode.status == "待处理",
-                TimelineNode.scheduled_at.is_not(None),
+                or_(
+                    TimelineNode.scheduled_at.is_not(None),
+                    TimelineNode.ends_at.is_not(None),
+                ),
             )
         ).all()
     )
     conflicts = conflict_map(nodes, nodes)
-    alerts = [
-        {
-            "timeline_node_id": node.id,
-            "title": node.title or node.node_type,
-            "scheduled_at": node.scheduled_at.isoformat(),
-            "alert_types": alert_types(node, conflicts.get(node.id, []), now),
-        }
-        for node in nodes
-        if alert_types(node, conflicts.get(node.id, []), now)
-    ]
+    alerts = []
+    for node in nodes:
+        node_alerts = alert_types(node, conflicts.get(node.id, []), now)
+        if not node_alerts:
+            continue
+        due_at = (
+            node.ends_at
+            if node.time_mode == "截止窗口" and node.ends_at is not None
+            else node.scheduled_at
+        )
+        if due_at is None:
+            continue
+        alerts.append(
+            {
+                "timeline_node_id": node.id,
+                "title": node.title or node.node_type,
+                "scheduled_at": due_at.isoformat(),
+                "time_mode": node.time_mode,
+                "alert_types": node_alerts,
+            }
+        )
     day_start = datetime.combine(briefing_date, time.min, SHANGHAI)
     day_end = day_start + timedelta(days=1)
     tasks = [

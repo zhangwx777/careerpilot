@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { PencilSimple, Plus, Trash, Tray } from "@phosphor-icons/react";
+import { CaretDown, PencilSimple, Plus, Trash, Tray } from "@phosphor-icons/react";
 import { Link } from "react-router-dom";
 
 import { api } from "../api";
@@ -140,8 +140,12 @@ export function ApplicationsPage() {
               return (
                 <article className="ledger-row" key={application.id}>
                   <div className="ledger-application-target">
-                    <strong>{company.name}</strong>
-                    <span className="ledger-position-title">{position.title}</span>
+                    <strong title={company.name}>{company.name}</strong>
+                    <details className="ledger-position-details">
+                      <summary className="ledger-position-title" title={position.title} aria-label={`岗位：${position.title}（展开或收起全称）`}>
+                        <span>{position.title}</span><CaretDown size={13} aria-hidden="true" />
+                      </summary>
+                    </details>
                     <span className="ledger-created">
                       创建于 {formatDate(application.created_at)}
                       {!position.jd_text?.trim() && (

@@ -9,6 +9,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 
 import { api } from "../api";
+import { calendarDayKey, calendarMonthForDateKey, dateKey, monthGrid } from "../calendar";
 import { Pagination } from "../components/Pagination";
 import { formatDateTime } from "../format";
 import {
@@ -22,10 +23,6 @@ import {
 const pageSize = 12;
 const weekDays = ["一", "二", "三", "四", "五", "六", "日"];
 
-function dateKey(date: Date) {
-  return new Intl.DateTimeFormat("sv-SE", { timeZone: "Asia/Shanghai" }).format(date);
-}
-
 function timelineDate(node: TimelineNode) {
   return node.time_mode === "截止窗口"
     ? node.ends_at ?? node.scheduled_at
@@ -35,20 +32,8 @@ function timelineDate(node: TimelineNode) {
 function calendarTime(node: TimelineNode) {
   const value = timelineDate(node);
   return value
-    ? new Intl.DateTimeFormat("zh-CN", { hour: "2-digit", minute: "2-digit" }).format(new Date(value))
+    ? new Intl.DateTimeFormat("zh-CN", { timeZone: "Asia/Shanghai", hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).format(new Date(value))
     : ""
-}
-
-function monthGrid(month: Date) {
-  const first = new Date(month.getFullYear(), month.getMonth(), 1);
-  const mondayOffset = (first.getDay() + 6) % 7;
-  const start = new Date(first);
-  start.setDate(first.getDate() - mondayOffset);
-  return Array.from({ length: 42 }, (_, index) => {
-    const date = new Date(start);
-    date.setDate(start.getDate() + index);
-    return date;
-  });
 }
 
 function alertLabel(alert: TimelineAlert) {
@@ -109,8 +94,7 @@ export function TimelinePage() {
     items: [], total: 0, page: 1, page_size: pageSize,
   });
   const [calendarMonth, setCalendarMonth] = useState(() => {
-    const date = initialDate ? new Date(`${initialDate}T00:00:00`) : new Date();
-    return new Date(date.getFullYear(), date.getMonth(), 1);
+    return calendarMonthForDateKey(initialDate);
   });
   const [calendarNodes, setCalendarNodes] = useState<TimelineNode[]>([]);
   const [selectedDay, setSelectedDay] = useState(initialDate || dateKey(new Date()));
@@ -137,14 +121,16 @@ export function TimelinePage() {
     let cancelled = false;
     const rangeStart = new Date(days[0]);
     const rangeEnd = new Date(days[days.length - 1]);
-    rangeEnd.setDate(rangeEnd.getDate() + 1);
+    rangeEnd.setUTCDate(rangeEnd.getUTCDate() + 1);
+    const startAt = new Date(calendarDayKey(rangeStart) + "T00:00:00+08:00").toISOString();
+    const endAt = new Date(calendarDayKey(rangeEnd) + "T00:00:00+08:00").toISOString();
     async function loadCalendar() {
       try {
         const first = await api.timeline.list({
           page: 1,
           page_size: 100,
-          start: rangeStart.toISOString(),
-          end: rangeEnd.toISOString(),
+          start: startAt,
+          end: endAt,
           status: statusFilter || undefined,
         });
         const items = [...first.items];
@@ -152,8 +138,8 @@ export function TimelinePage() {
           const next = await api.timeline.list({
             page: nextPage,
             page_size: 100,
-            start: rangeStart.toISOString(),
-            end: rangeEnd.toISOString(),
+            start: startAt,
+            end: endAt,
             status: statusFilter || undefined,
           });
           items.push(...next.items);
@@ -201,13 +187,13 @@ export function TimelinePage() {
   }
 
   function moveMonth(offset: number) {
-    setCalendarMonth((current) => new Date(current.getFullYear(), current.getMonth() + offset, 1));
+    setCalendarMonth((current) => new Date(Date.UTC(current.getUTCFullYear(), current.getUTCMonth() + offset, 1)));
   }
 
   function resetMonth() {
     const today = new Date();
-    setCalendarMonth(new Date(today.getFullYear(), today.getMonth(), 1));
     setSelectedDay(dateKey(today));
+    setCalendarMonth(calendarMonthForDateKey(dateKey(today)));
   }
 
   const selectedNodes = nodesByDay.get(selectedDay) ?? [];
@@ -266,7 +252,7 @@ export function TimelinePage() {
           <section className="panel calendar-panel">
             <div className="calendar-toolbar">
               <div>
-                <strong>{calendarMonth.getFullYear()} 年 {calendarMonth.getMonth() + 1} 月</strong>
+                <strong>{calendarMonth.getUTCFullYear()} 年 {calendarMonth.getUTCMonth() + 1} 月</strong>
                 <span>点击日期查看当天详情</span>
               </div>
               <div>
@@ -278,16 +264,16 @@ export function TimelinePage() {
             <div className="calendar-weekdays">{weekDays.map((day) => <span key={day}>周{day}</span>)}</div>
             <div className="calendar-grid">
               {days.map((day) => {
-                const key = dateKey(day);
+                const key = calendarDayKey(day);
                 const items = nodesByDay.get(key) ?? [];
                 return (
                   <button
                     type="button"
                     key={key}
-                    className={`${day.getMonth() !== calendarMonth.getMonth() ? "outside" : ""}${selectedDay === key ? " selected" : ""}`}
+                    className={`${day.getUTCMonth() !== calendarMonth.getUTCMonth() ? "outside" : ""}${selectedDay === key ? " selected" : ""}`}
                     onClick={() => setSelectedDay(key)}
                   >
-                    <span className="day-number">{day.getDate()}</span>
+                    <span className="day-number">{day.getUTCDate()}</span>
                     {items.length > 0 && <span className="calendar-events">
                       {items.slice(0, 2).map((item) => (
                         <span

@@ -13,7 +13,7 @@ import { api } from "../api";
 import { allPages } from "../requests";
 import { useRequestScope } from "../hooks/useRequestScope";
 import { clearDraft, loadDraft, loadSessionId, saveDraft, saveSessionId } from "../drafts";
-import { toApiDate, toLocalInput } from "../format";
+import { toApiDate, toShanghaiInput } from "../format";
 import { usePolling } from "../hooks/usePolling";
 import { deadlineAfterWorkdays } from "../workdays";
 import {
@@ -100,9 +100,9 @@ export function SmartEntryPage() {
     setTimeMode(restoredTimeMode);
     setDeadlineWorkdays(draft?.deadlineWorkdays ?? extraction?.deadline_workdays ?? null);
     setScheduledAt(draft?.scheduledAt ?? (restoredTimeMode === "固定时间"
-      ? toLocalInput(extraction?.scheduled_at ?? new Date().toISOString())
+      ? toShanghaiInput(extraction?.scheduled_at ?? null)
       : ""));
-    setEndsAt(draft?.endsAt ?? toLocalInput(extraction?.ends_at ?? null));
+    setEndsAt(draft?.endsAt ?? toShanghaiInput(extraction?.ends_at ?? null));
     setSource(draft?.source ?? extraction?.source ?? "");
     setApplicationQuery(draft?.applicationQuery ??
       [extraction?.company_name, extraction?.position_title]
@@ -186,7 +186,7 @@ export function SmartEntryPage() {
     // 工作日推算只在截止时间为空时补一个建议值；模型已给出明确截止时间、
     // 或用户手动填过之后，就不再覆盖。
     if (timeMode === "截止窗口" && session?.created_at && deadlineWorkdays && !endsAt) {
-      setEndsAt(deadlineAfterWorkdays(toLocalInput(session.created_at), deadlineWorkdays));
+      setEndsAt(deadlineAfterWorkdays(toShanghaiInput(session.created_at), deadlineWorkdays));
     }
   }, [deadlineWorkdays, endsAt, session?.created_at, timeMode]);
 
@@ -528,6 +528,9 @@ export function SmartEntryPage() {
                   <label className="field-block">
                     <span>{timeMode === "截止窗口" ? "截止时间" : "结束时间（可选）"}</span>
                     <input type="datetime-local" value={endsAt} onChange={(event) => setEndsAt(event.target.value)} disabled={!canResolve} min={timeMode === "固定时间" ? scheduledAt || undefined : undefined} required={timeMode === "截止窗口"} />
+                    {timeMode === "截止窗口" && deadlineWorkdays !== null && deadlineWorkdays > 0 && (
+                      <small>通知提到 {deadlineWorkdays} 个工作日；自动日期按录入时间及周一至周五推算，未校正法定节假日和调休，请核对原文。</small>
+                    )}
                   </label>
                 </div>
 

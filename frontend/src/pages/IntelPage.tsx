@@ -370,7 +370,7 @@ export function IntelPage() {
     </div>
   );
   const insightPanel = (
-    <main className="intel-main panel">
+    <section className="intel-main panel">
       <div className="intel-main-heading">
         <div><span className="eyebrow">{selectedApplication ? applicationLabel(selectedApplication) : "岗位级分析"}</span><h2>岗位洞察</h2></div>
         {dossier?.reminder && <span className="intel-reminder-badge">准备提醒 · {formatDateTime(dossier.reminder.scheduled_at)}</span>}
@@ -384,7 +384,7 @@ export function IntelPage() {
           {(dossier.insight.status === "未生成" || dossier.insight.status === "失败") && <button className="button ghost" type="button" disabled={loading} onClick={rebuildInsight}>{loading ? "正在生成…" : dossier.insight.status === "失败" ? "重试生成" : "生成岗位洞察"}</button>}
         </>
       )}
-    </main>
+    </section>
   );
   const chatPortal = activeTab === "input" ? createPortal(
     <>

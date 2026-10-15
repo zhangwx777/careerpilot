@@ -50,7 +50,7 @@ export function BriefingPage() {
                 {selected.payload.alerts.length ? selected.payload.alerts.map((item) => (
                   <p key={item.timeline_node_id}>
                     <Warning size={15} />
-                    {item.title} · {formatDateTime(item.scheduled_at)} · {item.alert_types.join("、")}
+                    {item.title} · {item.time_mode === "截止窗口" ? "截止 " : ""}{formatDateTime(item.scheduled_at)} · {item.alert_types.join("、")}
                   </p>
                 )) : <p>暂无临期、逾期或冲突安排。</p>}
               </section>

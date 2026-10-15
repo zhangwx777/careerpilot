@@ -85,7 +85,7 @@ test("dashboard keeps summary cards aligned and avoids stretched empty panels", 
   assert.match(styles, /\.dashboard-overview-grid\s*\{[^}]*display:\s*grid;[^}]*grid-template-columns:/s);
   assert.match(styles, /\.dashboard-metric-grid\s*\{[^}]*grid-template-columns:\s*repeat\(3,/s);
   assert.match(styles, /\.dashboard-empty\s*\{[^}]*min-height:\s*128px;/s);
-  assert.match(dashboardPage, /dashboard-pipeline-card[\s\S]*dashboard-metric-grid/);
+  assert.match(dashboardPage, /dashboard-metric-grid[\s\S]*dashboard-next-card[\s\S]*dashboard-pipeline-card/);
   assert.match(dashboardPage, /dashboard-next-card/);
   assert.match(dashboardPage, /dashboard-card-link/);
   assert.doesNotMatch(dashboardPage, /主要阶段|dashboard-stat-stage/);
