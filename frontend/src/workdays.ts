@@ -3,12 +3,13 @@ function pad(value: number): string {
 }
 
 export function deadlineAfterWorkdays(start: string, workdays: number): string {
-  const date = new Date(start);
+  const [year, month, day] = start.slice(0, 10).split("-").map(Number);
+  const date = new Date(Date.UTC(year, month - 1, day));
   let remaining = workdays;
-  // ponytail: 仅跳过周末；需要法定节假日时再接入节假日历。
+  // 仅跳过周末；法定节假日和调休日期由用户按原通知核对。
   while (remaining > 0) {
-    date.setDate(date.getDate() + 1);
-    if (date.getDay() !== 0 && date.getDay() !== 6) remaining -= 1;
+    date.setUTCDate(date.getUTCDate() + 1);
+    if (date.getUTCDay() !== 0 && date.getUTCDay() !== 6) remaining -= 1;
   }
-  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T23:59`;
+  return date.getUTCFullYear() + "-" + pad(date.getUTCMonth() + 1) + "-" + pad(date.getUTCDate()) + "T23:59";
 }

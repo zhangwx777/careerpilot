@@ -6,6 +6,7 @@ import { api } from "../api";
 import { clearDraft, loadDraft, saveDraft } from "../drafts";
 import { usePolling } from "../hooks/usePolling";
 import { useRequestScope } from "../hooks/useRequestScope";
+import { formatDateTime, toApiDate } from "../format";
 import type { PlannerSession, PreparationTask } from "../types";
 
 export function PracticePage() {
@@ -141,8 +142,8 @@ export function PracticePage() {
           {task.practice_error && <p className="notice error" role="alert">{task.practice_error}，请重新点击生成或提交。</p>}
           {task.status === "待处理" && <div className="practice-actions">
             <label>推迟到<input aria-label="延期时间" type="datetime-local" value={deferredUntil} onChange={(event) => setDeferredUntil(event.target.value)} /></label>
-            <button className="button ghost" disabled={!deferredUntil} onClick={() => void defer(new Date(deferredUntil).toISOString())}>确认延期</button>
-            {task.deferred_until && <><span>已延期至 {new Date(task.deferred_until).toLocaleString()}</span><button className="button ghost" onClick={() => void defer(null)}>取消延期</button></>}
+            <button className="button ghost" disabled={!deferredUntil} onClick={() => void defer(toApiDate(deferredUntil))}>确认延期</button>
+            {task.deferred_until && <><span>已延期至 {formatDateTime(task.deferred_until)}</span><button className="button ghost" onClick={() => void defer(null)}>取消延期</button></>}
           </div>}
 
           {!task.answer_payload && task.status === "待处理" && (

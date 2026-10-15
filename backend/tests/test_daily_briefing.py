@@ -1,6 +1,6 @@
 import os
 import unittest
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import create_engine, delete, select
 from sqlalchemy.orm import sessionmaker
@@ -66,3 +66,43 @@ class DailyBriefingTestCase(unittest.TestCase):
             self.assertEqual(second.payload["new_sources"], [])
         with self.sessions() as db:
             self.assertEqual(len(db.scalars(select(ReportedSource)).all()), 1)
+
+    def test_deadline_windows_are_reported_without_inventing_a_start_time(self):
+        now = datetime(2026, 9, 9, 1, 0, tzinfo=timezone.utc)
+        with self.sessions() as db:
+            nodes = [
+                TimelineNode(
+                    application_id=self.application_id,
+                    node_type="测评",
+                    title=title,
+                    time_mode="截止窗口",
+                    scheduled_at=None,
+                    ends_at=deadline,
+                    status=status,
+                )
+                for title, deadline, status in (
+                    ("临期测评", now + timedelta(hours=12), "待处理"),
+                    ("逾期测评", now - timedelta(hours=1), "待处理"),
+                    ("远期测评", now + timedelta(days=3), "待处理"),
+                    ("已完成测评", now - timedelta(hours=1), "已完成"),
+                    ("待补时间", None, "待处理"),
+                )
+            ]
+            db.add_all(nodes)
+            db.commit()
+
+            briefing = run_daily_briefing(db, now, lambda _: [])
+            alerts = {item["title"]: item for item in briefing.payload["alerts"]}
+
+            self.assertEqual(set(alerts), {"临期测评", "逾期测评"})
+            for node, expected_alert in zip(nodes[:2], ("临期", "逾期")):
+                item = alerts[node.title]
+                self.assertEqual(item["time_mode"], "截止窗口")
+                self.assertEqual(item["alert_types"], [expected_alert])
+                self.assertEqual(datetime.fromisoformat(item["scheduled_at"]), node.ends_at)
+                db.refresh(node)
+                self.assertIsNone(node.scheduled_at)
+
+            repeated = run_daily_briefing(db, now + timedelta(hours=1), lambda _: [])
+            self.assertEqual(repeated.id, briefing.id)
+            self.assertEqual(repeated.payload["alerts"], briefing.payload["alerts"])

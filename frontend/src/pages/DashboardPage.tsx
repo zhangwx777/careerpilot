@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 
 import { api } from "../api";
+import { compareDashboardFeed } from "../dashboardFeed";
 import { formatDateTime } from "../format";
 import type { Dashboard, DashboardFeedItem } from "../types";
 
@@ -40,18 +41,7 @@ export function DashboardPage() {
   const activePipeline = pipeline.filter((bucket) => bucket.count > 0);
   const maxCount = activePipeline.reduce((max, bucket) => Math.max(max, bucket.count), 0);
   const attentionCount = timelineFeed.filter((item) => item.alert_types.length > 0).length;
-  const nextFeed = [...feed].sort((left, right) => {
-    const leftAttention = left.kind === "timeline" && left.alert_types.length > 0;
-    const rightAttention = right.kind === "timeline" && right.alert_types.length > 0;
-    if (leftAttention !== rightAttention) return leftAttention ? -1 : 1;
-    if (left.kind === "preparation" && right.kind === "preparation") {
-      return (left.priority ?? 3) - (right.priority ?? 3);
-    }
-    if (left.kind === "timeline" && right.kind === "timeline") {
-      return (left.scheduled_at ?? "9999").localeCompare(right.scheduled_at ?? "9999");
-    }
-    return left.kind === "timeline" ? -1 : 1;
-  });
+  const nextFeed = [...feed].sort(compareDashboardFeed);
 
   function feedLink(item: DashboardFeedItem): string {
     return item.kind === "preparation" && item.task_id
@@ -132,7 +122,7 @@ export function DashboardPage() {
                   <article className="dashboard-feed-row dashboard-feed-preparation" key={`preparation-${item.id}`}>
                     <div className="dashboard-feed-marker" aria-hidden="true">练</div>
                     <div className="dashboard-feed-main"><div className="dashboard-feed-heading"><strong>{item.title}</strong><span className="dashboard-feed-kind">{item.category}</span></div><span>{item.company_name} · {item.position_title}</span></div>
-                    <div className="dashboard-feed-meta"><span className={`priority-chip priority-${item.priority ?? 3}`}>{priorityLabel(item.priority)}</span><small>待练习</small></div>
+                    <div className="dashboard-feed-meta">{item.scheduled_at ? <strong>{formatDateTime(item.scheduled_at)}</strong> : <small>未安排时间</small>}<span className={`priority-chip priority-${item.priority ?? 3}`}>{priorityLabel(item.priority)}</span><small>待练习</small></div>
                     <div className="dashboard-feed-actions"><Link className="dashboard-feed-open" to={feedLink(item)}>进入练习 <ArrowRight size={15} aria-hidden="true" /></Link><button className="button ghost compact-button danger-button" type="button" onClick={() => void removeTask(item.task_id ?? item.id)} disabled={removingTaskId === (item.task_id ?? item.id)}>移出计划</button></div>
                   </article>
                 ) : (

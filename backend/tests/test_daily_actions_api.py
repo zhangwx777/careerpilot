@@ -256,6 +256,24 @@ class DailyActionsApiTestCase(unittest.TestCase):
         preparation_items = [item for item in payload if item["kind"] == "preparation"]
         self.assertEqual([item["title"] for item in preparation_items], ["准备项目深挖", "复习数据库"])
 
+    def test_dashboard_preserves_preparation_schedule_and_unscheduled_actions(self):
+        planner_session = self._planner_session()
+        materialize_planner_actions(self.session, planner_session)
+        tasks = self.session.query(PreparationTask).order_by(PreparationTask.id).all()
+        scheduled_at = datetime(2026, 10, 15, 1, 30, tzinfo=timezone.utc)
+        tasks[0].scheduled_at = scheduled_at
+        tasks[1].scheduled_at = None
+        self.session.commit()
+
+        response = self.client.get("/api/dashboard")
+
+        self.assertEqual(response.status_code, 200, response.text)
+        items = {item["task_id"]: item for item in response.json()["feed"] if item["kind"] == "preparation"}
+        actual_time = datetime.fromisoformat(items[tasks[0].id]["scheduled_at"].replace("Z", "+00:00"))
+        # SQLite drops timezone information; compare the stored wall-clock fields.
+        self.assertEqual(actual_time.replace(tzinfo=None), scheduled_at.replace(tzinfo=None))
+        self.assertIsNone(items[tasks[1].id]["scheduled_at"])
+
     def test_dashboard_does_not_truncate_pending_plan_actions(self):
         planner_session = self._planner_session()
         materialize_planner_actions(self.session, planner_session)

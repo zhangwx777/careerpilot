@@ -516,6 +516,7 @@ def get_dashboard(db: DbSession):
             position_title=task.application.position.title,
             category=task.category,
             priority=min(max(task.priority, 1), 3),
+            scheduled_at=task.scheduled_at,
             status=task.status,
         )
         for task in visible_tasks
