@@ -129,7 +129,7 @@ export function PracticePage() {
       {error && <div className="notice error" role="alert">{error}</div>}
 
       <div className="practice-layout">
-        <main className="panel practice-content">
+        <section className="panel practice-content">
           <div className="practice-meta">
             <span className="planner-category">{task.category}</span>
             <span className={`planner-priority planner-priority-${Math.min(Math.max(task.priority, 1), 3)}`}>{priorityLabel}</span>
@@ -186,7 +186,7 @@ export function PracticePage() {
 
           {task.status === "已跳过" && <div className="practice-skipped"><span>这个行动已跳过</span><button className="button ghost" type="button" onClick={() => void updateStatus("待处理")}>恢复练习</button></div>}
           {task.status === "已完成" && <div className="practice-complete"><CheckCircle size={20} weight="duotone" />已完成这次自答练习</div>}
-        </main>
+        </section>
       </div>
     </section>
   );

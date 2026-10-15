@@ -1,5 +1,6 @@
 param(
-    [switch]$AppOnly
+    [switch]$AppOnly,
+    [string]$PostgresHome = $env:CAREERPILOT_PG_HOME
 )
 
 $ErrorActionPreference = 'Stop'
@@ -14,21 +15,41 @@ $pyDist = Join-Path $buildRoot 'pyinstaller'
 $pyWork = Join-Path $buildRoot 'pyinstaller-work'
 $electronRoot = Join-Path $buildRoot 'electron'
 $artifact = Join-Path $root 'dist\CareerPilotSetup.exe'
-$portableArtifact = Join-Path $root 'dist\CareerPilot-portable.zip'
 $garnetVersion = '1.1.10'
 $dotnetRuntimeVersion = '10.0.8'
 $garnetArchive = Join-Path $buildRoot "garnet-win-x64-$garnetVersion.zip"
 $dotnetArchive = Join-Path $buildRoot "dotnet-runtime-$dotnetRuntimeVersion-win-x64.zip"
 $garnetUrl = "https://github.com/microsoft/garnet/releases/download/v$garnetVersion/win-x64-based-readytorun.zip"
 $dotnetUrl = "https://builds.dotnet.microsoft.com/dotnet/Runtime/$dotnetRuntimeVersion/dotnet-runtime-$dotnetRuntimeVersion-win-x64.zip"
-$pgHome = 'C:\Program Files\PostgreSQL\18'
+$pgHome = $PostgresHome
+if (-not $pgHome) {
+    $registeredHomes = Get-ItemProperty 'HKLM:\SOFTWARE\PostgreSQL\Installations\*' -ErrorAction SilentlyContinue |
+        Where-Object { $_.Version -match '^18\.' } |
+        ForEach-Object { $_.'Base Directory' }
+    $pgHome = @($registeredHomes; 'C:\Program Files\PostgreSQL\18') |
+        Where-Object { $_ -and (Test-Path -LiteralPath (Join-Path $_ 'bin\postgres.exe')) } |
+        Select-Object -First 1
+}
+if (-not $pgHome) { $pgHome = 'C:\Program Files\PostgreSQL\18' }
 $python = Join-Path $root 'backend\.venv\Scripts\python.exe'
 $desktopPackage = Get-Content (Join-Path $root 'desktop\package.json') -Raw | ConvertFrom-Json
 $appVersion = $desktopPackage.version
 
 if (-not $AppOnly -and -not (Test-Path -LiteralPath $python)) { throw '缺少后端 Python 虚拟环境。' }
-if (-not $AppOnly -and -not (Test-Path -LiteralPath $pgHome)) { throw '未找到 PostgreSQL 18 安装。' }
+if (-not $AppOnly) {
+    $postgres = Join-Path $pgHome 'bin\postgres.exe'
+    if (-not (Test-Path -LiteralPath $postgres)) { throw '未找到 PostgreSQL 18。请指定 -PostgresHome 或设置 CAREERPILOT_PG_HOME。' }
+    $pgVersion = & $postgres --version
+    if ($LASTEXITCODE -ne 0 -or $pgVersion -notmatch '\b18\.') { throw "需要 PostgreSQL 18，当前目录：$pgHome" }
+}
 if ($AppOnly -and -not (Test-Path -LiteralPath $payloadRoot)) { throw '-AppOnly 需要已有完整构建的 payload，请先完整构建一次。' }
+$inno = @(
+    (Join-Path ${env:ProgramFiles(x86)} 'Inno Setup 6\ISCC.exe'),
+    (Join-Path $env:ProgramFiles 'Inno Setup 6\ISCC.exe'),
+    (Join-Path $env:LOCALAPPDATA 'Programs\Inno Setup 6\ISCC.exe')
+) | Where-Object { Test-Path -LiteralPath $_ } | Select-Object -First 1
+if (-not $inno) { throw '未找到 Inno Setup 6 的 ISCC.exe。' }
+if (-not (Get-Command corepack -ErrorAction SilentlyContinue)) { throw '未找到 Corepack，请先安装或启用 Corepack。' }
 
 # 完整构建：清空重来；-AppOnly：只清应用层，保留运行时层与 Electron 壳
 if (-not $AppOnly) {
@@ -47,16 +68,7 @@ function Ensure-Download([string]$url, [string]$destination) {
 }
 
 function Write-InstallerArtifacts {
-    if (Test-Path -LiteralPath $portableArtifact) { Remove-Item -LiteralPath $portableArtifact -Force }
-    Compress-Archive -Path (Join-Path $payloadRoot '*') -DestinationPath $portableArtifact -CompressionLevel Fastest -Force
-
     if (Test-Path -LiteralPath $artifact) { Remove-Item -LiteralPath $artifact -Force }
-    $inno = @(
-        (Join-Path ${env:ProgramFiles(x86)} 'Inno Setup 6\ISCC.exe'),
-        (Join-Path $env:ProgramFiles 'Inno Setup 6\ISCC.exe'),
-        (Join-Path $env:LOCALAPPDATA 'Programs\Inno Setup 6\ISCC.exe')
-    ) | Where-Object { Test-Path -LiteralPath $_ } | Select-Object -First 1
-    if (-not $inno) { throw '未找到 Inno Setup 6 的 ISCC.exe。' }
     $iss = Join-Path $PSScriptRoot 'installer\CareerPilot.iss'
     & $inno "/DAppVersion=$appVersion" "/DPayloadRoot=$payloadRoot" "/DOutputDir=$(Split-Path $artifact)" "/DIconPath=$iconPath" $iss
     if ($LASTEXITCODE -ne 0) { throw '标准安装器生成失败。' }
@@ -85,7 +97,6 @@ function Write-UpdateManifest {
 function Write-ReleaseChecksums {
     $releaseFiles = @(
         $artifact,
-        $portableArtifact,
         (Join-Path (Split-Path $artifact) 'update-manifest.json')
     )
     $lines = foreach ($releaseFile in $releaseFiles) {
@@ -178,10 +189,8 @@ if ($AppOnly) {
     [pscustomobject]@{
         Artifact = $artifact
         UpdateManifest = (Join-Path (Split-Path $artifact) 'update-manifest.json')
-        PortableArtifact = $portableArtifact
         Checksums = (Join-Path (Split-Path $artifact) 'SHA256SUMS.txt')
         SizeMB = [math]::Round((Get-Item $artifact).Length / 1MB, 1)
-        PortableSizeMB = [math]::Round((Get-Item $portableArtifact).Length / 1MB, 1)
     } | Format-List
     return
 }
@@ -261,8 +270,6 @@ Write-ReleaseChecksums
 [pscustomobject]@{
     Artifact = $artifact
     UpdateManifest = (Join-Path (Split-Path $artifact) 'update-manifest.json')
-    PortableArtifact = $portableArtifact
     Checksums = (Join-Path (Split-Path $artifact) 'SHA256SUMS.txt')
     SizeMB = [math]::Round((Get-Item $artifact).Length / 1MB, 1)
-    PortableSizeMB = [math]::Round((Get-Item $portableArtifact).Length / 1MB, 1)
 } | Format-List

@@ -227,72 +227,60 @@ export function SettingsPage() {
       {message && <div className="notice success" role="status">{message}</div>}
 
       <div className="settings-layout">
-        {roles && <details className="panel settings-disclosure" aria-label="使用场景设置">
-          <summary><span><span className="eyebrow">使用场景</span><strong>模型分工</strong></span><span className="settings-disclosure-hint">点击展开</span></summary>
-          <section className="role-assignment">
-            <div className="settings-toolbar"><div><span className="eyebrow">使用场景</span><h2>模型分工</h2></div><button className="button primary compact-button" type="button" onClick={() => void saveRoles()} disabled={roleSaving}>{roleSaving ? "保存中…" : "保存分工"}</button></div>
-            <p className="section-help">可以为不同功能指定模型；留空时使用默认模型。</p>
-            <div className="role-grid">
-              {(Object.keys(ROLE_LABELS) as LlmRoleName[]).map((role) => {
-                const item = roles.roles[role];
-                return <label className="role-card" key={role}><span>{ROLE_LABELS[role]}</span><select value={item.provider ?? ""} onChange={(event) => setRoles((current) => current ? { ...current, roles: { ...current.roles, [role]: { ...item, provider: event.target.value || null } } } : current)}><option value="">使用全局默认</option>{providers.filter((provider) => provider.configured).map((provider) => <option value={provider.name} key={provider.name}>{provider.label} · {provider.model}</option>)}</select><small>{item.effective_provider ? `当前生效：${item.effective_provider} · ${item.effective_model}` : "未找到可用模型"}</small></label>;
-              })}
-            </div>
-          </section>
-        </details>}
         {selectedProvider && <section className="panel provider-settings" aria-label="模型连接配置">
           <div className="settings-toolbar">
             <div><span className="eyebrow">模型连接</span><h2>供应商与连接参数</h2></div>
-            <span className="settings-toolbar-hint">可保存多个模型配置</span>
-          </div>
-          <div className="provider-select-row">
-            <label className="field-block"><span>供应商</span><select value={selectedProvider.name} onChange={(event) => chooseProvider(event.target.value)} aria-label="选择模型供应商">{providers.map((item) => <option key={item.name} value={item.name}>{item.label}{item.configured ? ` · ${item.model}` : " · 未配置"}</option>)}</select></label>
-            <p>供应商决定请求所用的接口协议；Base URL 可选，用来覆盖默认服务地址。</p>
-          </div>
-
-          <div className="configured-provider-list" aria-label="已配置模型">
-            <div className="configured-provider-list-heading">
-              <strong>已配置 {configuredProviders.length} 个</strong>
-              <span>选择一项即可切换编辑</span>
-            </div>
-            {configuredProviders.length ? (
-              <div className="configured-provider-chips">
-                {configuredProviders.map((item) => (
-                  <button
-                    key={item.name}
-                    type="button"
-                    className={`configured-provider-chip${item.name === selectedProvider.name ? " active" : ""}`}
-                    onClick={() => chooseProvider(item.name)}
-                    aria-pressed={item.name === selectedProvider.name}
-                  >
-                    <span>
-                      <strong>{item.label}</strong>
-                      {item.is_default && <Star size={13} weight="fill" aria-label="默认模型" />}
-                    </span>
-                    <small>{item.model || "未填写模型"} · {statusLabel(item)}</small>
-                  </button>
-                ))}
-              </div>
-            ) : <p className="configured-provider-empty">保存后，已配置的供应商和模型会显示在这里。</p>}
-          </div>
-
-          <div className="provider-editor-heading">
-            <div><span className="eyebrow">{selectedProvider.label}</span><h2>连接参数</h2></div>
             <StatusBadge tone={selectedProvider.configured ? "ready" : "warning"}>
               {selectedProvider.validation_status === "已验证" ? <CheckCircle size={15} weight="fill" /> : <WarningCircle size={15} weight="fill" />}
               {statusLabel(selectedProvider)}
             </StatusBadge>
           </div>
+          <div className="provider-switcher">
+            <div className="provider-select-row">
+              <label className="field-block"><span>供应商</span><select value={selectedProvider.name} onChange={(event) => chooseProvider(event.target.value)} aria-label="选择模型供应商">{providers.map((item) => <option key={item.name} value={item.name}>{item.label}{item.configured ? ` · ${item.model}` : " · 未配置"}</option>)}</select></label>
+              <p>供应商决定请求所用的接口协议；Base URL 可选，用来覆盖默认服务地址。</p>
+            </div>
 
-          <div className="provider-meta-strip">
-            <span>来源：{sourceLabel(selectedProvider)}</span>
-            <span>{selectedProvider.api_key_masked ? `密钥 ${selectedProvider.api_key_masked}` : "未保存密钥"}</span>
-            <span>文本：{selectedProvider.configured ? "可用" : "未配置"}</span>
-            <span>工具：{selectedProvider.supports_tools === true ? "可用" : selectedProvider.supports_tools === false ? "不支持" : "未检测"}</span>
-            <span>图片：{selectedProvider.supports_vision === true ? "可用" : selectedProvider.supports_vision === false ? "不支持" : "未检测"}</span>
-            {selectedProvider.last_tested_at && <span>测试于 {new Date(selectedProvider.last_tested_at).toLocaleString("zh-CN")}</span>}
-            {selectedProvider.validation_message && <span>{selectedProvider.validation_message}</span>}
+            <div className="configured-provider-list" aria-label="已配置模型">
+              <div className="configured-provider-list-heading">
+                <strong>已配置 {configuredProviders.length} 个</strong>
+                <span>选择一项即可切换编辑</span>
+              </div>
+              {configuredProviders.length ? (
+                <div className="configured-provider-chips">
+                  {configuredProviders.map((item) => (
+                    <button
+                      key={item.name}
+                      type="button"
+                      className={`configured-provider-chip${item.name === selectedProvider.name ? " active" : ""}`}
+                      onClick={() => chooseProvider(item.name)}
+                      aria-pressed={item.name === selectedProvider.name}
+                    >
+                      <span>
+                        <strong>{item.label}</strong>
+                        {item.is_default && <Star size={13} weight="fill" aria-label="默认模型" />}
+                      </span>
+                      <small>{item.model || "未填写模型"} · {statusLabel(item)}</small>
+                    </button>
+                  ))}
+                </div>
+              ) : <p className="configured-provider-empty">保存后，已配置的供应商和模型会显示在这里。</p>}
+            </div>
+
           </div>
+
+          <details className="provider-capabilities">
+            <summary>能力与验证详情</summary>
+            <div className="provider-meta-strip">
+              <span>来源：{sourceLabel(selectedProvider)}</span>
+              <span>{selectedProvider.api_key_masked ? `密钥 ${selectedProvider.api_key_masked}` : "未保存密钥"}</span>
+              <span>文本：{selectedProvider.configured ? "可用" : "未配置"}</span>
+              <span>工具：{selectedProvider.supports_tools === true ? "可用" : selectedProvider.supports_tools === false ? "不支持" : "未检测"}</span>
+              <span>图片：{selectedProvider.supports_vision === true ? "可用" : selectedProvider.supports_vision === false ? "不支持" : "未检测"}</span>
+              {selectedProvider.last_tested_at && <span>测试于 {new Date(selectedProvider.last_tested_at).toLocaleString("zh-CN")}</span>}
+              {selectedProvider.validation_message && <span>{selectedProvider.validation_message}</span>}
+            </div>
+          </details>
 
           <div className="settings-fields">
             <label className="field-block"><span>API Key</span><div className="secret-input"><input type={showKey ? "text" : "password"} value={form.api_key} onChange={(event) => input("api_key", event.target.value)} placeholder={selectedProvider.api_key_masked ? "留空以继续使用已保存的密钥" : "粘贴 API Key"} autoComplete="new-password" /><button type="button" onClick={() => setShowKey((value) => !value)} aria-label={showKey ? "隐藏 API Key" : "显示 API Key"}>{showKey ? <EyeSlash size={18} /> : <Eye size={18} />}</button></div><small>保存后不会再次读取完整密钥。</small></label>
@@ -310,6 +298,19 @@ export function SettingsPage() {
             {selectedProvider.source === "database" && <button className="button ghost danger-button" type="button" onClick={() => void remove()}><Trash size={16} />删除已保存配置</button>}
           </div>
         </section>}
+        {roles && <details className="panel settings-disclosure" aria-label="使用场景设置">
+          <summary><span><span className="eyebrow">使用场景</span><strong>模型分工</strong></span><span className="settings-disclosure-hint">点击展开</span></summary>
+          <section className="role-assignment">
+            <div className="settings-toolbar"><div><span className="eyebrow">使用场景</span><h2>模型分工</h2></div><button className="button primary compact-button" type="button" onClick={() => void saveRoles()} disabled={roleSaving}>{roleSaving ? "保存中…" : "保存分工"}</button></div>
+            <p className="section-help">可以为不同功能指定模型；留空时使用默认模型。</p>
+            <div className="role-grid">
+              {(Object.keys(ROLE_LABELS) as LlmRoleName[]).map((role) => {
+                const item = roles.roles[role];
+                return <label className="role-card" key={role}><span>{ROLE_LABELS[role]}</span><select value={item.provider ?? ""} onChange={(event) => setRoles((current) => current ? { ...current, roles: { ...current.roles, [role]: { ...item, provider: event.target.value || null } } } : current)}><option value="">使用全局默认</option>{providers.filter((provider) => provider.configured).map((provider) => <option value={provider.name} key={provider.name}>{provider.label} · {provider.model}</option>)}</select><small>{item.effective_provider ? `当前生效：${item.effective_provider} · ${item.effective_model}` : "未找到可用模型"}</small></label>;
+              })}
+            </div>
+          </section>
+        </details>}
       </div>
 
       <details className="panel settings-disclosure search-settings-disclosure">

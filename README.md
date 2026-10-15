@@ -33,12 +33,9 @@ CareerPilot 面向秋招、春招等校园招聘场景，适合同时跟进多�
 
 ### Windows 桌面版
 
-前往 [最新 Release](https://github.com/zhangwx777/careerpilot/releases/latest)，选择 Windows x64 发行包：
+前往 [最新 Release](https://github.com/zhangwx777/careerpilot/releases/latest)，下载 Windows x64 安装包 `CareerPilotSetup.exe`，按向导安装，可创建桌面和开始菜单快捷方式。
 
-| 文件 | 使用方式 |
-| --- | --- |
-| `CareerPilotSetup.exe` | 向导式安装，可创建桌面和开始菜单快捷方式。 |
-| `CareerPilot-portable.zip` | 解压后运行 `CareerPilot.exe`，无需安装。 |
+需要源码或自行开发时，可直接 clone 仓库，详见[从源码启动](#从源码启动)。
 
 桌面版自带所需运行环境，**无需另装 Python、Node.js、PostgreSQL、Redis 或 Docker**。安装程序尚未进行代码签名，Windows 可能显示发布者提示。
 
@@ -59,11 +56,35 @@ CareerPilot 面向秋招、春招等校园招聘场景，适合同时跟进多�
 
 </details>
 
+<details>
+<summary>从源码构建 Windows 安装包</summary>
+
+完整构建需要 Windows x64、Node.js 与 Corepack、Python 3.12、PostgreSQL 18 和 Inno Setup 6。无需启动 PostgreSQL 服务或 Docker；构建会把运行时打入安装包。
+
+在仓库根目录准备 Python 环境：
+
+```powershell
+python -m venv backend/.venv
+backend/.venv/Scripts/python.exe -m pip install -r backend/requirements.lock -c backend/requirements.lock setuptools==84.0.0 "./backend[desktop-build,test]"
+```
+
+然后执行完整构建：
+
+```powershell
+.\packaging\build.ps1
+```
+
+脚本会读取 PostgreSQL 18 的 Windows 安装记录，也可通过 `-PostgresHome "D:\PostgreSQL"` 或 `CAREERPILOT_PG_HOME` 环境变量指定安装目录。前端使用项目指定的 pnpm 版本；首次构建需要联网下载 pnpm、Electron、Garnet 和 .NET Runtime。
+
+产物位于 `dist/`：`CareerPilotSetup.exe`、`update-manifest.json` 和 `SHA256SUMS.txt`。已有完整的 `build/installer/payload` 后，可用 `.\packaging\build.ps1 -AppOnly` 复用运行时构建。
+
+</details>
+
 ### 更新与本地数据
 
 点击侧栏品牌旁的版本按钮检查更新，有新版本时点击更新提示下载并安装。更新器使用 Windows 系统代理，支持断点续传和安装包校验；发行版配置镜像后会优先从镜像下载，失败时回退到 GitHub。
 
-桌面数据保存在当前 Windows 用户的 `%LOCALAPPDATA%\CareerPilot` 目录，覆盖安装和应用内更新会保留该目录。便携版也使用这个目录存储数据；迁移到其他电脑时，需要同时迁移数据，不能只复制程序文件。
+桌面数据保存在当前 Windows 用户的 `%LOCALAPPDATA%\CareerPilot` 目录，覆盖安装和应用内更新会保留该目录。迁移到其他电脑时，需要同时迁移该目录中的数据。
 
 ## 使用前你可能想知道
 

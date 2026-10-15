@@ -8,8 +8,10 @@ import {
   ShieldCheck,
   Gauge,
   SlidersHorizontal,
+  ArrowsLeftRight,
 } from "@phosphor-icons/react";
-import { NavLink, Outlet } from "react-router-dom";
+import { useEffect, useRef } from "react";
+import { NavLink, Outlet, useLocation } from "react-router-dom";
 
 import { UpdateBadge } from "./UpdateBadge";
 
@@ -25,6 +27,23 @@ const links = [
 ];
 
 export function Layout() {
+  const mobileNavRef = useRef<HTMLElement>(null);
+  const { pathname } = useLocation();
+
+  useEffect(() => {
+    const nav = mobileNavRef.current;
+    if (!nav) return;
+    const revealActive = () => {
+      const active = nav.querySelector<HTMLElement>('[aria-current="page"]');
+      if (!active || !nav.clientWidth) return;
+      nav.scrollTo({ left: active.offsetLeft - nav.offsetLeft - (nav.clientWidth - active.offsetWidth) / 2 });
+    };
+    const observer = new ResizeObserver(revealActive);
+    observer.observe(nav);
+    revealActive();
+    return () => observer.disconnect();
+  }, [pathname]);
+
   return (
     <div className="app-shell">
       <aside className="sidebar glass-surface">
@@ -63,7 +82,7 @@ export function Layout() {
             <span className="brand-mark" aria-hidden="true"><img src="/brand-mark.png" alt="" /></span>
             <strong>职航</strong>
           </div>
-          <nav aria-label="移动端导航">
+          <nav ref={mobileNavRef} aria-label="移动端导航">
             {links.map(({ icon: Icon, ...link }) => (
               <NavLink key={link.to} to={link.to}>
                 <Icon size={18} weight="duotone" aria-hidden="true" />
@@ -71,6 +90,7 @@ export function Layout() {
               </NavLink>
             ))}
           </nav>
+          <span className="mobile-nav-hint"><ArrowsLeftRight size={13} aria-hidden="true" />左右滑动查看更多</span>
         </header>
         <main className="page-container">
           <Outlet />

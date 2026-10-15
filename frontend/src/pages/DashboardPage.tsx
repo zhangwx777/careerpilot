@@ -79,36 +79,19 @@ export function DashboardPage() {
           <span className="skeleton" /><span className="skeleton" /><span className="skeleton" />
         </div>
       ) : (
-        <>
-          <div className="dashboard-overview-grid">
-            <section className="panel dashboard-panel dashboard-pipeline-card">
-              <div className="section-title dashboard-card-heading">
-                <ChartBar size={20} weight="duotone" aria-hidden="true" />
-                <div><h2>投递分布</h2><span>查看每个阶段当前有多少条投递</span></div>
-                <Link className="dashboard-card-link" to="/applications">查看投递台账 <ArrowRight size={15} aria-hidden="true" /></Link>
-              </div>
-              {totalApplications ? (
-                <div className="pipeline-list">
-                  {activePipeline.map((bucket) => <div className="pipeline-row" key={bucket.status}><span className="pipeline-label">{bucket.status}</span><span className="pipeline-track"><i style={{ width: maxCount ? `${(bucket.count / maxCount) * 100}%` : "0%" }} /></span><span className="pipeline-count">{bucket.count}</span></div>)}
-                </div>
-              ) : (
-                <div className="empty-state dashboard-empty"><ChartBar size={36} weight="duotone" aria-hidden="true" /><strong>还没有投递记录</strong><span>先到 <Link to="/applications/new">新增投递</Link> 记录第一条。</span></div>
-              )}
-            </section>
-
-            <section className="panel dashboard-panel dashboard-metrics-card">
-              <div className="section-title dashboard-card-heading">
-                <CalendarDots size={20} weight="duotone" aria-hidden="true" />
-                <div><h2>当前关注</h2><span>优先处理最需要你动作的事项</span></div>
-              </div>
-              <div className="dashboard-metric-grid" aria-label="求职总览摘要">
-                <div className="dashboard-stat"><span>全部投递</span><strong>{totalApplications}</strong><small>条记录</small></div>
-                <div className="dashboard-stat"><span>待练习</span><strong>{preparationFeed.length}</strong><small>个行动</small></div>
-                <div className="dashboard-stat dashboard-stat-attention"><span>需关注</span><strong>{attentionCount}</strong><small>个节点</small></div>
-              </div>
-              <Link className="dashboard-card-link dashboard-metrics-link" to="/timeline">查看完整日程 <ArrowRight size={15} aria-hidden="true" /></Link>
-            </section>
-          </div>
+        <div className="dashboard-content dashboard-overview-grid">
+          <section className="panel dashboard-panel dashboard-metrics-card">
+            <div className="section-title dashboard-card-heading">
+              <CalendarDots size={20} weight="duotone" aria-hidden="true" />
+              <div><h2>当前关注</h2><span>优先处理最需要你动作的事项</span></div>
+            </div>
+            <div className="dashboard-metric-grid" aria-label="求职总览摘要">
+              <div className="dashboard-stat"><span>全部投递</span><strong>{totalApplications}</strong><small>条记录</small></div>
+              <div className="dashboard-stat"><span>待练习</span><strong>{preparationFeed.length}</strong><small>个行动</small></div>
+              <div className="dashboard-stat dashboard-stat-attention"><span>需关注</span><strong>{attentionCount}</strong><small>个节点</small></div>
+            </div>
+            <Link className="dashboard-card-link dashboard-metrics-link" to="/timeline">查看完整日程 <ArrowRight size={15} aria-hidden="true" /></Link>
+          </section>
 
           <section className="panel dashboard-panel dashboard-next-card">
             <div className="section-title dashboard-card-heading">
@@ -136,7 +119,22 @@ export function DashboardPage() {
               </div>
             ) : <div className="empty-state dashboard-empty"><span>先在备战中心选择行动，或确认招聘通知以生成求职节点。</span><Link to="/planner">去备战中心</Link></div>}
           </section>
-        </>
+
+          <section className="panel dashboard-panel dashboard-pipeline-card">
+            <div className="section-title dashboard-card-heading">
+              <ChartBar size={20} weight="duotone" aria-hidden="true" />
+              <div><h2>投递分布</h2><span>查看每个阶段当前有多少条投递</span></div>
+              <Link className="dashboard-card-link" to="/applications">查看投递台账 <ArrowRight size={15} aria-hidden="true" /></Link>
+            </div>
+            {totalApplications ? (
+              <div className="pipeline-list">
+                {activePipeline.map((bucket) => <div className="pipeline-row" key={bucket.status}><span className="pipeline-label">{bucket.status}</span><span className="pipeline-track"><i style={{ width: maxCount ? `${(bucket.count / maxCount) * 100}%` : "0%" }} /></span><span className="pipeline-count">{bucket.count}</span></div>)}
+              </div>
+            ) : (
+              <div className="empty-state dashboard-empty"><ChartBar size={36} weight="duotone" aria-hidden="true" /><strong>还没有投递记录</strong><span>先到 <Link to="/applications/new">新增投递</Link> 记录第一条。</span></div>
+            )}
+          </section>
+        </div>
       )}
     </section>
   );

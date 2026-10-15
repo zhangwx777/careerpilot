@@ -30,6 +30,7 @@ export function StatusRail({ status }: { status: ApplicationStatus }) {
           <span key={stage} className={className || undefined} title={stage} aria-hidden="true" />
         );
       })}
+      <strong className="status-rail-label" aria-hidden="true">{status}</strong>
     </div>
   );
 }
