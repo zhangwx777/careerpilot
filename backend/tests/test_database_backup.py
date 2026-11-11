@@ -33,6 +33,8 @@ class DatabaseBackupTests(unittest.TestCase):
         self.temp.cleanup()
 
     def _successful_tool(self, command, **_kwargs):
+        if command[0] == "whoami":
+            return subprocess.CompletedProcess(command, 0, stdout="test-user\n")
         if "--file" in command:
             Path(command[command.index("--file") + 1]).write_bytes(b"custom pg dump")
         return subprocess.CompletedProcess(command, 0)
@@ -50,8 +52,9 @@ class DatabaseBackupTests(unittest.TestCase):
 
         self.assertTrue(manifest["config_secrets"]["included"])
         self.assertEqual((backup_dir / ".llm_config_secret").read_bytes(), self.secret.read_bytes())
-        command = run.call_args.args[0]
-        environment = run.call_args.kwargs["env"]
+        dump_call = next(call for call in run.call_args_list if call.args[0][0] == "pg_dump")
+        command = dump_call.args[0]
+        environment = dump_call.kwargs["env"]
         self.assertNotIn("p@ss", " ".join(command))
         self.assertEqual(environment["PGPASSWORD"], "p@ss")
         self.assertEqual(environment["PGHOST"], "db.example")
@@ -92,6 +95,8 @@ class DatabaseBackupTests(unittest.TestCase):
 
     def test_backup_failure_removes_staging_directory(self):
         def fail_after_partial_dump(command, **_kwargs):
+            if command[0] != "pg_dump":
+                return self._successful_tool(command, **_kwargs)
             Path(command[command.index("--file") + 1]).write_bytes(b"partial")
             return subprocess.CompletedProcess(command, 1)
 
@@ -148,7 +153,7 @@ class DatabaseBackupTests(unittest.TestCase):
                 replace_secret=True,
             )
         self.assertEqual(target_secret.read_bytes(), self.secret.read_bytes())
-        command = run.call_args.args[0]
+        command = next(call.args[0] for call in run.call_args_list if call.args[0][0] == "pg_restore")
         self.assertIn("--single-transaction", command)
         self.assertNotIn("p@ss", " ".join(command))
 
@@ -157,7 +162,10 @@ class DatabaseBackupTests(unittest.TestCase):
         target_secret = self.root / "target" / ".llm_config_secret"
         target_secret.parent.mkdir()
         target_secret.write_bytes(b"old-key")
-        fail = lambda command, **_kwargs: subprocess.CompletedProcess(command, 2)
+        def fail(command, **kwargs):
+            if command[0] == "pg_restore":
+                return subprocess.CompletedProcess(command, 2)
+            return self._successful_tool(command, **kwargs)
 
         with patch("scripts.backup_database._postgres_tool", return_value="pg_restore"), patch(
             "scripts.backup_database.subprocess.run", side_effect=fail

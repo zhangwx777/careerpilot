@@ -42,7 +42,7 @@ from app.phase3_schemas import (
     TimelineStatusTransition,
     NodeStatus,
 )
-from app.timeline import alert_types, conflict_map
+from app.timeline import alert_types, conflict_map, sync_application_stage
 
 router = APIRouter(prefix="/api")
 DbSession = Annotated[Session, Depends(get_db)]
@@ -568,6 +568,7 @@ def update_timeline_status(
     if linked is not None:
         transition_task(db, linked, {"待处理": "待处理", "已完成": "已完成", "已取消": "已跳过", "已错过": "已跳过"}[payload.status])
     node.status = payload.status
+    sync_application_stage(db, node)
     if node.node_type in INTERVIEW_NODE_TYPES:
         sync_intel_reminder_for_application(db, node.application_id)
     db.commit()

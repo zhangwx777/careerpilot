@@ -16,6 +16,7 @@ from app.models import Application, ParseSession, TimelineNode
 from app.parsing import extract_notice
 from app.phase3_schemas import ParseConfirmation
 from app.task_execution import assert_dispatch_owner
+from app.timeline import sync_application_stage
 
 
 class ParseGraphState(TypedDict, total=False):
@@ -98,6 +99,7 @@ def build_parse_graph(
                 )
                 db.add(timeline_node)
                 db.flush()
+                sync_application_stage(db, timeline_node)
                 parse_session.confirmed_payload = confirmation.model_dump(mode="json")
                 parse_session.status = "已确认"
                 parse_session.timeline_node_id = timeline_node.id

@@ -1,8 +1,24 @@
 from datetime import datetime, timedelta, timezone
 
-from app.models import TimelineNode
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+
+from app.models import APPLICATION_STATUS, Application, TimelineNode
 
 COLLISION_NODE_TYPES = {"笔试", "AI面", "一面", "二面", "三面", "HR面"}
+
+
+def sync_application_stage(db: Session, node: TimelineNode) -> None:
+    if node.status not in {"待处理", "已完成"} or node.node_type not in APPLICATION_STATUS:
+        return
+    application = db.scalar(
+        select(Application).where(Application.id == node.application_id).with_for_update()
+    )
+    if application is None or application.status in {"offer", "挂"}:
+        return
+    # 补录较早通知不能覆盖较后阶段；完成安排也不代表通过下一轮。
+    if APPLICATION_STATUS.index(node.node_type) > APPLICATION_STATUS.index(application.status):
+        application.status = node.node_type
 
 
 def nodes_conflict(left: TimelineNode, right: TimelineNode) -> bool:
