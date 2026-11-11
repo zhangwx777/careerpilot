@@ -51,7 +51,7 @@ function TimelineItem({ node, focused, updatingId, onStatusChange }: TimelineIte
   return (
     <article
       id={`timeline-node-${node.id}`}
-      className={`timeline-item${focused ? " is-focused" : ""}`}
+      className={`timeline-item is-${node.status}${focused ? " is-focused" : ""}`}
     >
       <div className="timeline-date-block">
         <strong>{node.time_mode === "截止窗口" ? `截止 ${formatDateTime(timelineDate(node))}` : formatDateTime(node.scheduled_at)}</strong>
@@ -60,6 +60,7 @@ function TimelineItem({ node, focused, updatingId, onStatusChange }: TimelineIte
       <div className="timeline-target">
         <div>
           <span className="node-type">{node.node_type}</span>
+          {node.status !== "待处理" && <span className={`timeline-state is-${node.status}`}>{node.status === "已完成" ? "✓ 已完成" : node.status}</span>}
           {node.alert_types.map((alert) => <span key={alert}>{alertLabel(alert)}</span>)}
         </div>
         <strong>{node.title || node.application.position.company.name}</strong>
@@ -102,6 +103,16 @@ export function TimelinePage() {
   const [error, setError] = useState("");
   const [updatingId, setUpdatingId] = useState<number | null>(null);
   const [revision, setRevision] = useState(0);
+
+  useEffect(() => {
+    const refresh = () => setRevision((value) => value + 1);
+    window.addEventListener("preparation-task-updated", refresh);
+    window.addEventListener("preparation-plan-updated", refresh);
+    return () => {
+      window.removeEventListener("preparation-task-updated", refresh);
+      window.removeEventListener("preparation-plan-updated", refresh);
+    };
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -177,7 +188,6 @@ export function TimelinePage() {
     setError("");
     try {
       await api.timeline.transition(node.id, status);
-      setRevision((value) => value + 1);
       window.dispatchEvent(new Event("preparation-task-updated"));
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "状态更新失败");
@@ -266,6 +276,7 @@ export function TimelinePage() {
               {days.map((day) => {
                 const key = calendarDayKey(day);
                 const items = nodesByDay.get(key) ?? [];
+                const completed = items.filter((item) => item.status === "已完成").length;
                 return (
                   <button
                     type="button"
@@ -274,13 +285,14 @@ export function TimelinePage() {
                     onClick={() => setSelectedDay(key)}
                   >
                     <span className="day-number">{day.getUTCDate()}</span>
+                    {completed > 0 && <span className="calendar-completed">✓ 已完成 {completed}/{items.length}</span>}
                     {items.length > 0 && <span className="calendar-events">
                       {items.slice(0, 2).map((item) => (
                         <span
-                          className={`calendar-event ${item.node_type === "网申截止" || item.node_type === "测评" ? "is-deadline" : "is-interview"} ${item.alert_types.map((alert) => `is-${alert}`).join(" ")}`}
+                          className={`calendar-event is-${item.status} ${item.node_type === "网申截止" || item.node_type === "测评" ? "is-deadline" : "is-interview"} ${item.alert_types.map((alert) => `is-${alert}`).join(" ")}`}
                           key={item.id}
                         >
-                          <b>{item.node_type}</b>
+                          <b>{item.node_type}{item.status !== "待处理" && ` · ${item.status === "已完成" ? "✓ 已完成" : item.status}`}</b>
                           <span>{item.application.position.company.name} · {calendarTime(item)}</span>
                         </span>
                       ))}

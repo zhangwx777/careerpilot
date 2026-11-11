@@ -492,6 +492,11 @@ input:focus, select:focus, textarea:focus { border-color: var(--brand); box-shad
 .calendar-event.is-interview { border-color: var(--brand); }
 .calendar-event.is-冲突, .calendar-event.is-逾期 { border-color: var(--danger); background: var(--danger-pale); }
 .calendar-event.is-临期 { border-color: #d7952d; background: #fff7e8; }
+.calendar-event.is-已完成 { border-color: var(--success); background: var(--success-pale); }
+.calendar-event.is-已完成 b, .calendar-completed, .timeline-state.is-已完成 { color: var(--success); }
+.calendar-event.is-已取消, .calendar-event.is-已错过 { border-color: var(--muted); background: var(--mist); }
+.calendar-completed { display: block; margin-top: 4px; font-size: 10px; }
+.timeline-state { display: inline-block; margin-left: 8px; color: var(--muted); font-size: 12px; }
 .calendar-event b, .calendar-event span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .calendar-event b { font-size: 11px; font-weight: 750; }
 .calendar-event span { color: var(--muted); font-size: 10px; }
