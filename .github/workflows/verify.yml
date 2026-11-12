@@ -9,6 +9,70 @@ permissions:
   contents: read
 
 jobs:
+  windows-upgrade:
+    runs-on: windows-latest
+    timeout-minutes: 45
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+      - name: Prepare previous release runtime
+        shell: pwsh
+        run: |
+          gh release download v0.1.9 --pattern CareerPilotSetup.exe --dir "$env:RUNNER_TEMP/baseline"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $bootstrap = Join-Path $env:RUNNER_TEMP 'bootstrap'
+          $process = Start-Process "$env:RUNNER_TEMP/baseline/CareerPilotSetup.exe" -ArgumentList @('/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART','/NOICONS','/TASKS=""',('/DIR="' + $bootstrap + '"')) -WindowStyle Hidden -Wait -PassThru
+          if ($process.ExitCode -ne 0) { throw 'Baseline install failed' }
+          New-Item -ItemType Directory -Force build/installer/payload | Out-Null
+          Copy-Item "$bootstrap/runtime" build/installer/payload -Recurse
+          Copy-Item "$bootstrap/licenses" build/installer/payload -Recurse
+          Copy-Item "$bootstrap/stop.ps1" build/installer/payload
+          Copy-Item "$bootstrap/brand-mark.ico" build/installer/brand-mark.ico
+          if (-not (Get-Command corepack -ErrorAction SilentlyContinue)) { npm install --global corepack }
+          corepack enable
+          if (-not (Test-Path "${env:ProgramFiles(x86)}/Inno Setup 6/ISCC.exe") -and -not (Test-Path "$env:LOCALAPPDATA/Programs/Inno Setup 6/ISCC.exe")) { choco install innosetup --yes --no-progress }
+      - name: Build candidate and verify isolated upgrade
+        shell: pwsh
+        run: |
+          ./packaging/build.ps1 -AppOnly
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          ./packaging/verify-upgrade.ps1 -BaselineInstaller "$env:RUNNER_TEMP/baseline/CareerPilotSetup.exe" -CandidateInstaller "$pwd/dist/CareerPilotSetup.exe" -TestRoot "$env:RUNNER_TEMP/careerpilot-upgrade-acceptance"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: windows-upgrade-acceptance
+          path: ${{ runner.temp }}/careerpilot-upgrade-acceptance/acceptance.json
+  browser:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+      - name: Install test dependencies
+        run: |
+          pip install -r backend/requirements.lock
+          command -v corepack >/dev/null || npm install --global corepack
+          corepack enable
+          cd frontend
+          corepack pnpm install --frozen-lockfile
+          corepack pnpm exec playwright install --with-deps chromium
+      - name: Browser acceptance with real APIs and synthetic data
+        working-directory: frontend
+        run: corepack pnpm build && corepack pnpm test:e2e
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: browser-acceptance
+          path: build/plan-execution
   verify:
     runs-on: ubuntu-latest
     timeout-minutes: 30

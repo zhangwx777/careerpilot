@@ -86,7 +86,7 @@ class DatabaseBackupTests(unittest.TestCase):
         application_url = "postgresql+psycopg://app:secret@dotenv.example/careerpilot"
         with patch.dict(
             os.environ,
-            {"DATABASE_URL": "postgresql+psycopg://env:secret@other/db"},
+            {"DATABASE_URL": "postgresql+psycopg://env:secret@other/db", "CAREERPILOT_DATA_DIR": "", "CAREERPILOT_APP_ROOT": ""},
         ), patch(
             "app.config.settings", SimpleNamespace(database_url=application_url)
         ):

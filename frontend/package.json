@@ -1,14 +1,15 @@
 {
   "name": "careerpilot",
   "private": true,
-  "version": "0.1.9",
+  "version": "0.1.10",
   "packageManager": "pnpm@12.3.4",
   "type": "module",
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
     "test": "node --test scheduling.test.ts format.test.ts workdays.test.ts drafts.test.ts chat.test.ts requests.test.ts ui-regressions.test.ts",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "test:e2e": "playwright test"
   },
   "dependencies": {
     "@phosphor-icons/react": "^2.1.10",
@@ -19,6 +20,7 @@
   },
   "devDependencies": {
     "@electron/packager": "^18.4.4",
+    "@playwright/test": "1.65.0",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
     "@vitejs/plugin-react": "^4.3.0",

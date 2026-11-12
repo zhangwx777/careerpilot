@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 
 from app.intel_schemas import IntelInsight, IntelPayload, IntelQuestion, PreparationItem, SourceRecord
 from app.models import Application, InterviewIntel, Position, TimelineNode
+from app.timeline import update_timeline_node
 
 INTERVIEW_NODE_TYPES = ("AI面", "一面", "二面", "三面", "HR面")
 REMINDER_SOURCE_PREFIX = "面经准备:"
@@ -86,7 +87,7 @@ def sync_intel_reminder(db: Session, application_id: int, payload: IntelPayload)
             )
         ).all()
         for item in stale:
-            item.status = "已取消"
+            update_timeline_node(item, status="已取消")
         return None
     source = f"{REMINDER_SOURCE_PREFIX}{interview.id}"
     reminder = db.scalar(
@@ -110,10 +111,7 @@ def sync_intel_reminder(db: Session, application_id: int, payload: IntelPayload)
         )
         db.add(reminder)
     else:
-        reminder.scheduled_at = start
-        reminder.ends_at = start + timedelta(hours=1)
-        reminder.detail = _detail(payload, interview.id)
-        reminder.status = "待处理"
+        update_timeline_node(reminder, scheduled_at=start, ends_at=start + timedelta(hours=1), detail=_detail(payload, interview.id), status="待处理")
     return reminder
 
 

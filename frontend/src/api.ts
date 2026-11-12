@@ -128,6 +128,9 @@ export const api = {
     save: (roles: Record<import("./types").LlmRoleName, string | null>) => request<LlmRoles>("/api/llm/roles", { method: "PUT", body: JSON.stringify(roles) }),
   },
   applications: {
+    checkProgress: () => request<{ items: import("./types").ProgressCheckItem[] }>("/api/applications/progress-check"),
+    applyProgress: (items: { application_id: number; token: string }[]) => request<{ applied_ids: number[] }>("/api/applications/progress-check/apply", { method: "POST", body: JSON.stringify({ items }) }),
+    stageHistory: (id: number) => request<{ items: import("./types").StageChange[] }>(`/api/applications/${id}/stage-history`),
     list: (
       params: {
         page?: number;

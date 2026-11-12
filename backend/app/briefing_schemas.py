@@ -1,6 +1,6 @@
 from datetime import date, datetime
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class DailyBriefingRead(BaseModel):
@@ -10,6 +10,7 @@ class DailyBriefingRead(BaseModel):
     briefing_date: date
     payload: dict
     created_at: datetime
+    current_states: dict = Field(default_factory=lambda: {"timeline": {}, "preparation": {}})
 
 
 class DailyBriefingPage(BaseModel):

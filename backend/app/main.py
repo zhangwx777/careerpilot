@@ -5,7 +5,7 @@ from pathlib import Path
 from contextlib import asynccontextmanager, suppress
 
 from fastapi import FastAPI
-from fastapi.staticfiles import StaticFiles
+from app.frontend_static import FrontendFiles
 from sqlalchemy import text
 
 from app.api import router
@@ -64,4 +64,4 @@ _app_root = (
 )
 _frontend_dir = _app_root / "frontend" / "dist"
 if _frontend_dir.is_dir():
-    app.mount("/", StaticFiles(directory=_frontend_dir, html=True), name="frontend")
+    app.mount("/", FrontendFiles(directory=_frontend_dir, html=True), name="frontend")

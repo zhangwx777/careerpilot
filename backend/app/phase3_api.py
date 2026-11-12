@@ -42,7 +42,7 @@ from app.phase3_schemas import (
     TimelineStatusTransition,
     NodeStatus,
 )
-from app.timeline import alert_types, conflict_map, sync_application_stage
+from app.timeline import alert_types, conflict_map, sync_application_stage, update_timeline_node
 
 router = APIRouter(prefix="/api")
 DbSession = Annotated[Session, Depends(get_db)]
@@ -564,10 +564,12 @@ def update_timeline_status(
     )
     if node is None:
         raise HTTPException(status_code=404, detail="时间线节点不存在")
+    db.scalar(select(Application).where(Application.id == node.application_id).with_for_update().execution_options(populate_existing=True))
     linked = db.scalar(select(PreparationTask).where(PreparationTask.timeline_node_id == node.id).with_for_update())
+    db.refresh(node, with_for_update={"of": TimelineNode})
     if linked is not None:
-        transition_task(db, linked, {"待处理": "待处理", "已完成": "已完成", "已取消": "已跳过", "已错过": "已跳过"}[payload.status])
-    node.status = payload.status
+        transition_task(db, linked, {"待处理": "待处理", "已完成": "已完成", "已取消": "已跳过", "已错过": "已跳过"}[payload.status], sync_timeline=False)
+    update_timeline_node(node, status=payload.status)
     sync_application_stage(db, node)
     if node.node_type in INTERVIEW_NODE_TYPES:
         sync_intel_reminder_for_application(db, node.application_id)

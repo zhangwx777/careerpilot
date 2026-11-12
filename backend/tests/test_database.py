@@ -53,6 +53,7 @@ class PostgresInitializationTestCase(unittest.TestCase):
                     (1, "bootstrap_tables"),
                     (2, "adopt_legacy_schema"),
                     (3, "task_dispatch_metrics"),
+                    (4, "application_stage_history"),
                 ],
             )
 
@@ -77,6 +78,7 @@ class PostgresInitializationTestCase(unittest.TestCase):
                 column["name"] for column in inspector.get_columns("task_dispatch")
             }
             self.assertIn("metrics", dispatch_columns)
+            self.assertIn("application_stage_change", tables)
         finally:
             engine.dispose()
 
@@ -107,6 +109,43 @@ class PostgresInitializationTestCase(unittest.TestCase):
                     )
                 )
             engine.dispose()
+
+    def test_stage_history_upgrade_preserves_rows_and_does_not_infer_audit(self):
+        from sqlalchemy import create_engine, text
+        from sqlalchemy.engine import make_url
+        from scripts.init_db import initialize_database
+
+        base_url = make_url(os.environ["TEST_DATABASE_URL"])
+        schema = f"stage_upgrade_{uuid4().hex[:12]}"
+        admin = create_engine(base_url)
+        isolated_url = base_url.update_query_dict({"options": f"-csearch_path={schema}"})
+        engine = create_engine(isolated_url)
+        try:
+            with admin.begin() as db:
+                db.execute(text(f'CREATE SCHEMA "{schema}"'))
+            url = isolated_url.render_as_string(hide_password=False)
+            initialize_database(url)
+            with engine.begin() as db:
+                db.execute(text("DROP TABLE application_stage_change"))
+                db.execute(text("ALTER TABLE timeline_node DROP COLUMN revision"))
+                db.execute(text("DELETE FROM careerpilot_schema_migrations WHERE version = 4"))
+                db.execute(text("INSERT INTO company (id,name,created_at) VALUES (810,'升级测试公司',now())"))
+                db.execute(text("INSERT INTO position (id,company_id,title,created_at,intel_revision) VALUES (811,810,'测试岗位',now(),0)"))
+                db.execute(text("INSERT INTO application (id,position_id,status,created_at) VALUES (812,811,'已投递',now())"))
+                db.execute(text("INSERT INTO timeline_node (id,application_id,node_type,status,time_mode,scheduled_at,created_at) VALUES (813,812,'笔试','已完成','固定时间',now(),now())"))
+            initialize_database(url)
+            initialize_database(url)
+            with engine.connect() as db:
+                self.assertEqual(db.execute(text("SELECT status FROM application WHERE id=812")).scalar_one(), "已投递")
+                self.assertEqual(db.execute(text("SELECT count(*) FROM application_stage_change")).scalar_one(), 0)
+                self.assertEqual(db.execute(text("SELECT count(*) FROM careerpilot_schema_migrations WHERE version=4")).scalar_one(), 1)
+                self.assertIn("revision", {column["name"] for column in inspect(engine).get_columns("timeline_node")})
+                self.assertEqual(db.execute(text("SELECT revision FROM timeline_node WHERE id=813")).scalar_one(), 0)
+        finally:
+            engine.dispose()
+            with admin.begin() as db:
+                db.execute(text(f'DROP SCHEMA IF EXISTS "{schema}" CASCADE'))
+            admin.dispose()
 
     def test_legacy_position_schema_is_adopted_without_losing_rows(self):
         from sqlalchemy import create_engine, inspect, text

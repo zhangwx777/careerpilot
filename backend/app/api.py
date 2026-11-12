@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session, joinedload
 
 from app.db import get_db
 from app.application_records import materialize_position
+from app.application_progress import ProgressApply, ProgressApplyResult, ProgressPage, StageHistoryPage, apply_progress, change_stage, preview_progress, stage_history
 from app.llm.config_store import (
     LlmConfigError,
     get_effective_config,
@@ -513,6 +514,21 @@ def create_application(payload: ApplicationCreate, db: DbSession):
     return _get_application(db, application.id)
 
 
+@router.get("/applications/progress-check", response_model=ProgressPage)
+def check_application_progress(db: DbSession):
+    return preview_progress(db)
+
+
+@router.post("/applications/progress-check/apply", response_model=ProgressApplyResult)
+def reconcile_application_progress(payload: ProgressApply, db: DbSession):
+    return apply_progress(db, payload)
+
+
+@router.get("/applications/{application_id}/stage-history", response_model=StageHistoryPage)
+def get_application_stage_history(application_id: int, db: DbSession):
+    return stage_history(db, application_id)
+
+
 @router.get("/applications/{application_id}", response_model=ApplicationRead)
 def get_application(application_id: int, db: DbSession):
     return _get_application(db, application_id)
@@ -524,6 +540,8 @@ def update_application(
 ):
     application = _get_application(db, application_id)
     changes = payload.model_dump(exclude_unset=True)
+    if "status" in changes:
+        change_stage(db, application, changes.pop("status"), "手动调整")
     if "company_name" in changes or "position_title" in changes or "jd_text" in changes:
         position = materialize_position(
             db,
@@ -555,12 +573,6 @@ def transition_application_status(
     application_id: int, payload: StatusTransition, db: DbSession
 ):
     application = _get_application(db, application_id)
-    current_status = application.status
-    next_status = payload.status
-
-    if current_status == next_status:
-        return application
-
-    application.status = next_status
+    change_stage(db, application, payload.status, "手动调整")
     db.commit()
     return _get_application(db, application.id)

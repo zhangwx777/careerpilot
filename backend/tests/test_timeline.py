@@ -224,7 +224,7 @@ class TimelineApiTestCase(unittest.TestCase):
         self.assertEqual(response.status_code, 200, response.text)
         self.assertEqual([item["id"] for item in response.json()["items"]], [self.deadline_only_id])
         self.assertIsNone(response.json()["items"][0]["scheduled_at"])
-        self.assertEqual(response.json()["items"][0]["ends_at"], "2026-10-02T23:59:00Z")
+        self.assertEqual(datetime.fromisoformat(response.json()["items"][0]["ends_at"].replace("Z", "+00:00")), datetime(2026, 10, 2, 23, 59, tzinfo=timezone.utc))
 
     def test_status_update_removes_conflict_from_both_views(self):
         updated = self.client.patch(

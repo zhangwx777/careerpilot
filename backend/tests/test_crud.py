@@ -7,7 +7,7 @@ from sqlalchemy.pool import StaticPool
 
 from app.db import Base, get_db
 from app.main import app
-from app.models import Application, Company, PlannerSession, Position, PreparationTask, TimelineNode
+from app.models import Application, ApplicationStageChange, Company, PlannerSession, Position, PreparationTask, TimelineNode
 
 test_engine = create_engine(
     "sqlite+pysqlite:///:memory:",
@@ -23,6 +23,7 @@ Base.metadata.create_all(
         PlannerSession.__table__,
         PreparationTask.__table__,
         TimelineNode.__table__,
+        ApplicationStageChange.__table__,
     ],
 )
 with test_engine.connect() as connection:

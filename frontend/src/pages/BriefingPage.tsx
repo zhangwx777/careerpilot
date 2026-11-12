@@ -4,7 +4,12 @@ import { useEffect, useState } from "react";
 import { api } from "../api";
 import { ContextBar, StatusBadge } from "../components/DesignPrimitives";
 import { formatDateTime } from "../format";
-import type { DailyBriefing } from "../types";
+import type { BriefingCurrentStates, DailyBriefing } from "../types";
+
+function currentLabel(states: BriefingCurrentStates | undefined, kind: "timeline" | "preparation", id: number) {
+  const current = states?.[kind]?.[id];
+  return current ? current.exists ? `当前：${current.status ?? "状态未知"}` : "原记录已删除" : "当前状态未读取";
+}
 
 export function BriefingPage() {
   const [items, setItems] = useState<DailyBriefing[]>([]);
@@ -50,14 +55,14 @@ export function BriefingPage() {
                 {selected.payload.alerts.length ? selected.payload.alerts.map((item) => (
                   <p key={item.timeline_node_id}>
                     <Warning size={15} />
-                    {item.title} · {item.time_mode === "截止窗口" ? "截止 " : ""}{formatDateTime(item.scheduled_at)} · {item.alert_types.join("、")}
+                    {item.title} · {item.time_mode === "截止窗口" ? "截止 " : ""}{formatDateTime(item.scheduled_at)} · {item.alert_types.join("、")} <StatusBadge tone="neutral">{currentLabel(selected.current_states, "timeline", item.timeline_node_id)}</StatusBadge>
                   </p>
                 )) : <p>暂无临期、逾期或冲突安排。</p>}
               </section>
               <section>
                 <h3>当天备战</h3>
                 {selected.payload.today_tasks.length ? selected.payload.today_tasks.map((item) => (
-                  <p key={item.task_id}>{item.title} · {formatDateTime(item.scheduled_at)}</p>
+                  <p key={item.task_id}>{item.title} · {formatDateTime(item.scheduled_at)} <StatusBadge tone="neutral">{currentLabel(selected.current_states, "preparation", item.task_id)}</StatusBadge></p>
                 )) : <p>当天没有待处理备战任务。</p>}
               </section>
               <section>

@@ -7,6 +7,7 @@ import { ContextBar } from "../components/DesignPrimitives";
 import { ConfirmDialog } from "../components/ConfirmDialog";
 import { Pagination } from "../components/Pagination";
 import { StatusRail } from "../components/StatusRail";
+import { ProgressCheck, StageHistory } from "../components/ProgressCheck";
 import { usePagedList } from "../hooks/usePagedList";
 import { formatDate } from "../format";
 import {
@@ -114,6 +115,7 @@ export function ApplicationsPage() {
 
       {error && <div className="notice error" role="alert">{error}</div>}
 
+      <ProgressCheck onApplied={reload} />
       <div className="ledger">
         <div className="ledger-head">
           <span>公司 / 岗位</span>
@@ -176,6 +178,7 @@ export function ApplicationsPage() {
                     </button>
                   </div>
                   {application.note && <p className="row-note">{application.note}</p>}
+                  <StageHistory key={`${application.id}-${application.status}`} applicationId={application.id} />
                 </article>
               );
             })}

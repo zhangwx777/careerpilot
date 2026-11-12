@@ -214,7 +214,7 @@ export function TimelinePage() {
         <div>
           <span className="eyebrow">完整日程</span>
           <h1>求职地图</h1>
-          <p>集中查看面试、笔试、测评和截止日期，按列表或月历管理已确认的求职节点。</p>
+          <p>集中查看面试、笔试、测评和截止日期，按列表或月历管理已确认的求职节点。完成安排不等于通过该轮。</p>
         </div>
         <div className="view-switch" aria-label="切换时间线视图">
           <button className={view === "list" ? "active" : ""} type="button" onClick={() => setView("list")}>

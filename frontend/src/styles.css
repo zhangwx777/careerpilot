@@ -1357,3 +1357,16 @@ details > summary { transition: color 150ms ease, background 150ms ease; }
     -webkit-backdrop-filter: none;
   }
 }
+.progress-check { margin: 16px 0; }
+.progress-check-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; }
+.progress-check-toolbar > span, .progress-check-results > p { color: var(--muted); font-size: 13px; }
+.progress-check-results { margin-top: 12px; padding: 20px; }
+.progress-check-results h2 { margin-top: 0; font-size: 17px; }
+.progress-check-row { display: flex; align-items: flex-start; gap: 12px; padding: 16px 0; border-top: 1px solid var(--rule); }
+.progress-check-row input { width: auto; margin-top: 4px; flex: 0 0 auto; }
+.progress-check-row > span { display: grid; gap: 6px; min-width: 0; overflow-wrap: anywhere; }
+.progress-check-row small, .stage-history span { color: var(--muted); }
+.stage-history { grid-column: 1 / -1; font-size: 13px; }
+.stage-history ol { padding-left: 20px; }
+.stage-history li { margin: 10px 0; }
+.stage-history li span { display: block; margin-top: 4px; }

@@ -85,7 +85,7 @@ def build_parse_graph(
                     return {"timeline_node_id": parse_session.timeline_node_id}
                 if parse_session.status != "待确认":
                     raise ParseGraphStateError("当前解析会话不能确认")
-                if db.get(Application, confirmation.application_id) is None:
+                if db.scalar(select(Application).where(Application.id == confirmation.application_id).with_for_update()) is None:
                     raise ParseGraphStateError("投递记录不存在")
 
                 timeline_node = TimelineNode(
@@ -99,7 +99,7 @@ def build_parse_graph(
                 )
                 db.add(timeline_node)
                 db.flush()
-                sync_application_stage(db, timeline_node)
+                sync_application_stage(db, timeline_node, "通知确认")
                 parse_session.confirmed_payload = confirmation.model_dump(mode="json")
                 parse_session.status = "已确认"
                 parse_session.timeline_node_id = timeline_node.id

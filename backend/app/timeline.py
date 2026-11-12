@@ -4,21 +4,31 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.models import APPLICATION_STATUS, Application, TimelineNode
+from app.application_progress import change_stage
 
 COLLISION_NODE_TYPES = {"笔试", "AI面", "一面", "二面", "三面", "HR面"}
 
 
-def sync_application_stage(db: Session, node: TimelineNode) -> None:
+def update_timeline_node(node: TimelineNode, **changes) -> None:
+    """Track persisted node edits, including cancel/restore round trips."""
+    changed = {key: value for key, value in changes.items() if getattr(node, key) != value}
+    if changed:
+        for key, value in changed.items():
+            setattr(node, key, value)
+        node.revision = (node.revision or 0) + 1
+
+
+def sync_application_stage(db: Session, node: TimelineNode, source: str = "日程更新") -> None:
     if node.status not in {"待处理", "已完成"} or node.node_type not in APPLICATION_STATUS:
         return
     application = db.scalar(
-        select(Application).where(Application.id == node.application_id).with_for_update()
+        select(Application).where(Application.id == node.application_id).with_for_update().execution_options(populate_existing=True)
     )
     if application is None or application.status in {"offer", "挂"}:
         return
     # 补录较早通知不能覆盖较后阶段；完成安排也不代表通过下一轮。
     if APPLICATION_STATUS.index(node.node_type) > APPLICATION_STATUS.index(application.status):
-        application.status = node.node_type
+        change_stage(db, application, node.node_type, source, node.id)
 
 
 def nodes_conflict(left: TimelineNode, right: TimelineNode) -> bool:
