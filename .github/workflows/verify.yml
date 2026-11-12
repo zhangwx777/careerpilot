@@ -59,6 +59,8 @@ jobs:
             ${{ runner.temp }}/careerpilot-upgrade-acceptance/local/CareerPilot/logs/*.log
             ${{ runner.temp }}/careerpilot-upgrade-baseline-probe/*.log
             ${{ runner.temp }}/careerpilot-upgrade-baseline-probe/local/CareerPilot/logs/*.log
+            ${{ runner.temp }}/careerpilot-upgrade-baseline-probe/*.png
+            ${{ runner.temp }}/careerpilot-upgrade-acceptance/*.png
   browser:
     runs-on: ubuntu-latest
     timeout-minutes: 20

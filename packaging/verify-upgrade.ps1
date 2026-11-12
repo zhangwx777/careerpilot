@@ -41,12 +41,16 @@ function Start-TestApp {
             return $url
         }
         if ($desktop.HasExited) { throw '桌面进程在就绪前退出' }
+        $desktop.Refresh()
+        if ($desktop.MainWindowTitle -eq 'Error') { break }
         Start-Sleep -Seconds 2
     }
     if (Test-Path -LiteralPath (Join-Path $dataRoot 'logs')) {
         Get-ChildItem -LiteralPath (Join-Path $dataRoot 'logs') -File | ForEach-Object { Write-Host ('Diagnostic: ' + $_.Name); Get-Content -LiteralPath $_.FullName -Tail 35 | Write-Host }
     }
     Get-ChildItem -LiteralPath $TestRoot -Filter 'desktop-*.log' | ForEach-Object { Write-Host ('Diagnostic: ' + $_.Name); Get-Content -LiteralPath $_.FullName -Tail 35 | Write-Host }
+    $diagnostic = Start-Process -FilePath (Get-Process -Id $PID).Path -ArgumentList @('-NoProfile','-File',('"' + (Join-Path $PSScriptRoot 'inspect-desktop.ps1') + '"'),'-DesktopId',$desktop.Id,'-OutputRoot',('"' + $TestRoot + '"')) -WindowStyle Hidden -PassThru
+    if (-not $diagnostic.WaitForExit(10000)) { $diagnostic.Kill($true) }
     Add-Type @'
 using System;
 using System.Runtime.InteropServices;
