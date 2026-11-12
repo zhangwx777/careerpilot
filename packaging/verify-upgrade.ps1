@@ -13,8 +13,11 @@ $dataRoot = Join-Path $TestRoot 'local/CareerPilot'
 $stateFile = Join-Path $dataRoot 'runtime.json'
 $oldLocal = $env:LOCALAPPDATA
 $oldRoaming = $env:APPDATA
+$oldAppRoot = $env:CAREERPILOT_APP_ROOT
+$oldDataRoot = $env:CAREERPILOT_DATA_DIR
 $desktop = $null
 $state = $null
+$launchIndex = 0
 
 function Install-TestApp([string]$installer) {
     Write-Output ('Installing acceptance build: ' + (Split-Path -Leaf $installer))
@@ -23,7 +26,10 @@ function Install-TestApp([string]$installer) {
 }
 function Start-TestApp {
     Write-Host ('Starting isolated desktop version ' + (Get-Content (Join-Path $installRoot 'resources/app/package.json') -Raw | ConvertFrom-Json).version)
-    $script:desktop = Start-Process -FilePath (Join-Path $installRoot 'CareerPilot.exe') -ArgumentList ('--user-data-dir="' + (Join-Path $TestRoot 'user-data') + '"') -WindowStyle Hidden -PassThru
+    $script:launchIndex += 1
+    $listener = [Net.Sockets.TcpListener]::new([Net.IPAddress]::Loopback, 0)
+    $listener.Start(); $debugPort=$listener.LocalEndpoint.Port; $listener.Stop()
+    $script:desktop = Start-Process -FilePath (Join-Path $installRoot 'CareerPilot.exe') -ArgumentList @(('--user-data-dir="' + (Join-Path $TestRoot 'user-data') + '"'),('--remote-debugging-port=' + $debugPort),'--remote-debugging-address=127.0.0.1','--enable-logging=stderr') -WorkingDirectory $installRoot -WindowStyle Hidden -PassThru -RedirectStandardOutput (Join-Path $TestRoot "desktop-$launchIndex-stdout.log") -RedirectStandardError (Join-Path $TestRoot "desktop-$launchIndex-stderr.log")
     for ($attempt = 0; $attempt -lt 90; $attempt++) {
         if (Test-Path -LiteralPath $stateFile) {
             $script:state = Get-Content -Raw -LiteralPath $stateFile | ConvertFrom-Json
@@ -38,6 +44,8 @@ function Start-TestApp {
     if (Test-Path -LiteralPath (Join-Path $dataRoot 'logs')) {
         Get-ChildItem -LiteralPath (Join-Path $dataRoot 'logs') -File | ForEach-Object { Write-Host ('Diagnostic: ' + $_.Name); Get-Content -LiteralPath $_.FullName -Tail 35 | Write-Host }
     }
+    Get-ChildItem -LiteralPath $TestRoot -Filter 'desktop-*.log' | ForEach-Object { Write-Host ('Diagnostic: ' + $_.Name); Get-Content -LiteralPath $_.FullName -Tail 35 | Write-Host }
+    node (Join-Path $PSScriptRoot 'inspect-desktop.cjs') $debugPort | Tee-Object -FilePath (Join-Path $TestRoot 'desktop-page.log') | Write-Host
     if (-not (Test-Path -LiteralPath (Join-Path $dataRoot 'postgres/PG_VERSION'))) {
         & (Join-Path $installRoot 'runtime/postgresql/bin/initdb.exe') -D (Join-Path $TestRoot 'diagnostic-postgres') -L (Join-Path $installRoot 'runtime/postgresql/share') -U qiuzhao_app -A trust --encoding=UTF8 --no-locale 2>&1 | Out-File (Join-Path $TestRoot 'initdb-diagnostic.log')
         Get-Content -LiteralPath (Join-Path $TestRoot 'initdb-diagnostic.log') | Write-Host
@@ -70,6 +78,8 @@ function Invoke-BackupTool([string[]]$arguments) {
 try {
     $env:LOCALAPPDATA = Join-Path $TestRoot 'local'
     $env:APPDATA = Join-Path $TestRoot 'roaming'
+    $env:CAREERPILOT_APP_ROOT = Join-Path $installRoot 'app'
+    $env:CAREERPILOT_DATA_DIR = $dataRoot
     New-Item -ItemType Directory -Force -Path $env:LOCALAPPDATA, $env:APPDATA | Out-Null
     Install-TestApp $BaselineInstaller
     $url = Start-TestApp
@@ -105,4 +115,6 @@ try {
     }
     $env:LOCALAPPDATA = $oldLocal
     $env:APPDATA = $oldRoaming
+    $env:CAREERPILOT_APP_ROOT = $oldAppRoot
+    $env:CAREERPILOT_DATA_DIR = $oldDataRoot
 }
