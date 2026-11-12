@@ -18,6 +18,24 @@ $oldDataRoot = $env:CAREERPILOT_DATA_DIR
 $desktop = $null
 $state = $null
 $launchIndex = 0
+Add-Type @'
+using System;
+using System.Runtime.InteropServices;
+using System.Text;
+public static class UpgradeWindow {
+    public delegate bool Callback(IntPtr handle, IntPtr value);
+    [DllImport("user32.dll")] public static extern bool EnumWindows(Callback callback, IntPtr value);
+    [DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(IntPtr handle, out uint process);
+    [DllImport("user32.dll", CharSet=CharSet.Unicode)] public static extern int GetClassName(IntPtr handle, StringBuilder name, int count);
+    [DllImport("user32.dll")] public static extern bool IsWindowEnabled(IntPtr handle);
+    [DllImport("user32.dll")] public static extern bool PostMessage(IntPtr handle, uint message, IntPtr wParam, IntPtr lParam);
+}
+'@
+
+function Save-DesktopDiagnostic {
+    $diagnostic = Start-Process -FilePath (Get-Process -Id $PID).Path -ArgumentList @('-NoProfile','-File',('"' + (Join-Path $PSScriptRoot 'inspect-desktop.ps1') + '"'),'-DesktopId',$desktop.Id,'-OutputRoot',('"' + $TestRoot + '"')) -WindowStyle Hidden -PassThru
+    if (-not $diagnostic.WaitForExit(10000)) { $diagnostic.Kill($true) }
+}
 
 function Install-TestApp([string]$installer) {
     Write-Output ('Installing acceptance build: ' + (Split-Path -Leaf $installer))
@@ -45,14 +63,29 @@ function Start-TestApp {
         Get-ChildItem -LiteralPath (Join-Path $dataRoot 'logs') -File | ForEach-Object { Write-Host ('Diagnostic: ' + $_.Name); Get-Content -LiteralPath $_.FullName -Tail 35 | Write-Host }
     }
     Get-ChildItem -LiteralPath $TestRoot -Filter 'desktop-*.log' | ForEach-Object { Write-Host ('Diagnostic: ' + $_.Name); Get-Content -LiteralPath $_.FullName -Tail 35 | Write-Host }
-    $diagnostic = Start-Process -FilePath (Get-Process -Id $PID).Path -ArgumentList @('-NoProfile','-File',('"' + (Join-Path $PSScriptRoot 'inspect-desktop.ps1') + '"'),'-DesktopId',$desktop.Id,'-OutputRoot',('"' + $TestRoot + '"')) -WindowStyle Hidden -PassThru
-    if (-not $diagnostic.WaitForExit(10000)) { $diagnostic.Kill($true) }
+    Save-DesktopDiagnostic
     throw '桌面服务启动超时（独立验收日志已保存）'
 }
 function Stop-TestApp {
     if (-not $desktop) { return }
     if (-not $desktop.HasExited) {
-        if (-not $desktop.CloseMainWindow()) { throw '无法正常关闭桌面窗口' }
+        $desktop.Refresh()
+        if (-not $desktop.CloseMainWindow()) {
+            # Process.MainWindowHandle excludes hidden windows. WM_CLOSE still
+            # exercises Electron's normal window/quit handlers in headless CI.
+            $handles = [Collections.Generic.List[IntPtr]]::new()
+            [void][UpgradeWindow]::EnumWindows([UpgradeWindow+Callback]{ param($handle, $value)
+                [uint32]$owner = 0
+                [void][UpgradeWindow]::GetWindowThreadProcessId($handle, [ref]$owner)
+                if ($owner -eq $desktop.Id) {
+                    $name = [Text.StringBuilder]::new(256)
+                    [void][UpgradeWindow]::GetClassName($handle, $name, $name.Capacity)
+                    if ($name.ToString().StartsWith('Chrome_WidgetWin')) { $handles.Add($handle) }
+                }; return $true
+            }, [IntPtr]::Zero)
+            if ($handles.Count -ne 1 -or -not [UpgradeWindow]::IsWindowEnabled($handles[0])) { Save-DesktopDiagnostic; throw '桌面主窗口不存在或被错误对话框阻塞' }
+            if (-not [UpgradeWindow]::PostMessage($handles[0], 16, [IntPtr]::Zero, [IntPtr]::Zero)) { throw '无法发送正常关闭消息' }
+        }
         if (-not $desktop.WaitForExit(30000)) { throw '桌面进程未正常退出' }
     }
     if ($state) {
