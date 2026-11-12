@@ -1,9 +1,11 @@
 param(
     [Parameter(Mandatory)][string]$BaselineInstaller,
-    [Parameter(Mandatory)][string]$CandidateInstaller,
-    [Parameter(Mandatory)][string]$TestRoot
+    [string]$CandidateInstaller,
+    [Parameter(Mandatory)][string]$TestRoot,
+    [switch]$BaselineOnly
 )
 $ErrorActionPreference = 'Stop'
+if (-not $BaselineOnly -and -not $CandidateInstaller) { throw '升级验收需要候选安装包。' }
 $TestRoot = [IO.Path]::GetFullPath($TestRoot)
 if (Test-Path -LiteralPath $TestRoot) { throw '验收目录必须不存在，禁止复用用户数据目录。' }
 if ((Split-Path -Leaf $TestRoot) -notlike 'careerpilot-upgrade-*') { throw '验收目录名称必须以 careerpilot-upgrade- 开头。' }
@@ -45,6 +47,30 @@ function Start-TestApp {
         Get-ChildItem -LiteralPath (Join-Path $dataRoot 'logs') -File | ForEach-Object { Write-Host ('Diagnostic: ' + $_.Name); Get-Content -LiteralPath $_.FullName -Tail 35 | Write-Host }
     }
     Get-ChildItem -LiteralPath $TestRoot -Filter 'desktop-*.log' | ForEach-Object { Write-Host ('Diagnostic: ' + $_.Name); Get-Content -LiteralPath $_.FullName -Tail 35 | Write-Host }
+    Add-Type @'
+using System;
+using System.Runtime.InteropServices;
+using System.Text;
+public static class UpgradeWindowDiagnostic {
+    public delegate bool WindowCallback(IntPtr window, IntPtr value);
+    [DllImport("user32.dll")] public static extern bool EnumWindows(WindowCallback callback, IntPtr value);
+    [DllImport("user32.dll")] public static extern bool EnumChildWindows(IntPtr parent, WindowCallback callback, IntPtr value);
+    [DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(IntPtr window, out uint process);
+    [DllImport("user32.dll", CharSet=CharSet.Unicode)] public static extern int GetWindowText(IntPtr window, StringBuilder text, int count);
+}
+'@
+    $windowText = [Collections.Generic.List[string]]::new()
+    $readText = [UpgradeWindowDiagnostic+WindowCallback]{ param($handle, $value)
+        $buffer = [Text.StringBuilder]::new(4096)
+        [void][UpgradeWindowDiagnostic]::GetWindowText($handle, $buffer, $buffer.Capacity)
+        if ($buffer.Length) { $windowText.Add($buffer.ToString()) }; return $true
+    }
+    [void][UpgradeWindowDiagnostic]::EnumWindows([UpgradeWindowDiagnostic+WindowCallback]{ param($handle, $value)
+        [uint32]$owner = 0
+        [void][UpgradeWindowDiagnostic]::GetWindowThreadProcessId($handle, [ref]$owner)
+        if ($owner -eq $desktop.Id) { [void]$readText.Invoke($handle, $value); [void][UpgradeWindowDiagnostic]::EnumChildWindows($handle, $readText, $value) }; return $true
+    }, [IntPtr]::Zero)
+    $windowText | Tee-Object -FilePath (Join-Path $TestRoot 'desktop-windows.log') | Write-Host
     node (Join-Path $PSScriptRoot 'inspect-desktop.cjs') $debugPort (Join-Path $TestRoot "desktop-$launchIndex-stderr.log") | Tee-Object -FilePath (Join-Path $TestRoot 'desktop-page.log') | Write-Host
     if (-not (Test-Path -LiteralPath (Join-Path $dataRoot 'postgres/PG_VERSION'))) {
         & (Join-Path $installRoot 'runtime/postgresql/bin/initdb.exe') -D (Join-Path $TestRoot 'diagnostic-postgres') -L (Join-Path $installRoot 'runtime/postgresql/share') -U qiuzhao_app -A trust --encoding=UTF8 --no-locale 2>&1 | Out-File (Join-Path $TestRoot 'initdb-diagnostic.log')
@@ -83,6 +109,7 @@ try {
     New-Item -ItemType Directory -Force -Path $env:LOCALAPPDATA, $env:APPDATA | Out-Null
     Install-TestApp $BaselineInstaller
     $url = Start-TestApp
+    if ($BaselineOnly) { Stop-TestApp; $global:LASTEXITCODE=0; return }
     $seed = @{ company_name='升级验收示例公司'; position_title='合成测试岗位'; jd_text='synthetic JD only'; status='已投递' } | ConvertTo-Json
     $application = Invoke-RestMethod -Uri ($url + '/api/applications') -Method Post -ContentType 'application/json; charset=utf-8' -Body ([Text.Encoding]::UTF8.GetBytes($seed)) -NoProxy
     $provider = @{ api_key='synthetic-upgrade-key'; model='qwen/qwen-max' } | ConvertTo-Json

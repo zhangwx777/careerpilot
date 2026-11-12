@@ -1,7 +1,19 @@
 // Diagnostic helper for disposable Windows acceptance runs only.
 const path = require("node:path");
 const fs = require("node:fs");
+const { spawnSync } = require("node:child_process");
 const { chromium } = require(path.join(__dirname, "../frontend/node_modules/@playwright/test"));
+function probeInitdb() {
+  const root = path.dirname(process.argv[3]);
+  const installed = path.join(root, "installed");
+  const script = path.join(root, "initdb-probe.cjs");
+  fs.writeFileSync(script, `const {spawnSync}=require('node:child_process');const path=require('node:path');
+    for(const stdio of ['ignore','pipe']) {const started=Date.now();const result=spawnSync(path.join(process.argv[2],'runtime/postgresql/bin/initdb.exe'),['-D',path.join(process.argv[3],'probe-'+stdio),'-L',path.join(process.argv[2],'runtime/postgresql/share'),'-U','qiuzhao_app','-A','trust','--encoding=UTF8','--no-locale'],{stdio,windowsHide:true,timeout:20000,encoding:'utf8'});console.log(JSON.stringify({stdio,elapsed:Date.now()-started,status:result.status,signal:result.signal,error:result.error?.message,stdout:result.stdout,stderr:result.stderr}));}`);
+  const result = spawnSync(path.join(installed, "CareerPilot.exe"), [script, installed, root], {
+    cwd: installed, env: { ...process.env, ELECTRON_RUN_AS_NODE: "1" }, timeout: 45000, encoding: "utf8", windowsHide: true,
+  });
+  console.log(JSON.stringify({ initdbProbe: result.stdout, stderr: result.stderr, error: result.error?.message }));
+}
 async function inspectMain() {
   const endpoint = fs.readFileSync(process.argv[3], "utf8").match(/Debugger listening on (ws:\/\/\S+)/)?.[1];
   if (!endpoint) { console.log("Main inspector endpoint unavailable"); return; }
@@ -33,4 +45,4 @@ async function inspectMain() {
       }
     }
   } finally { await browser.close(); }
-})().catch((error) => { console.log(`Desktop diagnostic unavailable: ${error.message}`); });
+})().catch((error) => { console.log(`Desktop diagnostic unavailable: ${error.message}`); }).finally(probeInitdb);

@@ -35,6 +35,14 @@ jobs:
           if (-not (Get-Command corepack -ErrorAction SilentlyContinue)) { npm install --global corepack }
           corepack enable
           if (-not (Test-Path "${env:ProgramFiles(x86)}/Inno Setup 6/ISCC.exe") -and -not (Test-Path "$env:LOCALAPPDATA/Programs/Inno Setup 6/ISCC.exe")) { choco install innosetup --yes --no-progress }
+      - name: Verify original baseline startup
+        shell: pwsh
+        run: |
+          Push-Location frontend
+          corepack pnpm install --frozen-lockfile
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          Pop-Location
+          ./packaging/verify-upgrade.ps1 -BaselineOnly -BaselineInstaller "$env:RUNNER_TEMP/baseline/CareerPilotSetup.exe" -TestRoot "$env:RUNNER_TEMP/careerpilot-upgrade-baseline-probe"
       - name: Build candidate and verify isolated upgrade
         shell: pwsh
         run: |
@@ -49,6 +57,8 @@ jobs:
             ${{ runner.temp }}/careerpilot-upgrade-acceptance/acceptance.json
             ${{ runner.temp }}/careerpilot-upgrade-acceptance/*.log
             ${{ runner.temp }}/careerpilot-upgrade-acceptance/local/CareerPilot/logs/*.log
+            ${{ runner.temp }}/careerpilot-upgrade-baseline-probe/*.log
+            ${{ runner.temp }}/careerpilot-upgrade-baseline-probe/local/CareerPilot/logs/*.log
   browser:
     runs-on: ubuntu-latest
     timeout-minutes: 20

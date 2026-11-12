@@ -10,6 +10,21 @@ test.beforeEach(async ({ page, request }) => {
 test.afterEach(() => { expect(browserErrors).toEqual([]); });
 
 for (const width of [1440, 1080, 390]) {
+  test(`empty data and request errors remain usable at ${width}px`, async ({ page, request }) => {
+    await page.setViewportSize({ width, height: 920 });
+    const applications = await (await request.get("/api/applications")).json();
+    for (const application of applications.items) expect((await request.delete(`/api/applications/${application.id}`)).status()).toBe(204);
+    await page.goto("/");
+    await expect(page.getByText("还没有投递记录")).toBeVisible();
+    expect(await page.locator("a[href='/applications/new']").count()).toBeGreaterThan(0);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+    await page.route("**/api/dashboard", (route) => route.abort("failed"));
+    await page.reload();
+    await expect(page.getByRole("alert")).toBeVisible();
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+    await page.screenshot({ path: `../build/plan-execution/error-${width}.png`, fullPage: true });
+  });
+
   test(`historical progress is opt-in, isolated and survives reload at ${width}px`, async ({ page, request }) => {
     await page.setViewportSize({ width, height: 920 });
     await page.goto("/applications");
