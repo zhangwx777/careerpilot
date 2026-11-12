@@ -57,12 +57,17 @@ public static class UpgradeWindowDiagnostic {
     [DllImport("user32.dll")] public static extern bool EnumChildWindows(IntPtr parent, WindowCallback callback, IntPtr value);
     [DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(IntPtr window, out uint process);
     [DllImport("user32.dll", CharSet=CharSet.Unicode)] public static extern int GetWindowText(IntPtr window, StringBuilder text, int count);
+    [DllImport("user32.dll", CharSet=CharSet.Unicode)] public static extern IntPtr SendMessageTimeout(IntPtr window, uint message, UIntPtr count, StringBuilder text, uint flags, uint timeout, out UIntPtr result);
 }
 '@
     $windowText = [Collections.Generic.List[string]]::new()
     $readText = [UpgradeWindowDiagnostic+WindowCallback]{ param($handle, $value)
         $buffer = [Text.StringBuilder]::new(4096)
         [void][UpgradeWindowDiagnostic]::GetWindowText($handle, $buffer, $buffer.Capacity)
+        if (-not $buffer.Length) {
+            [UIntPtr]$result = [UIntPtr]::Zero
+            [void][UpgradeWindowDiagnostic]::SendMessageTimeout($handle, 13, [UIntPtr]4096, $buffer, 2, 300, [ref]$result)
+        }
         if ($buffer.Length) { $windowText.Add($buffer.ToString()) }; return $true
     }
     [void][UpgradeWindowDiagnostic]::EnumWindows([UpgradeWindowDiagnostic+WindowCallback]{ param($handle, $value)
