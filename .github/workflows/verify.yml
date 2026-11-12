@@ -45,7 +45,10 @@ jobs:
         if: always()
         with:
           name: windows-upgrade-acceptance
-          path: ${{ runner.temp }}/careerpilot-upgrade-acceptance/acceptance.json
+          path: |
+            ${{ runner.temp }}/careerpilot-upgrade-acceptance/acceptance.json
+            ${{ runner.temp }}/careerpilot-upgrade-acceptance/*.log
+            ${{ runner.temp }}/careerpilot-upgrade-acceptance/local/CareerPilot/logs/*.log
   browser:
     runs-on: ubuntu-latest
     timeout-minutes: 20

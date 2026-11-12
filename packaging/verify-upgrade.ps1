@@ -17,10 +17,12 @@ $desktop = $null
 $state = $null
 
 function Install-TestApp([string]$installer) {
-    $process = Start-Process -FilePath $installer -ArgumentList @('/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART','/NOICONS','/TASKS=""', ('/DIR="' + $installRoot + '"')) -WindowStyle Hidden -Wait -PassThru
+    Write-Output ('Installing acceptance build: ' + (Split-Path -Leaf $installer))
+    $process = Start-Process -FilePath $installer -ArgumentList @('/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART','/NOICONS','/TASKS=""', ('/DIR="' + $installRoot + '"'), ('/LOG="' + (Join-Path $TestRoot 'installer.log') + '"')) -WindowStyle Hidden -Wait -PassThru
     if ($process.ExitCode -ne 0) { throw "安装失败：$($process.ExitCode)" }
 }
 function Start-TestApp {
+    Write-Host ('Starting isolated desktop version ' + (Get-Content (Join-Path $installRoot 'resources/app/package.json') -Raw | ConvertFrom-Json).version)
     $script:desktop = Start-Process -FilePath (Join-Path $installRoot 'CareerPilot.exe') -ArgumentList ('--user-data-dir="' + (Join-Path $TestRoot 'user-data') + '"') -WindowStyle Hidden -PassThru
     for ($attempt = 0; $attempt -lt 90; $attempt++) {
         if (Test-Path -LiteralPath $stateFile) {
@@ -33,7 +35,14 @@ function Start-TestApp {
         if ($desktop.HasExited) { throw '桌面进程在就绪前退出' }
         Start-Sleep -Seconds 2
     }
-    throw '桌面服务启动超时'
+    if (Test-Path -LiteralPath (Join-Path $dataRoot 'logs')) {
+        Get-ChildItem -LiteralPath (Join-Path $dataRoot 'logs') -File | ForEach-Object { Write-Host ('Diagnostic: ' + $_.Name); Get-Content -LiteralPath $_.FullName -Tail 35 | Write-Host }
+    }
+    if (-not (Test-Path -LiteralPath (Join-Path $dataRoot 'postgres/PG_VERSION'))) {
+        & (Join-Path $installRoot 'runtime/postgresql/bin/initdb.exe') -D (Join-Path $TestRoot 'diagnostic-postgres') -L (Join-Path $installRoot 'runtime/postgresql/share') -U qiuzhao_app -A trust --encoding=UTF8 --no-locale 2>&1 | Out-File (Join-Path $TestRoot 'initdb-diagnostic.log')
+        Get-Content -LiteralPath (Join-Path $TestRoot 'initdb-diagnostic.log') | Write-Host
+    }
+    throw '桌面服务启动超时（独立验收日志已保存）'
 }
 function Stop-TestApp {
     if (-not $desktop) { return }
