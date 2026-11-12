@@ -468,8 +468,10 @@ function stopPreviousRun() {
 }
 
 function startPostgres() {
-  fs.mkdirSync(dbData, { recursive: true });
   if (!fs.existsSync(path.join(dbData, "PG_VERSION"))) {
+    // initdb uses a restricted Windows token. Let it create the directory with
+    // its own permissions, including after an old launch left an empty folder.
+    if (fs.existsSync(dbData) && fs.readdirSync(dbData).length === 0) fs.rmdirSync(dbData);
     const result = run(initdb, ["-D", dbData, "-L", path.join(runtimeRoot, "postgresql", "share"), "-U", "qiuzhao_app", "-A", "trust", "--encoding=UTF8", "--no-locale"]);
     if (result.status !== 0) throw new Error("本地数据库初始化失败，请重新安装。 ");
   }

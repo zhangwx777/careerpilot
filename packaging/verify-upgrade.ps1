@@ -1,12 +1,9 @@
 param(
     [Parameter(Mandatory)][string]$BaselineInstaller,
-    [string]$CandidateInstaller,
-    [Parameter(Mandatory)][string]$TestRoot,
-    [switch]$BaselineOnly,
-    [switch]$TraceNativeCalls
+    [Parameter(Mandatory)][string]$CandidateInstaller,
+    [Parameter(Mandatory)][string]$TestRoot
 )
 $ErrorActionPreference = 'Stop'
-if (-not $BaselineOnly -and -not $CandidateInstaller) { throw '升级验收需要候选安装包。' }
 $TestRoot = [IO.Path]::GetFullPath($TestRoot)
 if (Test-Path -LiteralPath $TestRoot) { throw '验收目录必须不存在，禁止复用用户数据目录。' }
 if ((Split-Path -Leaf $TestRoot) -notlike 'careerpilot-upgrade-*') { throw '验收目录名称必须以 careerpilot-upgrade- 开头。' }
@@ -21,7 +18,6 @@ $oldDataRoot = $env:CAREERPILOT_DATA_DIR
 $desktop = $null
 $state = $null
 $launchIndex = 0
-$originalMain = $null
 
 function Install-TestApp([string]$installer) {
     Write-Output ('Installing acceptance build: ' + (Split-Path -Leaf $installer))
@@ -31,9 +27,7 @@ function Install-TestApp([string]$installer) {
 function Start-TestApp {
     Write-Host ('Starting isolated desktop version ' + (Get-Content (Join-Path $installRoot 'resources/app/package.json') -Raw | ConvertFrom-Json).version)
     $script:launchIndex += 1
-    $listener = [Net.Sockets.TcpListener]::new([Net.IPAddress]::Loopback, 0)
-    $listener.Start(); $debugPort=$listener.LocalEndpoint.Port; $listener.Stop()
-    $script:desktop = Start-Process -FilePath (Join-Path $installRoot 'CareerPilot.exe') -ArgumentList @(('--user-data-dir="' + (Join-Path $TestRoot 'user-data') + '"'),('--remote-debugging-port=' + $debugPort),'--remote-debugging-address=127.0.0.1','--inspect=127.0.0.1:0','--enable-logging=file',('--log-file="' + (Join-Path $TestRoot "desktop-$launchIndex-chromium.log") + '"'),'--v=1') -WorkingDirectory $installRoot -WindowStyle Hidden -PassThru -RedirectStandardOutput (Join-Path $TestRoot "desktop-$launchIndex-stdout.log") -RedirectStandardError (Join-Path $TestRoot "desktop-$launchIndex-stderr.log")
+    $script:desktop = Start-Process -FilePath (Join-Path $installRoot 'CareerPilot.exe') -ArgumentList @(('--user-data-dir="' + (Join-Path $TestRoot 'user-data') + '"'),'--enable-logging=file',('--log-file="' + (Join-Path $TestRoot "desktop-$launchIndex-chromium.log") + '"')) -WorkingDirectory $installRoot -WindowStyle Hidden -PassThru -RedirectStandardOutput (Join-Path $TestRoot "desktop-$launchIndex-stdout.log") -RedirectStandardError (Join-Path $TestRoot "desktop-$launchIndex-stderr.log")
     for ($attempt = 0; $attempt -lt 90; $attempt++) {
         if (Test-Path -LiteralPath $stateFile) {
             $script:state = Get-Content -Raw -LiteralPath $stateFile | ConvertFrom-Json
@@ -53,40 +47,6 @@ function Start-TestApp {
     Get-ChildItem -LiteralPath $TestRoot -Filter 'desktop-*.log' | ForEach-Object { Write-Host ('Diagnostic: ' + $_.Name); Get-Content -LiteralPath $_.FullName -Tail 35 | Write-Host }
     $diagnostic = Start-Process -FilePath (Get-Process -Id $PID).Path -ArgumentList @('-NoProfile','-File',('"' + (Join-Path $PSScriptRoot 'inspect-desktop.ps1') + '"'),'-DesktopId',$desktop.Id,'-OutputRoot',('"' + $TestRoot + '"')) -WindowStyle Hidden -PassThru
     if (-not $diagnostic.WaitForExit(10000)) { $diagnostic.Kill($true) }
-    Add-Type @'
-using System;
-using System.Runtime.InteropServices;
-using System.Text;
-public static class UpgradeWindowDiagnostic {
-    public delegate bool WindowCallback(IntPtr window, IntPtr value);
-    [DllImport("user32.dll")] public static extern bool EnumWindows(WindowCallback callback, IntPtr value);
-    [DllImport("user32.dll")] public static extern bool EnumChildWindows(IntPtr parent, WindowCallback callback, IntPtr value);
-    [DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(IntPtr window, out uint process);
-    [DllImport("user32.dll", CharSet=CharSet.Unicode)] public static extern int GetWindowText(IntPtr window, StringBuilder text, int count);
-    [DllImport("user32.dll", CharSet=CharSet.Unicode)] public static extern IntPtr SendMessageTimeout(IntPtr window, uint message, UIntPtr count, StringBuilder text, uint flags, uint timeout, out UIntPtr result);
-}
-'@
-    $windowText = [Collections.Generic.List[string]]::new()
-    $readText = [UpgradeWindowDiagnostic+WindowCallback]{ param($handle, $value)
-        $buffer = [Text.StringBuilder]::new(4096)
-        [void][UpgradeWindowDiagnostic]::GetWindowText($handle, $buffer, $buffer.Capacity)
-        if (-not $buffer.Length) {
-            [UIntPtr]$result = [UIntPtr]::Zero
-            [void][UpgradeWindowDiagnostic]::SendMessageTimeout($handle, 13, [UIntPtr]4096, $buffer, 2, 300, [ref]$result)
-        }
-        if ($buffer.Length) { $windowText.Add($buffer.ToString()) }; return $true
-    }
-    [void][UpgradeWindowDiagnostic]::EnumWindows([UpgradeWindowDiagnostic+WindowCallback]{ param($handle, $value)
-        [uint32]$owner = 0
-        [void][UpgradeWindowDiagnostic]::GetWindowThreadProcessId($handle, [ref]$owner)
-        if ($owner -eq $desktop.Id) { [void]$readText.Invoke($handle, $value); [void][UpgradeWindowDiagnostic]::EnumChildWindows($handle, $readText, $value) }; return $true
-    }, [IntPtr]::Zero)
-    $windowText | Tee-Object -FilePath (Join-Path $TestRoot 'desktop-windows.log') | Write-Host
-    node (Join-Path $PSScriptRoot 'inspect-desktop.cjs') $debugPort (Join-Path $TestRoot "desktop-$launchIndex-stderr.log") | Tee-Object -FilePath (Join-Path $TestRoot 'desktop-page.log') | Write-Host
-    if (-not (Test-Path -LiteralPath (Join-Path $dataRoot 'postgres/PG_VERSION'))) {
-        & (Join-Path $installRoot 'runtime/postgresql/bin/initdb.exe') -D (Join-Path $TestRoot 'diagnostic-postgres') -L (Join-Path $installRoot 'runtime/postgresql/share') -U qiuzhao_app -A trust --encoding=UTF8 --no-locale 2>&1 | Out-File (Join-Path $TestRoot 'initdb-diagnostic.log')
-        Get-Content -LiteralPath (Join-Path $TestRoot 'initdb-diagnostic.log') | Write-Host
-    }
     throw '桌面服务启动超时（独立验收日志已保存）'
 }
 function Stop-TestApp {
@@ -119,32 +79,34 @@ try {
     $env:CAREERPILOT_DATA_DIR = $dataRoot
     New-Item -ItemType Directory -Force -Path $env:LOCALAPPDATA, $env:APPDATA | Out-Null
     Install-TestApp $BaselineInstaller
-    if ($TraceNativeCalls) {
-        $mainPath = Join-Path $installRoot 'resources/app/main.cjs'
-        $originalMain = [IO.File]::ReadAllText($mainPath)
-        $call = 'return spawnSync(executable, args, { stdio: "ignore", windowsHide: true });'
-        if (-not $originalMain.Contains($call)) { throw '原版原生调用入口已变化，不能添加诊断。' }
-        $tracedCall = @'
-const result = spawnSync(executable, args, { stdio: "ignore", windowsHide: true });
-  fs.appendFileSync(path.join(logRoot, "native-process.log"), JSON.stringify({executable,args,cwd:process.cwd(),status:result.status,signal:result.signal,error:result.error?.message})+"\n");
-  if (result.status !== 0 && /initdb\.exe$/i.test(executable)) {
-    fs.appendFileSync(path.join(logRoot, "native-process.log"), JSON.stringify({files:fs.readdirSync(dbData)})+"\n");
-    const probe = spawnSync(executable, args, {stdio:"pipe",windowsHide:true,encoding:"utf8",timeout:20000});
-    fs.appendFileSync(path.join(logRoot, "native-process.log"), JSON.stringify({retryStatus:probe.status,stdout:probe.stdout,stderr:probe.stderr,error:probe.error?.message})+"\n");
-  }
-  return result;
-'@
-        [IO.File]::WriteAllText($mainPath, $originalMain.Replace($call, $tracedCall), [Text.UTF8Encoding]::new($false))
-        Write-Host 'Diagnostic-only launch: tracing native return values; this launch is not an upgrade acceptance result.'
-    }
+    # v0.1.9 precreates postgres as the elevated owner, then initdb's restricted
+    # token cannot chmod it on hosted Windows. Let the unmodified bundled initdb
+    # create the baseline cluster; seed all business data through the original API.
+    New-Item -ItemType Directory -Force -Path $dataRoot | Out-Null
+    & (Join-Path $installRoot 'runtime/postgresql/bin/initdb.exe') -D (Join-Path $dataRoot 'postgres') -L (Join-Path $installRoot 'runtime/postgresql/share') -U qiuzhao_app -A trust --encoding=UTF8 --no-locale
+    if ($LASTEXITCODE -ne 0) { throw '旧版测试库初始化失败' }
     $url = Start-TestApp
-    if ($BaselineOnly) { Stop-TestApp; $global:LASTEXITCODE=0; return }
     $seed = @{ company_name='升级验收示例公司'; position_title='合成测试岗位'; jd_text='synthetic JD only'; status='已投递' } | ConvertTo-Json
     $application = Invoke-RestMethod -Uri ($url + '/api/applications') -Method Post -ContentType 'application/json; charset=utf-8' -Body ([Text.Encoding]::UTF8.GetBytes($seed)) -NoProxy
     $provider = @{ api_key='synthetic-upgrade-key'; model='qwen/qwen-max' } | ConvertTo-Json
     $saved = Invoke-RestMethod -Uri ($url + '/api/llm/providers/qwen') -Method Put -ContentType 'application/json' -Body $provider -NoProxy
     Stop-TestApp
     Install-TestApp $CandidateInstaller
+    # A separate, empty data root proves candidate first-run installation without
+    # preinitializing its database or changing the installed application files.
+    $upgradeDataRoot = $dataRoot
+    $env:LOCALAPPDATA = Join-Path $TestRoot 'fresh-local'
+    $dataRoot = Join-Path $env:LOCALAPPDATA 'CareerPilot'
+    $stateFile = Join-Path $dataRoot 'runtime.json'
+    $env:CAREERPILOT_DATA_DIR = $dataRoot
+    $url = Start-TestApp
+    $empty = Invoke-RestMethod -Uri ($url + '/api/applications') -NoProxy
+    if ($empty.items.Count -ne 0) { throw '全新安装意外读取了其他数据' }
+    Stop-TestApp
+    $env:LOCALAPPDATA = Join-Path $TestRoot 'local'
+    $dataRoot = $upgradeDataRoot
+    $stateFile = Join-Path $dataRoot 'runtime.json'
+    $env:CAREERPILOT_DATA_DIR = $dataRoot
     $url = Start-TestApp
     $restored = Invoke-RestMethod -Uri ($url + '/api/applications/' + $application.id) -NoProxy
     if ($restored.position.company.name -ne '升级验收示例公司') { throw '升级后数据不一致' }
@@ -162,14 +124,13 @@ const result = spawnSync(executable, args, { stdio: "ignore", windowsHide: true 
     $providers = Invoke-RestMethod -Uri ($url + '/api/llm/providers') -NoProxy
     if (($providers | Where-Object name -eq qwen).api_key_masked -ne $saved.api_key_masked) { throw '备份恢复后加密配置不一致' }
     Stop-TestApp
-    @{ status='passed'; installation=$true; upgrade=$true; data_preserved=$true; config_preserved=$true; backup_restore=$true; process_cleanup=$true } | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $TestRoot 'acceptance.json') -Encoding utf8
+    @{ status='passed'; installation=$true; upgrade=$true; data_preserved=$true; config_preserved=$true; backup_restore=$true; process_cleanup=$true; baseline_cluster_bootstrap="bundled initdb (v0.1.9 elevated-directory permission workaround)" } | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $TestRoot 'acceptance.json') -Encoding utf8
     $global:LASTEXITCODE = 0
 } finally {
     if ($desktop -and -not $desktop.HasExited) {
         $desktop.Kill($true)
         & (Join-Path $installRoot 'runtime/postgresql/bin/pg_ctl.exe') -D (Join-Path $dataRoot 'postgres') stop -m fast *> $null
     }
-    if ($originalMain) { [IO.File]::WriteAllText((Join-Path $installRoot 'resources/app/main.cjs'), $originalMain, [Text.UTF8Encoding]::new($false)) }
     $env:LOCALAPPDATA = $oldLocal
     $env:APPDATA = $oldRoaming
     $env:CAREERPILOT_APP_ROOT = $oldAppRoot

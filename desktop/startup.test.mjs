@@ -97,6 +97,35 @@ test("startup page is loaded before database and main page after readiness", asy
   assert.deepEqual(events, ["loading", "database", "ready", "state", "main"]);
 });
 
+for (const initialOwner of [null, "desktop"]) test(`database initialization handles ${initialOwner ? "an empty directory from a failed old launch" : "a fresh data root"}`, () => {
+  let directoryOwner = initialOwner;
+  const events = [];
+  const postgresStart = source.indexOf("function startPostgres()");
+  const postgresEnd = source.indexOf("function startBackend()", postgresStart);
+  const context = vm.createContext({
+    fs: {
+      mkdirSync() { directoryOwner = "desktop"; },
+      existsSync(file) { return !file.endsWith("PG_VERSION") && directoryOwner !== null; },
+      readdirSync() { return []; },
+      rmdirSync() { directoryOwner = null; },
+    },
+    path, dbData: "data/postgres", runtimeRoot: "runtime", logRoot: "logs", dbPort: 54321,
+    initdb: "initdb.exe", pgCtl: "pg_ctl.exe",
+    run(executable) {
+      events.push(executable);
+      // PostgreSQL runs with a restricted Windows token and cannot chmod a directory owned by the elevated desktop.
+      if (directoryOwner === "desktop") return { status: 1 };
+      directoryOwner = "postgres";
+      return { status: 0 };
+    },
+    spawn(executable) { events.push(executable); },
+  });
+  vm.runInContext(source.slice(postgresStart, postgresEnd), context);
+  assert.doesNotThrow(() => vm.runInContext("startPostgres()", context));
+  assert.equal(directoryOwner, "postgres");
+  assert.deepEqual(events, ["initdb.exe", "pg_ctl.exe"]);
+});
+
 test("default Electron menu bar is removed", () => {
   assert.match(source, /Menu\.setApplicationMenu\(null\)/);
 });
