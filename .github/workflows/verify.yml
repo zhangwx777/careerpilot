@@ -42,7 +42,7 @@ jobs:
           corepack pnpm install --frozen-lockfile
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           Pop-Location
-          ./packaging/verify-upgrade.ps1 -BaselineOnly -BaselineInstaller "$env:RUNNER_TEMP/baseline/CareerPilotSetup.exe" -TestRoot "$env:RUNNER_TEMP/careerpilot-upgrade-baseline-probe"
+          ./packaging/verify-upgrade.ps1 -BaselineOnly -TraceNativeCalls -BaselineInstaller "$env:RUNNER_TEMP/baseline/CareerPilotSetup.exe" -TestRoot "$env:RUNNER_TEMP/careerpilot-upgrade-baseline-probe"
       - name: Build candidate and verify isolated upgrade
         shell: pwsh
         run: |

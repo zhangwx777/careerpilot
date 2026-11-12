@@ -2,7 +2,8 @@ param(
     [Parameter(Mandatory)][string]$BaselineInstaller,
     [string]$CandidateInstaller,
     [Parameter(Mandatory)][string]$TestRoot,
-    [switch]$BaselineOnly
+    [switch]$BaselineOnly,
+    [switch]$TraceNativeCalls
 )
 $ErrorActionPreference = 'Stop'
 if (-not $BaselineOnly -and -not $CandidateInstaller) { throw '升级验收需要候选安装包。' }
@@ -20,6 +21,7 @@ $oldDataRoot = $env:CAREERPILOT_DATA_DIR
 $desktop = $null
 $state = $null
 $launchIndex = 0
+$originalMain = $null
 
 function Install-TestApp([string]$installer) {
     Write-Output ('Installing acceptance build: ' + (Split-Path -Leaf $installer))
@@ -117,6 +119,24 @@ try {
     $env:CAREERPILOT_DATA_DIR = $dataRoot
     New-Item -ItemType Directory -Force -Path $env:LOCALAPPDATA, $env:APPDATA | Out-Null
     Install-TestApp $BaselineInstaller
+    if ($TraceNativeCalls) {
+        $mainPath = Join-Path $installRoot 'resources/app/main.cjs'
+        $originalMain = [IO.File]::ReadAllText($mainPath)
+        $call = 'return spawnSync(executable, args, { stdio: "ignore", windowsHide: true });'
+        if (-not $originalMain.Contains($call)) { throw '原版原生调用入口已变化，不能添加诊断。' }
+        $tracedCall = @'
+const result = spawnSync(executable, args, { stdio: "ignore", windowsHide: true });
+  fs.appendFileSync(path.join(logRoot, "native-process.log"), JSON.stringify({executable,args,cwd:process.cwd(),status:result.status,signal:result.signal,error:result.error?.message})+"\n");
+  if (result.status !== 0 && /initdb\.exe$/i.test(executable)) {
+    fs.appendFileSync(path.join(logRoot, "native-process.log"), JSON.stringify({files:fs.readdirSync(dbData)})+"\n");
+    const probe = spawnSync(executable, args, {stdio:"pipe",windowsHide:true,encoding:"utf8",timeout:20000});
+    fs.appendFileSync(path.join(logRoot, "native-process.log"), JSON.stringify({retryStatus:probe.status,stdout:probe.stdout,stderr:probe.stderr,error:probe.error?.message})+"\n");
+  }
+  return result;
+'@
+        [IO.File]::WriteAllText($mainPath, $originalMain.Replace($call, $tracedCall), [Text.UTF8Encoding]::new($false))
+        Write-Host 'Diagnostic-only launch: tracing native return values; this launch is not an upgrade acceptance result.'
+    }
     $url = Start-TestApp
     if ($BaselineOnly) { Stop-TestApp; $global:LASTEXITCODE=0; return }
     $seed = @{ company_name='升级验收示例公司'; position_title='合成测试岗位'; jd_text='synthetic JD only'; status='已投递' } | ConvertTo-Json
@@ -149,6 +169,7 @@ try {
         $desktop.Kill($true)
         & (Join-Path $installRoot 'runtime/postgresql/bin/pg_ctl.exe') -D (Join-Path $dataRoot 'postgres') stop -m fast *> $null
     }
+    if ($originalMain) { [IO.File]::WriteAllText((Join-Path $installRoot 'resources/app/main.cjs'), $originalMain, [Text.UTF8Encoding]::new($false)) }
     $env:LOCALAPPDATA = $oldLocal
     $env:APPDATA = $oldRoaming
     $env:CAREERPILOT_APP_ROOT = $oldAppRoot
