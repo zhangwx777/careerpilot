@@ -117,10 +117,18 @@ try {
     Stop-TestApp
     $backup = Join-Path $TestRoot 'backup'
     Invoke-BackupTool @('backup','--output',('"' + $backup + '"'))
+    $url = Start-TestApp
+    $markerBody = @{ company_name='备份后新增标记'; position_title='应在恢复后消失'; status='已投递' } | ConvertTo-Json
+    $marker = Invoke-RestMethod -Uri ($url + '/api/applications') -Method Post -ContentType 'application/json; charset=utf-8' -Body ([Text.Encoding]::UTF8.GetBytes($markerBody)) -NoProxy
+    $changedProvider = @{ api_key='synthetic-marker-changed-9876'; model='qwen/qwen-max' } | ConvertTo-Json
+    Invoke-RestMethod -Uri ($url + '/api/llm/providers/qwen') -Method Put -ContentType 'application/json' -Body $changedProvider -NoProxy | Out-Null
+    Stop-TestApp
     Invoke-BackupTool @('restore',('"' + $backup + '"'),'--confirm','--replace-secret')
     $url = Start-TestApp
     $afterRestore = Invoke-RestMethod -Uri ($url + '/api/applications/' + $application.id) -NoProxy
     if ($afterRestore.position.company.name -ne '升级验收示例公司') { throw '备份恢复后数据不一致' }
+    $afterRestoreList = Invoke-RestMethod -Uri ($url + '/api/applications') -NoProxy
+    if (@($afterRestoreList.items | Where-Object id -eq $marker.id).Count -ne 0) { throw '恢复未撤回备份后的合成数据' }
     $providers = Invoke-RestMethod -Uri ($url + '/api/llm/providers') -NoProxy
     if (($providers | Where-Object name -eq qwen).api_key_masked -ne $saved.api_key_masked) { throw '备份恢复后加密配置不一致' }
     Stop-TestApp

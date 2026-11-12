@@ -126,6 +126,26 @@ for (const initialOwner of [null, "desktop"]) test(`database initialization hand
   assert.deepEqual(events, ["initdb.exe", "pg_ctl.exe"]);
 });
 
+for (const initialized of [true, false]) test(`database startup preserves ${initialized ? "an existing database" : "a nonempty uninitialized directory"}`, () => {
+  let initializationCalls = 0;
+  const postgresStart = source.indexOf("function startPostgres()");
+  const postgresEnd = source.indexOf("function startBackend()", postgresStart);
+  const context = vm.createContext({
+    fs: {
+      existsSync(file) { return file.endsWith("PG_VERSION") ? initialized : true; },
+      readdirSync() { return ["important-data"]; },
+      rmdirSync() { assert.fail("must preserve existing data"); },
+    },
+    path, dbData: "data/postgres", runtimeRoot: "runtime", logRoot: "logs", dbPort: 54321,
+    initdb: "initdb.exe", pgCtl: "pg_ctl.exe",
+    run() { initializationCalls += 1; return { status: 1 }; }, spawn() {},
+  });
+  vm.runInContext(source.slice(postgresStart, postgresEnd), context);
+  if (initialized) assert.doesNotThrow(() => vm.runInContext("startPostgres()", context));
+  else assert.throws(() => vm.runInContext("startPostgres()", context), /数据库初始化失败/);
+  assert.equal(initializationCalls, initialized ? 0 : 1);
+});
+
 test("default Electron menu bar is removed", () => {
   assert.match(source, /Menu\.setApplicationMenu\(null\)/);
 });
