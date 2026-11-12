@@ -1,7 +1,8 @@
 param(
     [Parameter(Mandatory)][string]$BaselineInstaller,
     [Parameter(Mandatory)][string]$CandidateInstaller,
-    [Parameter(Mandatory)][string]$TestRoot
+    [Parameter(Mandatory)][string]$TestRoot,
+    [switch]$BaselineOnly
 )
 $ErrorActionPreference = 'Stop'
 $TestRoot = [IO.Path]::GetFullPath($TestRoot)
@@ -27,6 +28,7 @@ public static class UpgradeWindow {
     [DllImport("user32.dll")] public static extern bool EnumWindows(Callback callback, IntPtr value);
     [DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(IntPtr handle, out uint process);
     [DllImport("user32.dll", CharSet=CharSet.Unicode)] public static extern int GetClassName(IntPtr handle, StringBuilder name, int count);
+    [DllImport("user32.dll", CharSet=CharSet.Unicode)] public static extern int GetWindowText(IntPtr handle, StringBuilder text, int count);
     [DllImport("user32.dll")] public static extern bool IsWindowEnabled(IntPtr handle);
     [DllImport("user32.dll")] public static extern bool PostMessage(IntPtr handle, uint message, IntPtr wParam, IntPtr lParam);
 }
@@ -74,16 +76,21 @@ function Stop-TestApp {
             # Process.MainWindowHandle excludes hidden windows. WM_CLOSE still
             # exercises Electron's normal window/quit handlers in headless CI.
             $handles = [Collections.Generic.List[IntPtr]]::new()
+            $windowInfo = [Collections.Generic.List[string]]::new()
             [void][UpgradeWindow]::EnumWindows([UpgradeWindow+Callback]{ param($handle, $value)
                 [uint32]$owner = 0
                 [void][UpgradeWindow]::GetWindowThreadProcessId($handle, [ref]$owner)
                 if ($owner -eq $desktop.Id) {
                     $name = [Text.StringBuilder]::new(256)
+                    $title = [Text.StringBuilder]::new(256)
                     [void][UpgradeWindow]::GetClassName($handle, $name, $name.Capacity)
-                    if ($name.ToString().StartsWith('Chrome_WidgetWin')) { $handles.Add($handle) }
+                    [void][UpgradeWindow]::GetWindowText($handle, $title, $title.Capacity)
+                    $windowInfo.Add("class=$name title=$title enabled=$([UpgradeWindow]::IsWindowEnabled($handle))")
+                    if ($name.ToString() -eq 'Chrome_WidgetWin_1') { $handles.Add($handle) }
                 }; return $true
             }, [IntPtr]::Zero)
-            if ($handles.Count -ne 1 -or -not [UpgradeWindow]::IsWindowEnabled($handles[0])) { Save-DesktopDiagnostic; throw '桌面主窗口不存在或被错误对话框阻塞' }
+            $windowInfo | Tee-Object -FilePath (Join-Path $TestRoot "desktop-$launchIndex-windows.log") | Write-Host
+            if ($handles.Count -ne 1 -or -not [UpgradeWindow]::IsWindowEnabled($handles[0])) { Save-DesktopDiagnostic; throw "桌面主窗口不存在或被错误对话框阻塞（launch=$($desktop.Id), actual=$($state.desktop_pid), windows=$($handles.Count)）" }
             if (-not [UpgradeWindow]::PostMessage($handles[0], 16, [IntPtr]::Zero, [IntPtr]::Zero)) { throw '无法发送正常关闭消息' }
         }
         if (-not $desktop.WaitForExit(30000)) { throw '桌面进程未正常退出' }
@@ -124,6 +131,7 @@ try {
     $provider = @{ api_key='synthetic-upgrade-key'; model='qwen/qwen-max' } | ConvertTo-Json
     $saved = Invoke-RestMethod -Uri ($url + '/api/llm/providers/qwen') -Method Put -ContentType 'application/json' -Body $provider -NoProxy
     Stop-TestApp
+    if ($BaselineOnly) { $global:LASTEXITCODE=0; return }
     Install-TestApp $CandidateInstaller
     # A separate, empty data root proves candidate first-run installation without
     # preinitializing its database or changing the installed application files.
