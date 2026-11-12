@@ -86,7 +86,16 @@ export function PracticePage() {
     const isCurrent = captureRequest();
     if (!task || !answer.trim()) { setError("请先写下自己的回答"); return; }
     setReviewLoading(true); setError("");
-    try { const next = await api.planner.reviewAnswer(task.id, answer.trim()); if (isCurrent()) setTask(next); }
+    try {
+      const next = await api.planner.reviewAnswer(task.id, answer.trim());
+      if (isCurrent()) {
+        setTask(next);
+        if (next.practice_status === "idle" && next.status === "已完成") {
+          clearDraft(window.localStorage, draftKey);
+          window.dispatchEvent(new Event("preparation-task-updated"));
+        }
+      }
+    }
     catch (reason) { if (isCurrent()) setError(reason instanceof Error ? reason.message : "自答点评失败"); }
     finally { if (isCurrent()) setReviewLoading(false); }
   }
@@ -113,6 +122,10 @@ export function PracticePage() {
   if (!task) return <section><div className="notice error" role="alert">{error || "行动不存在"}</div><Link className="button ghost" to="/dashboard">返回求职总览</Link></section>;
 
   const application = session?.application;
+  const previousPosition = session?.position_id_snapshot != null && session.position_id_snapshot !== application?.position.id;
+  const canUseLegacyFeedback = task.practice_status === "idle" && !task.practice_error;
+  const reviewedAnswer = task.feedback_answer_snapshot ?? (canUseLegacyFeedback ? task.user_answer : null);
+  const reviewedQuestion = task.feedback_question_snapshot ?? (canUseLegacyFeedback ? task.answer_payload?.question : null);
   const priorityLabel = task.priority <= 1 ? "高" : task.priority === 2 ? "中" : "低";
 
   return (
@@ -122,7 +135,7 @@ export function PracticePage() {
           <Link className="back-link" to="/dashboard"><ArrowLeft size={16} />返回求职总览</Link>
           <span className="eyebrow">行动练习</span>
           <h1>{task.title}</h1>
-          <p>{application ? `${application.position.company.name} · ${application.position.title}` : "岗位备战行动"}</p>
+          <p>{previousPosition ? "投递调整前的岗位练习，沿用原计划的资料与点评。" : application ? `${application.position.company.name} · ${application.position.title}` : "岗位备战行动"}</p>
         </div>
         <Link className="button ghost" to={`/planner/${task.planner_session_id}#planner-task-${task.id}`}>返回备战分析</Link>
       </div>
@@ -174,9 +187,10 @@ export function PracticePage() {
                 </section>
               )}
 
-              {task.user_answer && task.feedback_payload && (
+              {task.feedback_payload && (
                 <section className="practice-feedback">
-                  <div><span>我的原回答</span><p>{task.user_answer}</p></div>
+                  <div><span>最近一次成功点评对应的题目</span><p>{reviewedQuestion ?? "历史点评未保留对应的原始题目。"}</p></div>
+                  <div><span>最近一次成功点评对应的回答</span><p>{reviewedAnswer ?? "历史点评未保留对应的原答，不能确定它与当前自答的对应关系。"}</p></div>
                   <div><span>AI 点评</span><p>{task.feedback_payload.strengths.join("；") || "暂无明显优点"}</p><p>{task.feedback_payload.gaps.join("；") || "没有发现明显遗漏"}</p></div>
                   <div><span>岗位定制改写</span><p>{task.feedback_payload.rewrite}</p></div>
                 </section>

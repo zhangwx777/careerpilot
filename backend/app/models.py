@@ -384,6 +384,8 @@ class PlannerSession(Base):
     resume_snapshot: Mapped[str] = mapped_column(Text, nullable=False)
     jd_snapshot: Mapped[str] = mapped_column(Text, nullable=False)
     intel_snapshot: Mapped[list] = mapped_column(PortableJSON, default=list)
+    position_id_snapshot: Mapped[int | None] = mapped_column(Integer)
+    practice_snapshot: Mapped[list] = mapped_column(PortableJSON, default=list, nullable=False)
     available_windows: Mapped[list] = mapped_column(PortableJSON, nullable=False)
     draft_payload: Mapped[dict | None] = mapped_column(PortableJSON)
     status: Mapped[str] = mapped_column(
@@ -437,6 +439,9 @@ class PreparationTask(Base):
     answer_payload: Mapped[dict | None] = mapped_column(PortableJSON)
     user_answer: Mapped[str | None] = mapped_column(Text)
     feedback_payload: Mapped[dict | None] = mapped_column(PortableJSON)
+    feedback_completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    feedback_answer_snapshot: Mapped[str | None] = mapped_column(Text)
+    feedback_question_snapshot: Mapped[str | None] = mapped_column(Text)
     practice_status: Mapped[str] = mapped_column(String(20), default="idle", nullable=False)
     practice_error: Mapped[str | None] = mapped_column(Text)
     status: Mapped[str] = mapped_column(

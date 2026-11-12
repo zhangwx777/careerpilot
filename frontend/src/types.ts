@@ -89,6 +89,11 @@ export interface PipelineBucket {
 export interface Dashboard {
   pipeline: PipelineBucket[];
   feed: DashboardFeedItem[];
+  recommendations: DashboardRecommendation[];
+}
+
+export interface DashboardRecommendation extends DashboardFeedItem {
+  reason: { code: string; label: string };
 }
 
 export interface DashboardFeedItem {
@@ -266,11 +271,35 @@ export interface AvailabilityWindow { weekday: number; start: string; end: strin
 export interface ResumeProfile { resume_text: string; file_name: string | null; updated_at: string; }
 export interface PlannerGap { name: string; evidence: string; }
 export type PreparationCategory = "八股" | "简历内容";
-export interface PlannerAction { title: string; detail: string | null; gap?: string | null; category: PreparationCategory; priority: number; estimated_minutes?: number; source_ids: string[]; evidence?: { kind: "resume" | "jd" | "intel" | "timeline"; reference: string }[]; }
+export interface PlannerAction { title: string; detail: string | null; gap?: string | null; category: PreparationCategory; priority: number; estimated_minutes?: number; source_ids: string[]; evidence?: { kind: "resume" | "jd" | "intel" | "timeline" | "practice"; reference: string }[]; }
 export interface PreparationAnswer { question: string; core_answer: string; personalized_answer: string; follow_ups: string[]; }
 export interface PreparationFeedback { strengths: string[]; gaps: string[]; rewrite: string; }
 export interface PlannerReport { summary: string | null; strengths: PlannerGap[]; gaps: PlannerGap[]; actions: PlannerAction[]; }
 export interface ScheduledTask { title: string; detail: string | null; gap: string; source_ids: string[]; estimated_minutes: number; scheduled_at: string; ends_at: string; }
-export interface PlannerSession { id: number; application_id: number; application: Application; provider: string; available_windows: AvailabilityWindow[]; draft_payload: PlannerReport | { gaps: PlannerGap[]; tasks: ScheduledTask[] } | null; status: "生成中" | "待确认" | "已确认" | "已完成" | "已丢弃" | "失败"; error_message: string | null; queue_task_id?: string | null; created_at: string; resolved_at: string | null; }
-export interface PreparationTask { id: number; planner_session_id: number; application_id: number; title: string; detail: string | null; gap: string | null; category: PreparationCategory; source_ids: string[]; evidence?: { kind: "resume" | "jd" | "intel" | "timeline"; reference: string }[]; scheduled_at: string | null; ends_at: string | null; priority: number; action_index: number | null; deferred_until: string | null; status: "待处理" | "已完成" | "已跳过"; timeline_node_id: number | null; answer_payload: PreparationAnswer | null; user_answer: string | null; feedback_payload: PreparationFeedback | null; practice_status: "idle" | "answer" | "review" | "failed"; practice_error: string | null; created_at: string; }
+export interface PlannerSession { position_id_snapshot: number | null; practice_snapshot: PracticeFeedbackSnapshot[]; id: number; application_id: number; application: Application; provider: string; available_windows: AvailabilityWindow[]; draft_payload: PlannerReport | { gaps: PlannerGap[]; tasks: ScheduledTask[] } | null; status: "生成中" | "待确认" | "已确认" | "已完成" | "已丢弃" | "失败"; error_message: string | null; queue_task_id?: string | null; created_at: string; resolved_at: string | null; }
+export interface PreparationTask { feedback_answer_snapshot: string | null; feedback_question_snapshot: string | null; feedback_completed_at: string | null; id: number; planner_session_id: number; application_id: number; title: string; detail: string | null; gap: string | null; category: PreparationCategory; source_ids: string[]; evidence?: { kind: "resume" | "jd" | "intel" | "timeline" | "practice"; reference: string }[]; scheduled_at: string | null; ends_at: string | null; priority: number; action_index: number | null; deferred_until: string | null; status: "待处理" | "已完成" | "已跳过"; timeline_node_id: number | null; answer_payload: PreparationAnswer | null; user_answer: string | null; feedback_payload: PreparationFeedback | null; practice_status: "idle" | "answer" | "review" | "failed"; practice_error: string | null; created_at: string; }
 export interface DailyBriefing { current_states?: BriefingCurrentStates; id: number; briefing_date: string; payload: { alerts: { timeline_node_id: number; title: string; scheduled_at: string; time_mode?: TimeMode; alert_types: TimelineAlert[] }[]; today_tasks: { task_id: number; title: string; scheduled_at: string; ends_at: string; application_id: number }[]; new_sources: { application_id: number; title: string; url: string; snippet?: string; company_name?: string; position_title?: string }[]; search_errors: { application_id: number; message: string }[]; analysis_status?: "未生成" | "生成中" | "已完成" | "失败" | "不可用"; analysis?: { summary?: string; items?: { url: string; value: "high" | "medium" | "low"; relation: "interview" | "preparation" | "both" | "unrelated"; reason: string; recommended_action?: string | null }[] }; }; created_at: string; }
+
+export interface PracticeFeedbackSnapshot {
+  source_id: string;
+  task_id: number;
+  planner_session_id: number;
+  application_id: number;
+  title: string;
+  question: string | null;
+  user_answer: string;
+  feedback_payload: PreparationFeedback;
+  feedback_completed_at: string | null;
+}
+export interface PracticeHistoryItem extends Omit<PracticeFeedbackSnapshot, "user_answer" | "feedback_payload"> {
+  user_answer: string | null;
+  feedback_payload: PreparationFeedback | null;
+  has_feedback: boolean;
+  scope_confirmed: boolean;
+  status: PreparationTask["status"];
+  created_at: string;
+}
+export interface PracticeHistoryPage extends Page<PracticeHistoryItem> {
+  position_id: number;
+  unconfirmed_session_ids: number[];
+}

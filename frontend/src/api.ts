@@ -13,6 +13,7 @@ import type {
   DailyBriefing,
   PlannerSession,
   PreparationTask,
+  PracticeHistoryPage,
   ProviderOption,
   ProviderConfigInput,
   ProviderTestResult,
@@ -224,6 +225,8 @@ export const api = {
     clearChatHistory: (application_id: number) => request<{ deleted_count: number }>(`/api/intel/chat${queryString({ application_id })}`, { method: "DELETE" }),
   },
   planner: {
+    practiceHistory: (applicationId: number, page = 1, signal?: AbortSignal) => request<PracticeHistoryPage>(`/api/applications/${applicationId}/practice-history${queryString({ page, page_size: 20 })}`, { signal }),
+    confirmPracticeScope: (applicationId: number, position_id: number, planner_session_ids: number[]) => request<{ confirmed_session_ids: number[] }>(`/api/applications/${applicationId}/practice-history/confirm-scope`, { method: "POST", body: JSON.stringify({ position_id, planner_session_ids }) }),
     resume: () => request<ResumeProfile>("/api/resume-profile"),
     uploadResume: (file: File) => { const body = new FormData(); body.append("file", file); return request<ResumeProfile>("/api/resume-profile/upload", { method: "POST", body }); },
     saveResume: (resume_text: string) => request<ResumeProfile>("/api/resume-profile", { method: "PUT", body: JSON.stringify({ resume_text }) }),

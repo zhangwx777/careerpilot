@@ -14,6 +14,7 @@ from app.models import PlannerSession, PreparationTask, TimelineNode
 from app.planner import schedule_tasks, validate_task_intervals
 from app.planner_parsing import extract_plan as _extract_action_plan
 from app.planner_parsing import extract_scheduled_plan as _extract_scheduled_plan
+from app.planner_parsing import validate_practice_sources
 from app.planner_schemas import AvailabilityWindow, PlannerConfirmation, PlannerDraft, ScheduledTask
 from app.llm.config_store import config_from_snapshot
 from app.task_execution import assert_dispatch_owner
@@ -43,6 +44,7 @@ class PlannerGraphState(TypedDict, total=False):
     resume_text: str
     jd_text: str
     intel_snapshot: list
+    practice_snapshot: list
     available_windows: list
     draft: dict
     confirmation: dict
@@ -60,6 +62,7 @@ def build_planner_graph(checkpointer: PostgresSaver, session_factory: Callable[[
                 "resume_text": item.resume_snapshot,
                 "jd_text": item.jd_snapshot,
                 "intel_snapshot": item.intel_snapshot,
+                "practice_snapshot": item.practice_snapshot,
                 "available_windows": item.available_windows,
             }
 
@@ -69,6 +72,7 @@ def build_planner_graph(checkpointer: PostgresSaver, session_factory: Callable[[
             state["jd_text"],
             state["intel_snapshot"],
             state["provider"],
+            practice_snapshot=state.get("practice_snapshot", []),
             llm_config=config_from_snapshot(
                 state.get("llm_snapshot"), None, state["provider"]
             ),
@@ -118,6 +122,7 @@ def build_planner_graph(checkpointer: PostgresSaver, session_factory: Callable[[
                     return {}
                 if item.status != "待确认":
                     raise PlannerGraphError("当前备战计划会话不能确认")
+                validate_practice_sources(confirmation.tasks, item.practice_snapshot)
                 busy_nodes = list(
                     db.scalars(
                         select(TimelineNode).where(

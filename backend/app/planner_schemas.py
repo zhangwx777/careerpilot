@@ -63,7 +63,7 @@ class Gap(BaseModel):
 class PlannerEvidence(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    kind: Literal["resume", "jd", "intel", "timeline"]
+    kind: Literal["resume", "jd", "intel", "timeline", "practice"]
     reference: NonEmptyText
 
 
@@ -178,6 +178,8 @@ class PlannerSessionRead(BaseModel):
     application: ApplicationRead
     provider: str
     available_windows: list[AvailabilityWindow]
+    position_id_snapshot: int | None = None
+    practice_snapshot: list[dict] = Field(default_factory=list)
     draft_payload: dict | None
     status: PlannerSessionStatus
     error_message: str | None
@@ -208,6 +210,9 @@ class PreparationTaskRead(BaseModel):
     answer_payload: dict | None
     user_answer: str | None
     feedback_payload: dict | None
+    feedback_completed_at: datetime | None = None
+    feedback_answer_snapshot: str | None = None
+    feedback_question_snapshot: str | None = None
     practice_status: str = "idle"
     practice_error: str | None = None
     created_at: datetime
@@ -241,3 +246,34 @@ class PreparationFeedback(BaseModel):
 
 class PreparationReview(BaseModel):
     user_answer: NonEmptyText = Field(max_length=4000)
+
+
+class PracticeHistoryItem(BaseModel):
+    source_id: str
+    task_id: int
+    planner_session_id: int
+    application_id: int
+    title: str
+    question: str | None
+    user_answer: str | None
+    feedback_payload: dict | None
+    feedback_completed_at: datetime | None
+    status: PreparationTaskStatus
+    created_at: datetime
+    scope_confirmed: bool
+    has_feedback: bool
+
+
+class PracticeHistoryPage(BaseModel):
+    position_id: int
+    items: list[PracticeHistoryItem]
+    total: int
+    page: int
+    page_size: int
+    unconfirmed_session_ids: list[int]
+
+
+class PracticeScopeConfirmation(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    position_id: PositiveId
+    planner_session_ids: list[PositiveId] = Field(min_length=1, max_length=100)

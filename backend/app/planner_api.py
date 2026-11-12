@@ -10,7 +10,7 @@ from app.config import settings
 from app.db import SessionLocal, get_db
 from app.models import Application, InterviewIntel, PlannerSession, Position, PreparationTask, ResumeProfile, TimelineNode
 from app.planner_graph import PlannerGraphError, resume_planner_graph, start_planner_graph
-from app.planner_parsing import extract_plan
+from app.planner_parsing import extract_plan, validate_practice_sources
 from app.resume_extract import ResumeExtractError, extract_resume
 from app.llm.config_store import LlmConfigError, config_from_snapshot, resolve_role_provider, snapshot_for
 from app.llm.prompts import PLANNER_ACTION_PROMPT_VERSION
@@ -21,6 +21,8 @@ from app.planner_schemas import (
     PlannerSessionCreate,
     PlannerSessionRead,
     PlannerSessionStatus,
+    PracticeHistoryPage,
+    PracticeScopeConfirmation,
     PreparationReview,
     PreparationTaskPage,
     PreparationTaskRead,
@@ -33,6 +35,7 @@ from app.planner_coach import generate_preparation_answer, review_preparation_an
 from app.task_queue import TaskQueueUnavailable, enqueue, run_planner_session_task, rebuild_insight_task, run_practice_task
 from app.task_execution import TaskLeaseLost, assert_dispatch_owner, submit_task
 from app.preparation import transition_task
+from app.practice_history import feedback_snapshot, has_feedback, position_tasks, practice_record
 
 router = APIRouter(prefix="/api")
 DbSession = Annotated[Session, Depends(get_db)]
@@ -52,6 +55,11 @@ def materialize_planner_actions(
         return 0
     if action_indexes is None:
         action_indexes = list(range(len(actions)))
+    selected_actions = {index: PlannerAction.model_validate(actions[index]) for index in action_indexes}
+    try:
+        validate_practice_sources(selected_actions.values(), item.practice_snapshot)
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from None
     existing = set(
         db.scalars(
             select(PreparationTask.action_index).where(
@@ -62,10 +70,9 @@ def materialize_planner_actions(
     )
     created = 0
     for action_index in action_indexes:
-        raw_action = actions[action_index]
         if action_index in existing:
             continue
-        action = PlannerAction.model_validate(raw_action)
+        action = selected_actions[action_index]
         db.add(
             PreparationTask(
                 planner_session_id=item.id,
@@ -117,6 +124,7 @@ def _run_planner_session(session_id: int, thread_id: str) -> None:
                     item.intel_snapshot,
                     item.provider,
                     llm_config=config_from_snapshot(item.llm_snapshot, task_db, item.provider),
+                    practice_snapshot=item.practice_snapshot,
                 )
                 assert_dispatch_owner(task_db)
                 task_db.refresh(item)
@@ -202,6 +210,7 @@ def create_planner_session(
         select(Application)
         .options(joinedload(Application.position).joinedload(Position.company))
         .where(Application.id == payload.application_id)
+        .with_for_update(of=Application)
     )
     if application is None:
         raise HTTPException(404, "投递记录不存在")
@@ -242,6 +251,8 @@ def create_planner_session(
         resume_snapshot=resume.resume_text,
         jd_snapshot=jd_text,
         intel_snapshot=intel_snapshot,
+        position_id_snapshot=application.position_id,
+        practice_snapshot=feedback_snapshot(db, application.position_id),
         available_windows=[],
         status="生成中",
     )
@@ -482,12 +493,14 @@ def _run_practice(task_id: int, mode: str):
         if task is None or task.practice_status != mode:
             return
         session = task.planner_session
+        reviewed_answer = task.user_answer
+        reviewed_question = (task.answer_payload or {}).get("question")
         config = config_from_snapshot(session.llm_snapshot, db, session.provider)
         db.commit()
         if mode == "answer":
             result = generate_preparation_answer(task, session, config)
         else:
-            result = run_review_preparation_answer(task, session, task.user_answer, config)
+            result = run_review_preparation_answer(task, session, reviewed_answer, config)
         assert_dispatch_owner(db)
         task = db.scalar(select(PreparationTask).where(PreparationTask.id == task_id).with_for_update().execution_options(populate_existing=True))
         if task is None or task.practice_status != mode:
@@ -496,8 +509,80 @@ def _run_practice(task_id: int, mode: str):
             task.answer_payload = result.model_dump(mode="json")
         else:
             task.feedback_payload = result.model_dump(mode="json")
+            task.feedback_completed_at = datetime.now(timezone.utc)
+            task.feedback_answer_snapshot = reviewed_answer
+            task.feedback_question_snapshot = reviewed_question
             task.practice_status = "idle"
             transition_task(db, task, "已完成")
         task.practice_status = "idle"
         task.practice_error = None
         db.commit()
+
+
+@router.get("/applications/{application_id}/practice-history", response_model=PracticeHistoryPage)
+def get_practice_history(application_id: int, db: DbSession, page: Page = 1, page_size: PageSize = 20):
+    application = db.get(Application, application_id)
+    if application is None:
+        raise HTTPException(404, "投递记录不存在")
+    tasks = position_tasks(db, application.position_id, include_unconfirmed=True)
+    unconfirmed = sorted({
+        task.planner_session_id for task in tasks
+        if task.planner_session.position_id_snapshot is None
+    })
+    items = [
+        dict(
+            practice_record(task), status=task.status, created_at=task.created_at,
+            scope_confirmed=task.planner_session.position_id_snapshot is not None,
+            has_feedback=has_feedback(task),
+        )
+        for task in tasks[(page - 1) * page_size:page * page_size]
+    ]
+    return PracticeHistoryPage(
+        position_id=application.position_id, items=items, total=len(tasks),
+        page=page, page_size=page_size, unconfirmed_session_ids=unconfirmed,
+    )
+
+
+@router.post("/applications/{application_id}/practice-history/confirm-scope")
+def confirm_practice_scope(application_id: int, payload: PracticeScopeConfirmation, db: DbSession):
+    ids = sorted(set(payload.planner_session_ids))
+    # Discover candidates without locks, then acquire every application in one
+    # global order before acquiring any planner-session lock. Revalidate the
+    # candidate associations below instead of trusting this unlocked read.
+    candidates = db.execute(
+        select(PlannerSession.id, PlannerSession.application_id).where(PlannerSession.id.in_(ids))
+    ).all()
+    if len(candidates) != len(ids):
+        raise HTTPException(404, "备战计划会话不存在")
+    application_ids = sorted({application_id, *(item.application_id for item in candidates)})
+    applications = {
+        item.id: item for item in db.scalars(
+            select(Application).where(Application.id.in_(application_ids))
+            # NO KEY UPDATE protects position edits while allowing the FK
+            # KEY SHARE used by existing session-first task materialization.
+            .order_by(Application.id).with_for_update(key_share=True).execution_options(populate_existing=True)
+        ).all()
+    }
+    application = applications.get(application_id)
+    if application is None:
+        raise HTTPException(404, "投递记录不存在")
+    if application.position_id != payload.position_id:
+        raise HTTPException(409, "投递岗位已变化，请刷新后重新确认")
+    sessions = list(db.scalars(
+        select(PlannerSession).where(PlannerSession.id.in_(ids)).order_by(PlannerSession.id)
+        .with_for_update().execution_options(populate_existing=True)
+    ).all())
+    if len(sessions) != len(ids):
+        raise HTTPException(404, "备战计划会话不存在")
+    if any(item.application_id not in applications for item in sessions):
+        raise HTTPException(409, "备战计划对应投递已变化，请刷新后重试")
+    for item in sessions:
+        if item.position_id_snapshot is not None and item.position_id_snapshot != payload.position_id:
+            raise HTTPException(409, "原始岗位范围已经确认，不能重新归属")
+        if applications[item.application_id].position_id != payload.position_id:
+            raise HTTPException(409, "备战计划对应投递岗位不一致，请刷新后重试")
+    for item in sessions:
+        if item.position_id_snapshot is None:
+            item.position_id_snapshot = payload.position_id
+    db.commit()
+    return {"confirmed_session_ids": ids}

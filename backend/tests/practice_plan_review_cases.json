@@ -1,0 +1,43 @@
+{
+  "purpose": "人工评审样例；全部为合成资料，不代表真实模型效果评测结果",
+  "rubric": [
+    "建议是否回应点评中具体提到的问题，而非只重复通用学习任务？",
+    "引用是否来自给定岗位的练习，且能对应原题、自答和点评？",
+    "是否把完成练习与已经掌握区分开？",
+    "资料不足时是否保持未知，且不自动删除或调整已有任务？"
+  ],
+  "cases": [
+    {
+      "id": "cache-gap-targeted",
+      "position": "合成后端岗位",
+      "source": {"source_id": "practice-1", "question": "缓存失效时如何保证一致性？", "user_answer": "缓存能减少回源，但没有说明并发边界。", "feedback_payload": {"strengths": ["能解释缓存用途"], "gaps": ["未解释失效与回源的边界"], "rewrite": "先明确失效条件，再说明并发回源处理。"}},
+      "candidate": {"title": "补练缓存失效与回源边界", "detail": "解释失效条件，并用两个并发请求说明回源控制。", "source_ids": ["practice-1"]},
+      "expected": "可采用",
+      "reason": "补练内容直接回应点评中的并发边界问题，并引用实际给定练习。"
+    },
+    {
+      "id": "irrelevant-practice",
+      "position": "合成后端岗位",
+      "source": {"source_id": "practice-2", "question": "如何解释项目中的技术取舍？", "user_answer": "我负责接口开发。", "feedback_payload": {"strengths": ["说明了个人职责"], "gaps": ["缺少备选方案及取舍依据"], "rewrite": "说明约束、备选方案、取舍和结果。"}},
+      "candidate": {"title": "重复背诵排序算法定义", "detail": "引用这次项目复盘作为练习依据。", "source_ids": ["practice-2"]},
+      "expected": "不可采用",
+      "reason": "来源编号虽然存在，建议内容却没有回应取舍依据的薄弱点；仅校验引用编号不能保证建议质量。"
+    },
+    {
+      "id": "single-practice-not-mastery",
+      "position": "合成后端岗位",
+      "source": {"source_id": "practice-3", "question": "解释事务隔离的基本概念。", "user_answer": "给出了正确概念和一个例子。", "feedback_payload": {"strengths": ["概念清楚"], "gaps": [], "rewrite": "本次回答已覆盖题目要求。"}},
+      "candidate": {"title": "已完全掌握数据库，自动跳过全部数据库任务", "detail": "根据一次练习得出掌握结论。", "source_ids": ["practice-3"]},
+      "expected": "不可采用",
+      "reason": "一次点评未发现问题不等于能力已掌握，也不授权自动跳过已有任务。"
+    },
+    {
+      "id": "unknown-history",
+      "position": "合成设计岗位",
+      "source": null,
+      "candidate": {"title": "继续改善后端缓存能力", "detail": "声称来自本岗位的历史点评。", "source_ids": ["practice-999"]},
+      "expected": "不可采用",
+      "reason": "本岗位没有提供历史反馈，不能虚构来源或混入其他岗位的薄弱点。"
+    }
+  ]
+}

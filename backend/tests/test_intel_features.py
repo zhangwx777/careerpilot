@@ -102,7 +102,7 @@ class IntelFeatureTestCase(unittest.TestCase):
         self.assertIn("不得使用 Markdown", CHAT_SYSTEM_PROMPT)
         self.assertEqual(CHAT_PROMPT_VERSION, "chat-2026-09-29.v1")
         self.assertIn("合并重复主题", PLANNER_SYSTEM_PROMPT)
-        self.assertEqual(PLANNER_ACTION_PROMPT_VERSION, "planner-action-2026-09-29.v1")
+        self.assertEqual(PLANNER_ACTION_PROMPT_VERSION, "planner-action-2026-11-12.v2")
 
     def test_partial_chat_answer_is_visible_before_json_is_complete(self):
         self.assertEqual(_partial_chat_answer('{"answer":"先从项目边界'), "先从项目边界")

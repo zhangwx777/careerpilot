@@ -99,6 +99,13 @@ export function DashboardPage() {
               <div><h2>接下来</h2><span>{nextFeed.length ? `${nextFeed.length} 项待处理事项` : "当前没有待处理事项"}</span></div>
               <Link className="dashboard-card-link" to="/planner">管理学习计划 <ArrowRight size={15} aria-hidden="true" /></Link>
             </div>
+            <section className="dashboard-recommendations" aria-label="建议先做">
+              <h3>建议先做</h3>
+              {data?.recommendations.length ? <ol>{data.recommendations.map((item) => <li key={`${item.kind}-${item.id}`}>
+                <Link to={feedLink(item)}><strong>{item.title}</strong><span>{item.company_name} · {item.position_title}</span><small>{item.reason.label}</small></Link>
+              </li>)}</ol> : <p className="quiet-empty">当前没有需要推荐的事项。</p>}
+            </section>
+            {nextFeed.length > 0 && <h3 className="dashboard-all-tasks">全部待办</h3>}
             {nextFeed.length ? (
               <div className="dashboard-feed-list">
                 {nextFeed.map((item) => item.kind === "preparation" ? (

@@ -29,6 +29,7 @@ from app.parsing import NoticeParseError
 from app.schemas import ApplicationRead
 from app.phase3_schemas import (
     DashboardFeedItem,
+    DashboardRecommendation,
     DashboardRead,
     ParseConfirmation,
     NoticeApplicationCreate,
@@ -475,7 +476,11 @@ def get_dashboard(db: DbSession):
                 .joinedload(Application.position)
                 .joinedload(Position.company)
             )
-            .where(TimelineNode.status == "待处理")
+            .where(
+                TimelineNode.status == "待处理",
+                ~select(PreparationTask.id)
+                .where(PreparationTask.timeline_node_id == TimelineNode.id).exists(),
+            )
             .order_by(
                 timeline_date.asc().nulls_last(), TimelineNode.id.asc()
             )
@@ -494,7 +499,7 @@ def get_dashboard(db: DbSession):
             )
             .where(
                 PreparationTask.status == "待处理",
-                PreparationTask.deferred_until.is_(None),
+                (PreparationTask.deferred_until.is_(None)) | (PreparationTask.deferred_until <= now),
             )
             .order_by(
                 PreparationTask.priority.asc(),
@@ -534,18 +539,42 @@ def get_dashboard(db: DbSession):
             scheduled_at=read.ends_at if read.time_mode == "截止窗口" else read.scheduled_at,
             alert_types=read.alert_types,
         )
-        for read in sorted(
-            reads,
-            key=lambda item: (
-                0 if "逾期" in item.alert_types else 1,
-                item.scheduled_at or datetime.max.replace(tzinfo=timezone.utc),
-                item.id,
-            ),
-        )
+        for read in reads
     ]
+    feed = preparation_feed + timeline_feed
+
+    def recommendation_key(item: DashboardFeedItem):
+        urgent = item.kind == "timeline" and any(
+            alert in item.alert_types for alert in ("冲突", "逾期", "临期")
+        )
+        when = item.scheduled_at
+        if when is not None and when.tzinfo is None:
+            when = when.replace(tzinfo=timezone.utc)
+        return (
+            0 if urgent else 1, when or datetime.max.replace(tzinfo=timezone.utc),
+            item.priority or 4, item.kind, item.id,
+        )
+
+    def reason(item: DashboardFeedItem):
+        if item.kind == "timeline":
+            for alert, code, label in (
+                ("冲突", "conflict", "招聘安排存在时间冲突"),
+                ("逾期", "overdue", "招聘事项已逾期"),
+                ("临期", "due", "招聘事项即将到期"),
+            ):
+                if alert in item.alert_types:
+                    return {"code": code, "label": label}
+        if item.scheduled_at is not None:
+            return {"code": "scheduled", "label": "按安排时间优先处理"}
+        return {"code": "unscheduled", "label": "尚未安排时间，请确认下一步"}
+
     return DashboardRead(
         pipeline=pipeline,
-        feed=preparation_feed + timeline_feed,
+        feed=feed,
+        recommendations=[
+            DashboardRecommendation(**item.model_dump(), reason=reason(item))
+            for item in sorted(feed, key=recommendation_key)[:3]
+        ],
     )
 
 

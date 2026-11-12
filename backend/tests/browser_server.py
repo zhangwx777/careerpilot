@@ -20,10 +20,12 @@ from sqlalchemy import create_engine, event
 from sqlalchemy.orm import sessionmaker
 from app.db import Base, get_db
 from app.main import app
-from app import phase3_api, parse_graph
+from app import phase3_api, parse_graph, planner_api, task_execution
 from app.llm.config_store import save_provider
-from app.models import Application, Company, DailyBriefing, Position, TimelineNode
+from app.models import Application, Company, DailyBriefing, Position, TimelineNode, PlannerSession, PreparationTask, ResumeProfile
 from app.parsing import NoticeExtraction
+from app.planner_schemas import PlannerDraft, PreparationAnswer, PreparationFeedback
+from app.planner_coach import PlannerCoachError
 
 engine = create_engine(f"sqlite:///{Path(data.name) / 'browser.sqlite'}", connect_args={"check_same_thread": False})
 @event.listens_for(engine, "connect")
@@ -66,11 +68,57 @@ def resume(thread_id, confirmation, *_):
     return graph.invoke(Command(resume=confirmation.model_dump(mode="json")), {"configurable": {"thread_id": thread_id}})
 
 def dispatch(db, task, *args):
-    if task.name != "careerpilot.parse_session":
-        raise RuntimeError("Unexpected browser-test background task")
+    job = task_execution.prepare_dispatch(db, task, *args)
     db.commit()
-    phase3_api._run_parse_session(args[0], args[1], args[2], args[3], datetime.fromisoformat(args[4]))
+    task_execution.execute_job(job.id)
     db.expire_all()
+    return job
+
+
+answer = PreparationAnswer(question="缓存失效时如何保证一致性？", core_answer="先明确失效策略和回源边界。", personalized_answer="结合合成岗位说明失效后的回源步骤。", follow_ups=["并发回源如何处理？"])
+feedback = PreparationFeedback(strengths=["能解释缓存的用途"], gaps=["未解释失效与回源的边界"], rewrite="先说明失效条件，再解释并发回源的边界。")
+review_failure = False
+
+
+def review_browser_answer(*_args, **_kwargs):
+    if review_failure:
+        raise PlannerCoachError("synthetic review failure")
+    return feedback
+
+
+def fail_browser_review():
+    global review_failure
+    review_failure = True
+    return {"ok": True}
+
+
+def extract_browser_plan(*_args, **kwargs):
+    practices = kwargs.get("practice_snapshot") or []
+    return PlannerDraft.model_validate({"summary": "基于合成资料的准备建议", "actions": [{
+        "title": "补练缓存失效与回源边界" if practices else "讲解缓存的用途",
+        "detail": "明确失效条件，再解释并发回源的处理。", "category": "八股", "priority": 1,
+        "gap": "未解释失效与回源的边界" if practices else None,
+        "source_ids": [practices[0]["source_id"]] if practices else [],
+        "evidence": [{"kind": "practice", "reference": practices[0]["source_id"]}] if practices else [],
+    }]})
+
+
+def preparation_fixture(legacy: bool = False):
+    global review_failure
+    review_failure = False
+    reset()
+    with sessions() as db:
+        application = db.get(Application, 1)
+        application.position.jd_text = "合成后端岗位：解释缓存失效和并发回源机制。"
+        foreign = Application(position=Position(company=Company(name="其他岗位公司"), title="设计岗位", jd_text="合成设计岗位说明"), status="已投递")
+        db.add_all([ResumeProfile(id=1, resume_text="合成简历：参与缓存练习项目。"), foreign])
+        if legacy:
+            session = PlannerSession(application_id=1, provider="qwen", resume_snapshot="合成历史简历", jd_snapshot="合成历史岗位", intel_snapshot=[], available_windows=[], status="已完成")
+            db.add(session)
+            db.flush()
+            db.add(PreparationTask(planner_session_id=session.id, application_id=1, title="历史缓存练习", status="已完成", answer_payload=answer.model_dump(), user_answer="缓存能减少回源，但还没有解释边界。", feedback_payload=feedback.model_dump()))
+        db.commit()
+        return {"original_application_id": 1, "same_position_application_id": 2, "other_position_application_id": foreign.id}
 
 parse_graph.extract_notice = lambda *_args, **_kwargs: NoticeExtraction(
     company_name="浏览器测试公司", position_title="后端工程师", node_type="笔试", time_mode="固定时间",
@@ -79,9 +127,17 @@ phase3_api.SessionLocal = sessions
 phase3_api.start_parse_graph = start
 phase3_api.resume_parse_graph = resume
 phase3_api.submit_task = dispatch
+planner_api.SessionLocal = sessions
+task_execution.SessionLocal = sessions
+planner_api.submit_task = dispatch
+planner_api.extract_plan = extract_browser_plan
+planner_api.generate_preparation_answer = lambda *_args, **_kwargs: answer
+planner_api.run_review_preparation_answer = review_browser_answer
 app.dependency_overrides[get_db] = database
 test_app = FastAPI()
 test_app.post("/__test/reset")(reset)
+test_app.post("/__test/preparation")(preparation_fixture)
+test_app.post("/__test/fail-review")(fail_browser_review)
 test_app.mount("/", app)
 reset()
 

@@ -133,6 +133,16 @@ class DashboardFeedItem(BaseModel):
     alert_types: list[TimelineAlert] = Field(default_factory=list)
 
 
+class RecommendationReason(BaseModel):
+    code: Literal["conflict", "overdue", "due", "scheduled", "priority", "unscheduled"]
+    label: str
+
+
+class DashboardRecommendation(DashboardFeedItem):
+    reason: RecommendationReason
+
+
 class DashboardRead(BaseModel):
     pipeline: list[PipelineBucket]
     feed: list[DashboardFeedItem]
+    recommendations: list[DashboardRecommendation] = Field(default_factory=list)

@@ -1370,3 +1370,29 @@ details > summary { transition: color 150ms ease, background 150ms ease; }
 .stage-history ol { padding-left: 20px; }
 .stage-history li { margin: 10px 0; }
 .stage-history li span { display: block; margin-top: 4px; }
+.dashboard-recommendations { margin-top: 18px; padding-bottom: 16px; border-bottom: 1px solid var(--rule); }
+.dashboard-recommendations h3, .dashboard-all-tasks { margin: 0 0 10px; font-size: 13px; color: var(--ink-soft); }
+.dashboard-all-tasks { margin-top: 18px; }
+.dashboard-recommendations ol { display: grid; gap: 8px; margin: 0; padding-left: 20px; }
+.dashboard-recommendations li::marker { color: var(--brand); font-weight: 700; }
+.dashboard-recommendations a { display: grid; gap: 4px; padding: 8px; color: inherit; border-radius: var(--radius-sm); text-decoration: none; overflow-wrap: anywhere; }
+.dashboard-recommendations a:hover { background: var(--brand-wash); }
+.dashboard-recommendations strong { font-size: 13px; }
+.dashboard-recommendations span { font-size: 12px; color: var(--muted); }
+.dashboard-recommendations small { color: var(--brand); font-size: 11px; }
+.practice-history { margin-top: 20px; padding: 24px; }
+.practice-history-list { display: grid; gap: 12px; margin-top: 14px; }
+.practice-history-item, .practice-history-legacy { padding: 14px; border: 1px solid var(--rule); border-radius: var(--radius-sm); overflow-wrap: anywhere; }
+.practice-history-heading { display: flex; justify-content: space-between; gap: 12px; align-items: baseline; }
+.practice-history-heading strong { min-width: 0; font-size: 14px; }
+.practice-history-heading a { flex-shrink: 0; color: var(--brand); font-size: 12px; }
+.practice-history-feedback { display: grid; gap: 12px; margin: 12px 0; font-size: 13px; line-height: 1.7; }
+.practice-history-feedback p { margin: 5px 0 0; color: var(--ink-soft); white-space: pre-wrap; overflow-wrap: anywhere; }
+.practice-history-feedback ul { margin: 5px 0 0; padding-left: 20px; color: var(--ink-soft); }
+.practice-history details > summary, .practice-feedback-sources summary { color: var(--brand); cursor: pointer; font-size: 12px; line-height: 1.7; }
+.practice-history-legacy { margin: 14px 0; background: var(--brand-wash); font-size: 13px; line-height: 1.7; }
+.practice-history-legacy label { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 9px 0; }
+.practice-history-legacy input { width: 16px; height: 16px; }
+.practice-history-pagination { display: flex; align-items: center; justify-content: center; gap: 14px; margin-top: 14px; font-size: 12px; }
+.practice-feedback-sources { margin: 16px 0; padding: 12px; background: var(--brand-wash); border-radius: var(--radius-sm); overflow-wrap: anywhere; }
+.practice-feedback-sources details details { margin-top: 10px; padding-top: 8px; border-top: 1px solid var(--rule); }

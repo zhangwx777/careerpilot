@@ -54,6 +54,7 @@ class PostgresInitializationTestCase(unittest.TestCase):
                     (2, "adopt_legacy_schema"),
                     (3, "task_dispatch_metrics"),
                     (4, "application_stage_history"),
+                    (5, "practice_history"),
                 ],
             )
 
@@ -128,7 +129,7 @@ class PostgresInitializationTestCase(unittest.TestCase):
             with engine.begin() as db:
                 db.execute(text("DROP TABLE application_stage_change"))
                 db.execute(text("ALTER TABLE timeline_node DROP COLUMN revision"))
-                db.execute(text("DELETE FROM careerpilot_schema_migrations WHERE version = 4"))
+                db.execute(text("DELETE FROM careerpilot_schema_migrations WHERE version >= 4"))
                 db.execute(text("INSERT INTO company (id,name,created_at) VALUES (810,'升级测试公司',now())"))
                 db.execute(text("INSERT INTO position (id,company_id,title,created_at,intel_revision) VALUES (811,810,'测试岗位',now(),0)"))
                 db.execute(text("INSERT INTO application (id,position_id,status,created_at) VALUES (812,811,'已投递',now())"))
@@ -141,6 +142,51 @@ class PostgresInitializationTestCase(unittest.TestCase):
                 self.assertEqual(db.execute(text("SELECT count(*) FROM careerpilot_schema_migrations WHERE version=4")).scalar_one(), 1)
                 self.assertIn("revision", {column["name"] for column in inspect(engine).get_columns("timeline_node")})
                 self.assertEqual(db.execute(text("SELECT revision FROM timeline_node WHERE id=813")).scalar_one(), 0)
+        finally:
+            engine.dispose()
+            with admin.begin() as db:
+                db.execute(text(f'DROP SCHEMA IF EXISTS "{schema}" CASCADE'))
+            admin.dispose()
+
+    def test_practice_history_upgrade_preserves_unknown_scope_and_actual_review_time(self):
+        from sqlalchemy import create_engine, text
+        from sqlalchemy.engine import make_url
+        from sqlalchemy.orm import Session
+        from scripts.init_db import initialize_database
+        from app.models import PlannerSession, PreparationTask
+
+        base_url = make_url(os.environ["TEST_DATABASE_URL"])
+        schema = f"practice_upgrade_{uuid4().hex[:12]}"
+        admin = create_engine(base_url)
+        isolated_url = base_url.update_query_dict({"options": f"-csearch_path={schema}"})
+        engine = create_engine(isolated_url)
+        try:
+            with admin.begin() as db:
+                db.execute(text(f'CREATE SCHEMA "{schema}"'))
+            url = isolated_url.render_as_string(hide_password=False)
+            initialize_database(url)
+            with engine.begin() as db:
+                db.execute(text("ALTER TABLE planner_session DROP COLUMN position_id_snapshot, DROP COLUMN practice_snapshot"))
+                db.execute(text("ALTER TABLE preparation_task DROP COLUMN feedback_completed_at, DROP COLUMN feedback_answer_snapshot, DROP COLUMN feedback_question_snapshot"))
+                db.execute(text("DELETE FROM careerpilot_schema_migrations WHERE version=5"))
+                db.execute(text("INSERT INTO company (id,name,created_at) VALUES (910,'迁移测试公司',now())"))
+                db.execute(text("INSERT INTO position (id,company_id,title,created_at,intel_revision) VALUES (911,910,'测试岗位',now(),0)"))
+                db.execute(text("INSERT INTO application (id,position_id,status,created_at) VALUES (912,911,'已投递',now())"))
+                db.execute(text("INSERT INTO planner_session (id,thread_id,application_id,provider,resume_snapshot,jd_snapshot,intel_snapshot,available_windows,status,created_at) VALUES (913,'00000000-0000-0000-0000-000000000913',912,'openai','resume','jd','[]','[]','已完成',now())"))
+                db.execute(text("INSERT INTO preparation_task (id,planner_session_id,application_id,title,category,source_ids,evidence,priority,practice_status,status,created_at,user_answer,feedback_payload) VALUES (914,913,912,'历史练习','八股','[]','[]',2,'idle','已完成',now(),'原始回答','{\"rewrite\":\"原始点评\"}')"))
+            initialize_database(url)
+            initialize_database(url)
+            with Session(engine) as db:
+                session = db.get(PlannerSession, 913)
+                task = db.get(PreparationTask, 914)
+                self.assertIsNone(session.position_id_snapshot)
+                self.assertEqual(session.practice_snapshot, [])
+                self.assertIsNone(task.feedback_completed_at)
+                self.assertIsNone(task.feedback_answer_snapshot)
+                self.assertIsNone(task.feedback_question_snapshot)
+                self.assertEqual(task.user_answer, "原始回答")
+                self.assertEqual(task.feedback_payload, {"rewrite": "原始点评"})
+                self.assertEqual(db.execute(text("SELECT count(*) FROM careerpilot_schema_migrations WHERE version=5")).scalar_one(), 1)
         finally:
             engine.dispose()
             with admin.begin() as db:

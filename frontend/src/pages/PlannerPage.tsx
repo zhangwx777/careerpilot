@@ -6,6 +6,7 @@ import { api } from "../api";
 import { allPages } from "../requests";
 import { useRequestScope } from "../hooks/useRequestScope";
 import { ConfirmDialog } from "../components/ConfirmDialog";
+import { PracticeHistory, PracticeFeedbackSources, PracticeEvidenceLink } from "../components/PracticeHistory";
 import { loadDraft, loadSessionId, saveDraft, saveSessionId, clearDraft } from "../drafts";
 import { formatDateTime } from "../format";
 import { usePolling } from "../hooks/usePolling";
@@ -49,6 +50,7 @@ export function PlannerPage() {
   const captureRequest = useRequestScope(`${sessionId}:${applicationId}`);
   useEffect(() => { setLoading(false); setUploading(false); setError(""); }, [sessionId, applicationId]);
   const [selectedActionIndexes, setSelectedActionIndexes] = useState<number[]>([]);
+  const previousPosition = session?.position_id_snapshot != null && session.position_id_snapshot !== session.application.position.id;
 
   useEffect(() => {
     let cancelled = false;
@@ -292,6 +294,7 @@ export function PlannerPage() {
           </div>
         </div>
       )}
+      {applicationId > 0 && <PracticeHistory applicationId={applicationId} />}
       {!sessionId && (
         <section className="panel planner-history">
           <div className="section-title">
@@ -324,13 +327,15 @@ export function PlannerPage() {
               <Sparkle size={21} />
               <div>
                 <h2>岗位备战结论</h2>
-                <span>{session.application.position.company.name} · {session.application.position.title} · {session.status}</span>
+                <span>{previousPosition ? "投递调整前的岗位分析" : `${session.application.position.company.name} · ${session.application.position.title}`} · {session.status}</span>
               </div>
             </div>
             <Link className="button ghost" to="/planner">返回并新建分析</Link>
           </div>
           {session.status === "生成中" && <div className="session-progress" role="status">正在后台分析简历、JD 和面经，完成后会自动载入。</div>}
+          {previousPosition && <p className="notice">这份分析保留调整岗位前的资料与练习来源。需要准备当前岗位时，请返回并新建分析。</p>}
           {session.status === "失败" && <div className="notice error" role="alert"><span>{session.error_message ?? "备战分析失败"}</span><button className="button ghost compact-button" type="button" disabled={loading} onClick={() => void retrySession()}>重试</button></div>}
+          <PracticeFeedbackSources items={session.practice_snapshot} />
           {report && (
             <>
               <section className="planner-summary">
@@ -388,7 +393,10 @@ export function PlannerPage() {
                       </div>
                       <p className="planner-action-detail">{item.detail ?? ""}</p>
                       <div className="planner-action-meta">{item.gap && <span>关联差距：{item.gap}</span>}</div>
-                      {item.evidence?.length ? <details className="planner-evidence"><summary>查看依据</summary><ul>{item.evidence.map((evidence, evidenceIndex) => <li key={`${evidence.kind}-${evidenceIndex}`}>{evidence.kind}：{evidence.reference}</li>)}</ul></details> : null}
+                      {item.evidence?.length ? <details className="planner-evidence"><summary>查看依据</summary><ul>{item.evidence.map((evidence, evidenceIndex) => {
+                        const source = evidence.kind === "practice" ? session.practice_snapshot.find((source) => source.source_id === evidence.reference) : null;
+                        return <li key={`${evidence.kind}-${evidenceIndex}`}>{source ? <PracticeEvidenceLink source={source} /> : `${evidence.kind}：${evidence.reference}`}</li>;
+                      })}</ul></details> : null}
                       {task && <div className="planner-action-controls">
                         <span className={`task-status task-status-${task.status}`}>{task.status}</span>
                         <Link className="button primary compact-button" to={`/practice/${task.id}`}>进入练习</Link>
