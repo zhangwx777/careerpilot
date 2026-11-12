@@ -48,13 +48,28 @@ test("confirmed notice creates application then completion updates calendar and 
   const application = applications.items.find((item: { position: { company: { name: string } } }) => item.position.company.name === "浏览器测试公司");
   expect(application.status).toBe("笔试");
   const node = page.locator(".timeline-item").filter({ hasText: "浏览器测试公司" });
+  const timelineNodeId = Number((await node.getAttribute("id"))?.replace("timeline-node-", ""));
+  expect(timelineNodeId).toBeGreaterThan(0);
   await node.getByRole("combobox", { name: "更新节点状态" }).selectOption("已完成");
   await expect(node.getByText("✓ 已完成")).toBeVisible();
   await page.getByRole("button", { name: "月历", exact: true }).click();
   await expect(page.locator(".calendar-completed")).toContainText("已完成");
   await page.reload();
   const dashboard = await (await request.get("/api/dashboard")).json();
-  expect(dashboard.feed.some((item: { application_id: number }) => item.application_id === application.id)).toBe(false);
+  expect(dashboard.feed.some((item: { timeline_node_id: number }) => item.timeline_node_id === timelineNodeId)).toBe(false);
+  await page.getByRole("button", { name: "列表", exact: true }).click();
+  await node.getByRole("combobox", { name: "更新节点状态" }).selectOption("已取消");
+  await expect(node.locator(".timeline-state")).toHaveText("已取消");
+  await page.getByRole("button", { name: "月历", exact: true }).click();
+  await expect(page.locator(".calendar-completed")).toHaveCount(0);
+  await expect(page.getByText("笔试 · 已取消", { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "列表", exact: true }).click();
+  await node.getByRole("combobox", { name: "更新节点状态" }).selectOption("待处理");
+  await expect(node.getByRole("combobox")).toHaveValue("待处理");
+  await page.reload();
+  await expect(node.getByRole("combobox")).toHaveValue("待处理");
+  const restoredDashboard = await (await request.get("/api/dashboard")).json();
+  expect(restoredDashboard.feed.some((item: { timeline_node_id: number }) => item.timeline_node_id === timelineNodeId)).toBe(true);
 });
 
 test("briefing preserves its snapshot while showing current and deleted states", async ({ page, request }) => {

@@ -29,7 +29,7 @@ function Start-TestApp {
     $script:launchIndex += 1
     $listener = [Net.Sockets.TcpListener]::new([Net.IPAddress]::Loopback, 0)
     $listener.Start(); $debugPort=$listener.LocalEndpoint.Port; $listener.Stop()
-    $script:desktop = Start-Process -FilePath (Join-Path $installRoot 'CareerPilot.exe') -ArgumentList @(('--user-data-dir="' + (Join-Path $TestRoot 'user-data') + '"'),('--remote-debugging-port=' + $debugPort),'--remote-debugging-address=127.0.0.1','--enable-logging=stderr') -WorkingDirectory $installRoot -WindowStyle Hidden -PassThru -RedirectStandardOutput (Join-Path $TestRoot "desktop-$launchIndex-stdout.log") -RedirectStandardError (Join-Path $TestRoot "desktop-$launchIndex-stderr.log")
+    $script:desktop = Start-Process -FilePath (Join-Path $installRoot 'CareerPilot.exe') -ArgumentList @(('--user-data-dir="' + (Join-Path $TestRoot 'user-data') + '"'),('--remote-debugging-port=' + $debugPort),'--remote-debugging-address=127.0.0.1','--inspect=127.0.0.1:0','--enable-logging=file',('--log-file="' + (Join-Path $TestRoot "desktop-$launchIndex-chromium.log") + '"'),'--v=1') -WorkingDirectory $installRoot -WindowStyle Hidden -PassThru -RedirectStandardOutput (Join-Path $TestRoot "desktop-$launchIndex-stdout.log") -RedirectStandardError (Join-Path $TestRoot "desktop-$launchIndex-stderr.log")
     for ($attempt = 0; $attempt -lt 90; $attempt++) {
         if (Test-Path -LiteralPath $stateFile) {
             $script:state = Get-Content -Raw -LiteralPath $stateFile | ConvertFrom-Json
@@ -45,7 +45,7 @@ function Start-TestApp {
         Get-ChildItem -LiteralPath (Join-Path $dataRoot 'logs') -File | ForEach-Object { Write-Host ('Diagnostic: ' + $_.Name); Get-Content -LiteralPath $_.FullName -Tail 35 | Write-Host }
     }
     Get-ChildItem -LiteralPath $TestRoot -Filter 'desktop-*.log' | ForEach-Object { Write-Host ('Diagnostic: ' + $_.Name); Get-Content -LiteralPath $_.FullName -Tail 35 | Write-Host }
-    node (Join-Path $PSScriptRoot 'inspect-desktop.cjs') $debugPort | Tee-Object -FilePath (Join-Path $TestRoot 'desktop-page.log') | Write-Host
+    node (Join-Path $PSScriptRoot 'inspect-desktop.cjs') $debugPort (Join-Path $TestRoot "desktop-$launchIndex-stderr.log") | Tee-Object -FilePath (Join-Path $TestRoot 'desktop-page.log') | Write-Host
     if (-not (Test-Path -LiteralPath (Join-Path $dataRoot 'postgres/PG_VERSION'))) {
         & (Join-Path $installRoot 'runtime/postgresql/bin/initdb.exe') -D (Join-Path $TestRoot 'diagnostic-postgres') -L (Join-Path $installRoot 'runtime/postgresql/share') -U qiuzhao_app -A trust --encoding=UTF8 --no-locale 2>&1 | Out-File (Join-Path $TestRoot 'initdb-diagnostic.log')
         Get-Content -LiteralPath (Join-Path $TestRoot 'initdb-diagnostic.log') | Write-Host
