@@ -63,7 +63,7 @@ class StageHistoryPage(BaseModel):
 def change_stage(db: Session, application: Application, status: str, source: str,
                  node_id: int | None = None, token: str | None = None) -> None:
     with db.no_autoflush:
-        application = db.scalar(select(Application).where(Application.id == application.id).with_for_update().execution_options(populate_existing=True))
+        application = db.scalar(select(Application).where(Application.id == application.id).with_for_update(key_share=True).execution_options(populate_existing=True))
     if application is None:
         raise HTTPException(409, "投递已变化，请刷新后重试")
     if application.status == status:
@@ -111,7 +111,7 @@ def apply_progress(db: Session, payload: ProgressApply) -> dict:
         raise HTTPException(422, "不能重复选择同一投递")
     applications = {}
     for application_id in sorted(selections):
-        application = db.scalar(select(Application).where(Application.id == application_id).with_for_update().execution_options(populate_existing=True))
+        application = db.scalar(select(Application).where(Application.id == application_id).with_for_update(key_share=True).execution_options(populate_existing=True))
         if application is None:
             raise HTTPException(409, "投递已变化，请重新检查进度")
         applications[application_id] = application

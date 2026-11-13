@@ -55,6 +55,7 @@ class PostgresInitializationTestCase(unittest.TestCase):
                     (3, "task_dispatch_metrics"),
                     (4, "application_stage_history"),
                     (5, "practice_history"),
+                    (6, "followup"),
                 ],
             )
 
@@ -168,7 +169,7 @@ class PostgresInitializationTestCase(unittest.TestCase):
             with engine.begin() as db:
                 db.execute(text("ALTER TABLE planner_session DROP COLUMN position_id_snapshot, DROP COLUMN practice_snapshot"))
                 db.execute(text("ALTER TABLE preparation_task DROP COLUMN feedback_completed_at, DROP COLUMN feedback_answer_snapshot, DROP COLUMN feedback_question_snapshot"))
-                db.execute(text("DELETE FROM careerpilot_schema_migrations WHERE version=5"))
+                db.execute(text("DELETE FROM careerpilot_schema_migrations WHERE version>=5"))
                 db.execute(text("INSERT INTO company (id,name,created_at) VALUES (910,'迁移测试公司',now())"))
                 db.execute(text("INSERT INTO position (id,company_id,title,created_at,intel_revision) VALUES (911,910,'测试岗位',now(),0)"))
                 db.execute(text("INSERT INTO application (id,position_id,status,created_at) VALUES (912,911,'已投递',now())"))
@@ -187,6 +188,40 @@ class PostgresInitializationTestCase(unittest.TestCase):
                 self.assertEqual(task.user_answer, "原始回答")
                 self.assertEqual(task.feedback_payload, {"rewrite": "原始点评"})
                 self.assertEqual(db.execute(text("SELECT count(*) FROM careerpilot_schema_migrations WHERE version=5")).scalar_one(), 1)
+        finally:
+            engine.dispose()
+            with admin.begin() as db:
+                db.execute(text(f'DROP SCHEMA IF EXISTS "{schema}" CASCADE'))
+            admin.dispose()
+
+    def test_followup_v5_upgrade_is_additive_and_repeatable(self):
+        from sqlalchemy import create_engine, text
+        from sqlalchemy.engine import make_url
+        from scripts.init_db import initialize_database
+        base_url = make_url(os.environ["TEST_DATABASE_URL"])
+        schema = f"followup_upgrade_{uuid4().hex[:12]}"
+        admin = create_engine(base_url)
+        isolated_url = base_url.update_query_dict({"options": f"-csearch_path={schema}"})
+        engine = create_engine(isolated_url)
+        try:
+            with admin.begin() as db:
+                db.execute(text(f'CREATE SCHEMA "{schema}"'))
+            url = isolated_url.render_as_string(hide_password=False)
+            initialize_database(url)
+            with engine.begin() as db:
+                db.execute(text("DROP TABLE followup_check"))
+                db.execute(text("DROP TABLE followup_goal"))
+                db.execute(text("ALTER TABLE preparation_task DROP COLUMN revision"))
+                db.execute(text("DELETE FROM careerpilot_schema_migrations WHERE version=6"))
+                db.execute(text("INSERT INTO company (id,name,created_at) VALUES (1010,'Synthetic migration',now())"))
+            initialize_database(url)
+            initialize_database(url)
+            with engine.connect() as db:
+                self.assertEqual(db.execute(text("SELECT name FROM company WHERE id=1010")).scalar_one(), "Synthetic migration")
+                self.assertEqual(db.execute(text("SELECT count(*) FROM followup_goal")).scalar_one(), 0)
+                self.assertEqual(db.execute(text("SELECT count(*) FROM followup_check")).scalar_one(), 0)
+                self.assertEqual(db.execute(text("SELECT count(*) FROM careerpilot_schema_migrations WHERE version=6")).scalar_one(), 1)
+                self.assertIn("revision", {column["name"] for column in inspect(engine).get_columns("preparation_task")})
         finally:
             engine.dispose()
             with admin.begin() as db:

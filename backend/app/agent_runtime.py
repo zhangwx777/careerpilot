@@ -51,23 +51,19 @@ def _compact_result(result: AgentToolResult, limit: int) -> str:
     encoded = json.dumps(payload, ensure_ascii=False)
     if len(encoded) <= limit:
         return encoded
+    # Preserve complete sources at source boundaries. Never expose an ID whose
+    # evidence body was removed to satisfy the tool/context budget.
     payload["data"] = {"truncated": True}
-    payload["sources"] = [
-        {**source, "text": str(source.get("text") or "")[:1_500]}
-        for source in payload.get("sources", [])
-    ]
-    encoded = json.dumps(payload, ensure_ascii=False)
-    if len(encoded) <= limit:
-        return encoded
-    payload["sources"] = [
-        {
-            key: source.get(key)
-            for key in ("id", "title", "url", "kind", "scope")
-            if source.get(key) is not None
-        }
-        for source in payload.get("sources", [])
-    ]
+    payload["sources"] = []
+    for source in result.model_dump(mode="json")["sources"]:
+        candidate = {**payload, "sources": [*payload["sources"], source]}
+        if len(json.dumps(candidate, ensure_ascii=False)) <= limit:
+            payload = candidate
     return json.dumps(payload, ensure_ascii=False)
+
+
+def _visible_sources(content: str) -> list[AgentSource]:
+    return [AgentSource.model_validate(source) for source in json.loads(content).get("sources", [])]
 
 
 def _finalize(
@@ -75,12 +71,13 @@ def _finalize(
     provider: str,
     config: dict,
     on_chunk: Callable[[str], None] | None,
+    final_instruction: str | None = None,
 ) -> str:
     final_messages = [
         *messages,
         {
             "role": "user",
-            "content": (
+            "content": final_instruction or (
             "现在结束资料检索。请只输出符合要求的 JSON，字段为 answer 和 source_ids。"
                 "并额外输出 insufficient_data、used_tools、answer_mode、search_status。"
                 "只能引用已经从工具结果或有效对话上下文中获得的来源 ID；资料不足时明确说明，"
@@ -140,6 +137,7 @@ def run_chat_agent(
     config: dict,
     *,
     budget: AgentBudget = DEFAULT_BUDGET,
+    final_instruction: str | None = None,
     required_tools: list[tuple[str, dict[str, Any]]] | None = None,
     on_stage: Callable[[str], None] | None = None,
     on_chunk: Callable[[str], None] | None = None,
@@ -189,10 +187,11 @@ def run_chat_agent(
                 personal_reads += 1
             elif tool is not None and tool.category == "public":
                 public_searches += 1
-            for source in result.sources:
+            content = _compact_result(result, min(budget.max_tool_result_chars, max(0, budget.max_context_chars-context_chars-sum(len(part) for part in baseline_parts)-200)))
+            for source in _visible_sources(content):
                 source_map[source.id] = source
                 baseline_sources.add(source.id)
-            baseline_parts.append(f"{tool_name}: {_compact_result(result, budget.max_tool_result_chars)}")
+            baseline_parts.append(f"{tool_name}: {content}")
             baseline_calls.append({
                 "name": tool_name,
                 "arguments_summary": arguments,
@@ -275,22 +274,14 @@ def run_chat_agent(
                     personal_reads += 1
                 elif category == "public":
                     public_searches += 1
-            for source in result.sources:
+            remaining = max(0, budget.max_context_chars-context_chars)
+            content = _compact_result(result, min(budget.max_tool_result_chars, remaining))
+            context_chars += len(content)
+            if remaining < budget.max_tool_result_chars:
+                budget_exceeded = True
+            for source in _visible_sources(content):
                 source_map[source.id] = source
                 step_sources.add(source.id)
-            content = _compact_result(result, budget.max_tool_result_chars)
-            context_chars += len(content)
-            if context_chars > budget.max_context_chars:
-                budget_exceeded = True
-                content = json.dumps(
-                    {
-                        "ok": result.ok,
-                        "sources": [source.model_dump(mode="json") for source in result.sources],
-                        "error": result.error,
-                        "data": {"truncated": True},
-                    },
-                    ensure_ascii=False,
-                )[:2_000]
             working_messages.append(
                 {
                     "role": "tool",
@@ -336,7 +327,7 @@ def run_chat_agent(
     if on_stage:
         on_stage("正在整理回答")
     current_budget.get().remaining()
-    raw = _finalize(working_messages, provider, config, on_chunk)
+    raw = _finalize(working_messages, provider, config, on_chunk, final_instruction)
     return AgentRunResult(
         raw=raw,
         steps=steps,

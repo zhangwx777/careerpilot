@@ -15,6 +15,8 @@ from app.intel_api import router as intel_router
 from app.planner_api import router as planner_router
 from app.briefing_api import router as briefing_router
 from app.daily_scheduler import daily_loop
+from app.followup import followup_loop
+from app.followup_api import router as followup_router
 from app.task_queue import queue_available
 from app.task_execution import recovery_loop
 
@@ -25,11 +27,15 @@ logger = logging.getLogger(__name__)
 async def lifespan(_: FastAPI):
     task = asyncio.create_task(daily_loop())
     recovery = asyncio.create_task(recovery_loop())
+    followup = asyncio.create_task(followup_loop())
     try:
         yield
     finally:
+        followup.cancel()
         task.cancel()
         recovery.cancel()
+        with suppress(asyncio.CancelledError):
+            await followup
         with suppress(asyncio.CancelledError):
             await task
         with suppress(asyncio.CancelledError):
@@ -41,6 +47,7 @@ app.include_router(phase3_router)
 app.include_router(intel_router)
 app.include_router(planner_router)
 app.include_router(briefing_router)
+app.include_router(followup_router)
 
 
 @app.get("/health")

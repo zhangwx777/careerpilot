@@ -7,7 +7,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, joinedload
 
 from app.db import get_db
-from app.application_records import materialize_position
+from app.application_records import materialize_position, lock_parent_deletion
 from app.application_progress import ProgressApply, ProgressApplyResult, ProgressPage, StageHistoryPage, apply_progress, change_stage, preview_progress, stage_history
 from app.llm.config_store import (
     LlmConfigError,
@@ -370,6 +370,7 @@ def update_company(company_id: int, payload: CompanyUpdate, db: DbSession):
 @router.delete("/companies/{company_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_company(company_id: int, db: DbSession):
     _get_company(db, company_id)
+    lock_parent_deletion(db, company_id=company_id)
     db.execute(delete(Company).where(Company.id == company_id))
     db.commit()
     return Response(status_code=status.HTTP_204_NO_CONTENT)
@@ -438,6 +439,7 @@ def update_position(position_id: int, payload: PositionUpdate, db: DbSession):
 @router.delete("/positions/{position_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_position(position_id: int, db: DbSession):
     _get_position(db, position_id)
+    lock_parent_deletion(db, position_id=position_id)
     db.execute(delete(Position).where(Position.id == position_id))
     db.commit()
     return Response(status_code=status.HTTP_204_NO_CONTENT)
@@ -538,6 +540,7 @@ def get_application(application_id: int, db: DbSession):
 def update_application(
     application_id: int, payload: ApplicationUpdate, db: DbSession
 ):
+    db.scalar(select(Application).where(Application.id == application_id).with_for_update(key_share=True).execution_options(populate_existing=True))
     application = _get_application(db, application_id)
     changes = payload.model_dump(exclude_unset=True)
     if "status" in changes:

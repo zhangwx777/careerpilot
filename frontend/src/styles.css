@@ -1396,3 +1396,17 @@ details > summary { transition: color 150ms ease, background 150ms ease; }
 .practice-history-pagination { display: flex; align-items: center; justify-content: center; gap: 14px; margin-top: 14px; font-size: 12px; }
 .practice-feedback-sources { margin: 16px 0; padding: 12px; background: var(--brand-wash); border-radius: var(--radius-sm); overflow-wrap: anywhere; }
 .practice-feedback-sources details details { margin-top: 10px; padding-top: 8px; border-top: 1px solid var(--rule); }
+.interview-followup { margin-top: 20px; padding: 24px; overflow-wrap: anywhere; }
+.followup-create, .followup-actions, .followup-goal-heading { display: flex; flex-wrap: wrap; align-items: end; gap: 10px; margin-top: 14px; }
+.followup-create label, .followup-goal-select, .followup-history { display: grid; gap: 6px; flex: 1 1 220px; margin-top: 12px; font-size: 13px; }
+.followup-create select, .followup-goal-select select, .followup-history select { max-width: 100%; }
+.followup-goal-heading { justify-content: space-between; align-items: baseline; font-size: 13px; }
+.followup-goal-heading span { color: var(--muted); font-size: 12px; }
+.followup-proposal { margin-top: 16px; border-top: 1px solid var(--rule); padding-top: 4px; font-size: 13px; line-height: 1.65; }
+.followup-suggestion { margin-top: 12px; padding: 14px; border: 1px solid var(--rule); border-radius: var(--radius-sm); }
+.followup-suggestion-title { display: flex; align-items: baseline; gap: 8px; }
+.followup-suggestion-title input { width: 16px; height: 16px; flex: 0 0 auto; }
+.followup-suggestion p, .followup-source p { white-space: pre-wrap; overflow-wrap: anywhere; }
+.followup-suggestion summary { color: var(--brand); cursor: pointer; }
+.followup-source { margin-top: 10px; padding-top: 8px; border-top: 1px solid var(--rule); }
+.followup-result { margin-top: 16px; padding: 14px; background: var(--brand-wash); border-radius: var(--radius-sm); }

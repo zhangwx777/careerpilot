@@ -17,6 +17,7 @@ assert.match(compose, /VITE_API_TARGET: http:\/\/backend:8000/)
 assert.match(compose, /^    image: careerpilot-backend:local$/m)
 assert.match(compose, /^    image: careerpilot-frontend:local$/m)
 assert.match(ciCompose, /^  backend:\r?\n    image: careerpilot-backend:local$/m)
+assert.match(ciCompose, /LITELLM_LOCAL_MODEL_COST_MAP:\s*["']True["']/)
 assert.match(ciCompose, /^  frontend:\r?\n    image: careerpilot-frontend:local$/m)
 assert.match(compose, /condition: service_healthy/)
 for (const [hostPort, containerPort] of [[5433, 5432], [6379, 6379], [8000, 8000], [5173, 5173]]) {

@@ -12,12 +12,13 @@ from sqlalchemy import func, select
 from app.config import settings
 from app.db import SessionLocal
 from app.llm.budget import BudgetExceeded, execution_budget
-from app.models import AgentRun, IntelChatMessage, IntelSession, ParseSession, PlannerSession, Position, PreparationTask, TaskDispatch
+from app.models import AgentRun, IntelChatMessage, IntelSession, ParseSession, PlannerSession, Position, PreparationTask, TaskDispatch, FollowupCheck
 
 logger = logging.getLogger(__name__)
 _active_dispatch = ContextVar("active_dispatch", default=None)
 LEASE_SECONDS = 60
 SESSION_TASKS = {
+    "careerpilot.followup": (FollowupCheck, "生成中", "失败"),
     "careerpilot.intel_session": (IntelSession, "聚合中", "失败"),
     "careerpilot.planner_session": (PlannerSession, "生成中", "失败"),
     "careerpilot.parse_session": (ParseSession, "解析中", "解析失败"),
@@ -130,6 +131,11 @@ def _domain_failure(db, job):
         run = db.scalar(select(AgentRun).where(AgentRun.assistant_message_id == job.args[0]))
         if run is not None and run.status == "failed":
             return run.error_message or "问答执行失败", run.last_error_kind in {"timeout", "unavailable", "rate_limit", "search_timeout", "search_failed"}
+    elif job.task_name == "careerpilot.followup":
+        item = db.get(FollowupCheck, job.args[0])
+        if item is not None and item.status == "失败":
+            run = db.get(AgentRun, item.agent_run_id) if item.agent_run_id else None
+            return item.error_message or "跟进检查失败", bool(run and run.last_error_kind in {"timeout", "unavailable", "rate_limit"})
     elif job.task_name in SESSION_TASKS:
         model, _, failed = SESSION_TASKS[job.task_name]
         item = db.get(model, job.args[0])
@@ -267,10 +273,13 @@ def execute_job(job_id: str) -> None:
     heartbeat.start()
     error = None
     try:
-        with execution_budget(6 if task_name == "careerpilot.intel_chat" else 12, 90 if task_name == "careerpilot.intel_chat" else settings.celery_task_timeout - 15) as limits:
+        with execution_budget(6 if task_name in {"careerpilot.intel_chat", "careerpilot.followup"} else 12, 90 if task_name in {"careerpilot.intel_chat", "careerpilot.followup"} else settings.celery_task_timeout - 15) as limits:
             if task_name == "careerpilot.practice":
                 from app.planner_api import _run_practice
                 _run_practice(*args)
+            elif task_name == "careerpilot.followup":
+                from app.followup import run_check
+                run_check(*args)
             elif task_name == "careerpilot.intel_chat":
                 from app.intel_api import _run_intel_chat
                 _run_intel_chat(*args)

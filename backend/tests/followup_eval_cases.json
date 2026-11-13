@@ -1,0 +1,150 @@
+[
+  {
+    "id": "empty",
+    "response": {
+      "suggestions": []
+    },
+    "accepted": true
+  },
+  {
+    "id": "missing",
+    "response": {
+      "suggestions": [],
+      "insufficient_data": true,
+      "message": "缺少资料"
+    },
+    "accepted": true
+  },
+  {
+    "id": "valid-add",
+    "response": {
+      "suggestions": [
+        {
+          "operation": "add_practice",
+          "title": "Synthetic",
+          "reason": "JD requirement",
+          "source_ids": [
+            "position-1:jd"
+          ]
+        }
+      ]
+    },
+    "accepted": true
+  },
+  {
+    "id": "fake-source",
+    "response": {
+      "suggestions": [
+        {
+          "operation": "add_practice",
+          "title": "Synthetic",
+          "reason": "x",
+          "source_ids": [
+            "practice-999"
+          ]
+        }
+      ]
+    },
+    "accepted": false
+  },
+  {
+    "id": "cross-task",
+    "response": {
+      "suggestions": [
+        {
+          "operation": "skip_task",
+          "task_id": 99,
+          "reason": "x",
+          "source_ids": [
+            "task-1"
+          ]
+        }
+      ]
+    },
+    "accepted": false
+  },
+  {
+    "id": "stage-write",
+    "response": {
+      "suggestions": [
+        {
+          "operation": "change_stage",
+          "reason": "x",
+          "source_ids": [
+            "task-1"
+          ]
+        }
+      ]
+    },
+    "accepted": false
+  },
+  {
+    "id": "extra-write",
+    "response": {
+      "suggestions": [
+        {
+          "operation": "add_practice",
+          "title": "Synthetic",
+          "reason": "x",
+          "source_ids": [
+            "position-1:jd"
+          ],
+          "status": "offer"
+        }
+      ]
+    },
+    "accepted": false
+  },
+  {
+    "id": "insufficient-write",
+    "response": {
+      "suggestions": [
+        {
+          "operation": "add_practice",
+          "title": "Synthetic",
+          "reason": "x",
+          "source_ids": [
+            "position-1:jd"
+          ]
+        }
+      ],
+      "insufficient_data": true
+    },
+    "accepted": false
+  },
+  {
+    "id": "naive-time",
+    "response": {
+      "suggestions": [
+        {
+          "operation": "add_practice",
+          "title": "Synthetic",
+          "reason": "x",
+          "source_ids": [
+            "position-1:jd"
+          ],
+          "after": {
+            "scheduled_at": "2026-11-20T12:00:00"
+          }
+        }
+      ]
+    },
+    "accepted": false
+  },
+  {
+    "id": "started-task",
+    "response": {
+      "suggestions": [
+        {
+          "operation": "skip_task",
+          "task_id": 1,
+          "reason": "x",
+          "source_ids": [
+            "task-1"
+          ]
+        }
+      ]
+    },
+    "accepted": false
+  }
+]

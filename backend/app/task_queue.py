@@ -128,3 +128,9 @@ def run_parse_session_task(session_id: int, thread_id: str, raw_text: str, provi
     from app.phase3_api import _run_parse_session
 
     _run_parse_session(session_id, thread_id, raw_text, provider, datetime.fromisoformat(requested_at))
+
+
+@celery_app.task(name="careerpilot.followup")
+def run_followup_task(check_id: int) -> None:
+    from app.followup import run_check
+    run_check(check_id)

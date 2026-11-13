@@ -33,6 +33,7 @@ services:
       CAREERPILOT_APP_ROOT: /workspace
       PYTHONPYCACHEPREFIX: /tmp/bytecode
       CAREERPILOT_RUN_BACKUP_INTEGRATION: "1"
+      LITELLM_LOCAL_MODEL_COST_MAP: "True"
     volumes:
       - frontend-build:/workspace/frontend/dist:ro
       - ./packaging:/workspace/packaging:ro

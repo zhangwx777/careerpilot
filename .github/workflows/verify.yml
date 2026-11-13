@@ -14,6 +14,7 @@ jobs:
     timeout-minutes: 45
     env:
       GH_TOKEN: ${{ github.token }}
+      LITELLM_LOCAL_MODEL_COST_MAP: "True"
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4

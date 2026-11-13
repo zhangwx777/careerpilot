@@ -22,7 +22,7 @@ def sync_application_stage(db: Session, node: TimelineNode, source: str = "日�
     if node.status not in {"待处理", "已完成"} or node.node_type not in APPLICATION_STATUS:
         return
     application = db.scalar(
-        select(Application).where(Application.id == node.application_id).with_for_update().execution_options(populate_existing=True)
+        select(Application).where(Application.id == node.application_id).with_for_update(key_share=True).execution_options(populate_existing=True)
     )
     if application is None or application.status in {"offer", "挂"}:
         return

@@ -303,3 +303,51 @@ export interface PracticeHistoryPage extends Page<PracticeHistoryItem> {
   position_id: number;
   unconfirmed_session_ids: number[];
 }
+
+export type FollowupOperation = "add_practice" | "reschedule_task" | "skip_task";
+export interface FollowupTaskState {
+  title?: string;
+  detail?: string | null;
+  scheduled_at?: string | null;
+  ends_at?: string | null;
+  status?: PreparationTask["status"];
+  category?: PreparationCategory;
+  priority?: number;
+}
+export interface FollowupSuggestion {
+  operation: FollowupOperation;
+  task_id: number | null;
+  title: string;
+  reason: string;
+  source_ids: string[];
+  before: FollowupTaskState | null;
+  after: FollowupTaskState;
+}
+export interface FollowupSource { id: string; title: string; text: string; kind: string; scope: string; url?: string | null; }
+export interface FollowupProposalSummary {
+  id: number;
+  status: "生成中" | "待确认" | "已完成" | "已丢弃" | "失败";
+  created_at: string;
+  resolved_at: string | null;
+  message: string | null;
+  error_message: string | null;
+  duplicate_of: number | null;
+}
+export interface FollowupProposal extends FollowupProposalSummary {
+  goal_id: number;
+  suggestions: FollowupSuggestion[];
+  sources: FollowupSource[];
+  is_current: boolean;
+  applicable: boolean;
+  execution_result: { suggestion_indexes: number[]; actions: { suggestion_index: number; operation: FollowupOperation; task_id: number; before: FollowupTaskState | null; after: FollowupTaskState }[]; applied_at: string } | null;
+}
+export interface FollowupGoal {
+  id: number;
+  application_id: number;
+  timeline_node_id: number;
+  status: "active" | "paused";
+  last_auto_date: string | null;
+  created_at: string;
+  latest_check: FollowupProposal | null;
+  history: FollowupProposalSummary[];
+}

@@ -399,6 +399,7 @@ def _timeline_read(
 @router.get("/timeline", response_model=TimelinePage)
 def list_timeline(
     db: DbSession,
+    application_id: int | None = Query(default=None, gt=0),
     page: Page = 1,
     page_size: PageSize = 20,
     start_at: datetime | None = Query(default=None, alias="start"),
@@ -411,6 +412,8 @@ def list_timeline(
         else_=TimelineNode.scheduled_at,
     )
     filters = []
+    if application_id is not None:
+        filters.append(TimelineNode.application_id == application_id)
     if start_at is not None:
         filters.append(timeline_date >= start_at)
     if end_at is not None:
@@ -593,7 +596,7 @@ def update_timeline_status(
     )
     if node is None:
         raise HTTPException(status_code=404, detail="时间线节点不存在")
-    db.scalar(select(Application).where(Application.id == node.application_id).with_for_update().execution_options(populate_existing=True))
+    db.scalar(select(Application).where(Application.id == node.application_id).with_for_update(key_share=True).execution_options(populate_existing=True))
     linked = db.scalar(select(PreparationTask).where(PreparationTask.timeline_node_id == node.id).with_for_update())
     db.refresh(node, with_for_update={"of": TimelineNode})
     if linked is not None:

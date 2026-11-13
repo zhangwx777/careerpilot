@@ -283,7 +283,7 @@ def test_shared_legacy_confirmation_locks_all_applications_before_sessions(conte
                 json={"position_id": position_id, "planner_session_ids": [session_id]},
             )
             assert result.status_code == 200, result.text
-            assert [entity for entity, _, _ in locks] == [Application, PlannerSession]
+            assert [entity for entity, _, _ in locks] == [Application, Position, PlannerSession]
             app_sql, app_params = locks[0][1:]
             assert "ORDER BY application.id" in app_sql
             assert "FOR NO KEY UPDATE" in app_sql

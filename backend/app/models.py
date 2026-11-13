@@ -417,6 +417,8 @@ class PreparationTask(Base):
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    revision: Mapped[int] = mapped_column(Integer, nullable=False, default=1, server_default="1")
+    __mapper_args__ = {"version_id_col": revision}
     planner_session_id: Mapped[int] = mapped_column(
         ForeignKey("planner_session.id", ondelete="CASCADE"), nullable=False
     )
@@ -487,3 +489,36 @@ class ReportedSource(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
 
     briefing: Mapped["DailyBriefing"] = relationship(back_populates="reported_sources")
+
+
+class FollowupGoal(Base):
+    __tablename__ = "followup_goal"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    application_id: Mapped[int] = mapped_column(ForeignKey("application.id", ondelete="CASCADE"), index=True)
+    timeline_node_id: Mapped[int] = mapped_column(ForeignKey("timeline_node.id", ondelete="CASCADE"), unique=True)
+    status: Mapped[str] = mapped_column(String(20), default="active")
+    revision: Mapped[int] = mapped_column(Integer, nullable=False, default=1, server_default="1")
+    last_auto_date: Mapped[date | None] = mapped_column(Date)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+
+
+class FollowupCheck(Base):
+    __tablename__ = "followup_check"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    goal_id: Mapped[int] = mapped_column(ForeignKey("followup_goal.id", ondelete="CASCADE"), index=True)
+    status: Mapped[str] = mapped_column(String(20), default="生成中")
+    provider: Mapped[str] = mapped_column(String(50))
+    llm_snapshot: Mapped[str | None] = mapped_column(Text)
+    queue_task_id: Mapped[str | None] = mapped_column(String(200))
+    input_snapshot: Mapped[dict] = mapped_column(PortableJSON, default=dict)
+    business_version: Mapped[str] = mapped_column(String(64))
+    goal_revision: Mapped[int] = mapped_column(Integer)
+    suggestions: Mapped[list] = mapped_column(PortableJSON, default=list)
+    sources: Mapped[list] = mapped_column(PortableJSON, default=list)
+    execution_result: Mapped[dict | None] = mapped_column(PortableJSON)
+    message: Mapped[str | None] = mapped_column(Text)
+    duplicate_of: Mapped[int | None] = mapped_column(Integer)
+    agent_run_id: Mapped[int | None] = mapped_column(ForeignKey("agent_run.id", ondelete="SET NULL"))
+    error_message: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+    resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

@@ -1,5 +1,6 @@
 """Local browser acceptance server: real APIs/database, synthetic data and mocked LLM."""
 import os
+import json
 import sys
 import tempfile
 from datetime import datetime, timedelta, timezone
@@ -13,6 +14,14 @@ os.environ.update(DATABASE_URL="sqlite://", CAREERPILOT_DATA_DIR=data.name,
 
 from app.config import settings
 settings.database_url = "sqlite://"
+from app.llm import provider as llm_provider
+
+def unexpected_model_call(*_args, **_kwargs):
+    raise RuntimeError("Unexpected model call in synthetic browser acceptance")
+
+llm_provider.chat = unexpected_model_call
+llm_provider.chat_stream = unexpected_model_call
+llm_provider.chat_with_tools = unexpected_model_call
 from fastapi import FastAPI
 from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.types import Command
@@ -20,7 +29,8 @@ from sqlalchemy import create_engine, event
 from sqlalchemy.orm import sessionmaker
 from app.db import Base, get_db
 from app.main import app
-from app import phase3_api, parse_graph, planner_api, task_execution
+from app import phase3_api, parse_graph, planner_api, task_execution, agent_runtime, followup, db as app_database
+from app.llm.budget import current_budget
 from app.llm.config_store import save_provider
 from app.models import Application, Company, DailyBriefing, Position, TimelineNode, PlannerSession, PreparationTask, ResumeProfile
 from app.parsing import NoticeExtraction
@@ -78,6 +88,8 @@ def dispatch(db, task, *args):
 answer = PreparationAnswer(question="缓存失效时如何保证一致性？", core_answer="先明确失效策略和回源边界。", personalized_answer="结合合成岗位说明失效后的回源步骤。", follow_ups=["并发回源如何处理？"])
 feedback = PreparationFeedback(strengths=["能解释缓存的用途"], gaps=["未解释失效与回源的边界"], rewrite="先说明失效条件，再解释并发回源的边界。")
 review_failure = False
+followup_case = {}
+followup_model_failure = False
 
 
 def review_browser_answer(*_args, **_kwargs):
@@ -120,6 +132,65 @@ def preparation_fixture(legacy: bool = False):
         db.commit()
         return {"original_application_id": 1, "same_position_application_id": 2, "other_position_application_id": foreign.id}
 
+
+def followup_fixture():
+    global followup_case, followup_model_failure
+    followup_model_failure = False
+    base = preparation_fixture()
+    now = datetime.now(timezone.utc)
+    with sessions() as db:
+        application = db.get(Application, base["same_position_application_id"])
+        plan = PlannerSession(application_id=application.id, position_id_snapshot=application.position_id,
+            provider="qwen", resume_snapshot="合成缓存练习简历", jd_snapshot=application.position.jd_text,
+            intel_snapshot=[], practice_snapshot=[], available_windows=[], status="已完成")
+        db.add(plan)
+        db.flush()
+        tasks = [
+            PreparationTask(application_id=application.id, planner_session_id=plan.id, title="待调整的缓存基础练习", status="待处理", priority=2, scheduled_at=now + timedelta(days=3), ends_at=now + timedelta(days=3, minutes=30)),
+            PreparationTask(application_id=application.id, planner_session_id=plan.id, title="可暂缓的补充练习", status="待处理", priority=3),
+            PreparationTask(application_id=application.id, planner_session_id=plan.id, title="已经开始的练习", status="待处理", answer_payload=answer.model_dump()),
+        ]
+        interview = TimelineNode(application_id=application.id, node_type="一面", time_mode="固定时间", status="待处理", scheduled_at=now + timedelta(days=2), ends_at=now + timedelta(days=2, hours=1), title="合成面试：" + "长面试说明" * 12)
+        db.add_all([*tasks, interview])
+        db.commit()
+        followup_case = {**base, "position_id": application.position_id, "interview_id": interview.id, "reschedule_task_id": tasks[0].id, "skip_task_id": tasks[1].id, "started_task_id": tasks[2].id,
+                         "suggested_start": (now + timedelta(days=1)).isoformat(), "suggested_end": (now + timedelta(days=1, minutes=30)).isoformat()}
+        return followup_case
+
+
+def followup_turn(*_args, **_kwargs):
+    if current_budget.get():
+        current_budget.get().claim_call()
+    if followup_model_failure:
+        raise RuntimeError("synthetic followup provider failure")
+    return {"content": "所需资料已读取，准备给出调整建议。", "tool_calls": []}
+
+
+def followup_stream(*_args, **_kwargs):
+    if current_budget.get():
+        current_budget.get().claim_call()
+    case = followup_case
+    yield json.dumps({"message": "结合面试时间及当前任务安排提出三项可选调整。", "suggestions": [
+        {"operation": "add_practice", "task_id": None, "title": "补练缓存失效与回源边界", "reason": "岗位要求解释失效与回源机制，建议增加一次针对性练习。", "source_ids": [f"position-{case['position_id']}:jd"], "after": {"detail": "明确失效条件，并举例解释并发回源边界。", "category": "八股", "priority": 1}},
+        {"operation": "reschedule_task", "task_id": case["reschedule_task_id"], "reason": "这项练习原定在面试之后，建议提前到面试前。", "source_ids": [f"task-{case['reschedule_task_id']}", f"timeline-{case['interview_id']}"], "after": {"scheduled_at": case["suggested_start"], "ends_at": case["suggested_end"]}},
+        {"operation": "skip_task", "task_id": case["skip_task_id"], "reason": "先完成岗位要求的缓存准备，这项补充练习可以暂缓并保留恢复入口。", "source_ids": [f"task-{case['skip_task_id']}", f"timeline-{case['interview_id']}"], "after": {}},
+    ]}, ensure_ascii=False)
+
+
+def fail_followup_model():
+    global followup_model_failure
+    followup_model_failure = True
+    return {"ok": True}
+
+def restore_followup_model():
+    global followup_model_failure
+    followup_model_failure = False
+    return {"ok": True}
+
+def run_followup_scheduler():
+    followup.schedule_checks()
+    return {"ok": True}
+
 parse_graph.extract_notice = lambda *_args, **_kwargs: NoticeExtraction(
     company_name="浏览器测试公司", position_title="后端工程师", node_type="笔试", time_mode="固定时间",
     scheduled_at=datetime.now(timezone.utc) + timedelta(days=1), source="测试通知")
@@ -129,7 +200,11 @@ phase3_api.resume_parse_graph = resume
 phase3_api.submit_task = dispatch
 planner_api.SessionLocal = sessions
 task_execution.SessionLocal = sessions
+app_database.SessionLocal = sessions
+agent_runtime.chat_with_tools = followup_turn
+agent_runtime.chat_stream = followup_stream
 planner_api.submit_task = dispatch
+followup.submit_task = dispatch
 planner_api.extract_plan = extract_browser_plan
 planner_api.generate_preparation_answer = lambda *_args, **_kwargs: answer
 planner_api.run_review_preparation_answer = review_browser_answer
@@ -138,6 +213,10 @@ test_app = FastAPI()
 test_app.post("/__test/reset")(reset)
 test_app.post("/__test/preparation")(preparation_fixture)
 test_app.post("/__test/fail-review")(fail_browser_review)
+test_app.post("/__test/followup")(followup_fixture)
+test_app.post("/__test/fail-followup")(fail_followup_model)
+test_app.post("/__test/restore-followup")(restore_followup_model)
+test_app.post("/__test/run-followup-scheduler")(run_followup_scheduler)
 test_app.mount("/", app)
 reset()
 

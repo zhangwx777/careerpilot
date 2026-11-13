@@ -210,10 +210,11 @@ def create_planner_session(
         select(Application)
         .options(joinedload(Application.position).joinedload(Position.company))
         .where(Application.id == payload.application_id)
-        .with_for_update(of=Application)
+        .with_for_update(of=Application,key_share=True)
     )
     if application is None:
         raise HTTPException(404, "投递记录不存在")
+    db.scalar(select(Position).where(Position.id == application.position_id).with_for_update(key_share=True).execution_options(populate_existing=True))
     resume = db.get(ResumeProfile, 1)
     if resume is None:
         raise HTTPException(422, "请先保存简历")
@@ -568,6 +569,7 @@ def confirm_practice_scope(application_id: int, payload: PracticeScopeConfirmati
         raise HTTPException(404, "投递记录不存在")
     if application.position_id != payload.position_id:
         raise HTTPException(409, "投递岗位已变化，请刷新后重新确认")
+    db.scalar(select(Position).where(Position.id == payload.position_id).with_for_update(key_share=True).execution_options(populate_existing=True))
     sessions = list(db.scalars(
         select(PlannerSession).where(PlannerSession.id.in_(ids)).order_by(PlannerSession.id)
         .with_for_update().execution_options(populate_existing=True)

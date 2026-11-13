@@ -7,6 +7,7 @@ import { allPages } from "../requests";
 import { useRequestScope } from "../hooks/useRequestScope";
 import { ConfirmDialog } from "../components/ConfirmDialog";
 import { PracticeHistory, PracticeFeedbackSources, PracticeEvidenceLink } from "../components/PracticeHistory";
+import { InterviewFollowup } from "../components/InterviewFollowup";
 import { loadDraft, loadSessionId, saveDraft, saveSessionId, clearDraft } from "../drafts";
 import { formatDateTime } from "../format";
 import { usePolling } from "../hooks/usePolling";
@@ -278,9 +279,9 @@ export function PlannerPage() {
             <label>
               目标投递
               <select value={applicationId} onChange={(event) => setApplicationId(Number(event.target.value))}>
-                <option value={0}>选择有 JD 的投递</option>
+                <option value={0}>选择目标投递</option>
                 {applications.map((item) => (
-                  <option key={item.id} value={item.id} disabled={!item.position.jd_text?.trim()}>
+                  <option key={item.id} value={item.id}>
                     {item.position.company.name} · {item.position.title}{item.position.jd_text?.trim() ? "" : "（缺少 JD）"}
                   </option>
                 ))}
@@ -295,6 +296,7 @@ export function PlannerPage() {
         </div>
       )}
       {applicationId > 0 && <PracticeHistory applicationId={applicationId} />}
+      {!sessionId && applicationId > 0 && <InterviewFollowup applicationId={applicationId} />}
       {!sessionId && (
         <section className="panel planner-history">
           <div className="section-title">

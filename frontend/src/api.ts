@@ -14,6 +14,8 @@ import type {
   PlannerSession,
   PreparationTask,
   PracticeHistoryPage,
+  FollowupGoal,
+  FollowupProposal,
   ProviderOption,
   ProviderConfigInput,
   ProviderTestResult,
@@ -198,8 +200,10 @@ export const api = {
         start?: string;
         end?: string;
         status?: NodeStatus;
+        application_id?: number;
       } = {},
-    ) => request<Page<TimelineNode>>(`/api/timeline${queryString(params)}`),
+      signal?: AbortSignal,
+    ) => request<Page<TimelineNode>>(`/api/timeline${queryString(params)}`, { signal }),
     transition: (id: number, status: NodeStatus) =>
       request<TimelineNode>(`/api/timeline/${id}/status`, {
         method: "PATCH",
@@ -245,6 +249,17 @@ export const api = {
     removeTask: (id: number) => request<void>(`/api/preparation-tasks/${id}`, { method: "DELETE" }),
     generateAnswer: (id: number) => request<PreparationTask>(`/api/preparation-tasks/${id}/answer`, { method: "POST" }),
     reviewAnswer: (id: number, user_answer: string) => request<PreparationTask>(`/api/preparation-tasks/${id}/review`, { method: "POST", body: JSON.stringify({ user_answer }) }),
+  },
+  followup: {
+    goals: (application_id: number, signal?: AbortSignal) => request<FollowupGoal[]>(`/api/followup-goals${queryString({ application_id })}`, { signal }),
+    goal: (id: number, signal?: AbortSignal) => request<FollowupGoal>(`/api/followup-goals/${id}`, { signal }),
+    create: (application_id: number, timeline_node_id: number) => request<FollowupGoal>("/api/followup-goals", { method: "POST", body: JSON.stringify({ application_id, timeline_node_id }) }),
+    pause: (id: number) => request<FollowupGoal>(`/api/followup-goals/${id}/pause`, { method: "POST" }),
+    resume: (id: number) => request<FollowupGoal>(`/api/followup-goals/${id}/resume`, { method: "POST" }),
+    check: (id: number) => request<FollowupProposal>(`/api/followup-goals/${id}/check`, { method: "POST" }),
+    proposal: (id: number, signal?: AbortSignal) => request<FollowupProposal>(`/api/followup-proposals/${id}`, { signal }),
+    apply: (id: number, suggestion_indexes: number[]) => request<FollowupProposal>(`/api/followup-proposals/${id}/apply`, { method: "POST", body: JSON.stringify({ suggestion_indexes }) }),
+    discard: (id: number) => request<FollowupProposal>(`/api/followup-proposals/${id}/discard`, { method: "POST" }),
   },
   briefings: {
     run: () => request<DailyBriefing>("/api/daily-briefings/run", { method: "POST" }),
